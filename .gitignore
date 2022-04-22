@@ -1,0 +1,3 @@
+*.exe
+__pycache__/
+compile_dir/
