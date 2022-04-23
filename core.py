@@ -1,10 +1,12 @@
+#import logging
+import argparse
 import datetime
+import json
+import sys
+
 import cv2
 import numpy as np
 import tqdm
-#import logging
-import argparse
-import json
 
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
@@ -13,8 +15,6 @@ import json
 ## spring-v1: 9 fps (debug mode)/ 16 fps (speed mode); tp 4/4; tn 4/6; fp 8/11.
 ## spring-v2: 20 fps (no-skipping); 25 fps(median-skipping, fp 6/8)
 
-
-
 pi = 3.141592653589793 / 180.0
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
@@ -22,6 +22,9 @@ pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 # POSITIVE: 3.85 3.11 3.03 2.68 2.55 2.13 2.61 1.94
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
+def print_and_flush(string: str):
+    sys.stdout.write(string)
+    sys.stdout.flush()
 
 class MeteorCollector(object):
     """
@@ -61,9 +64,9 @@ class MeteorCollector(object):
             if self.cur_frame - ms.end_frame > self.max_interval:
                 if ms.prob_meteor() >= self.det_thre:
                     self.waiting_meteor.append(ms)
-                    #print("Meteor:", ms)
+                    #print_and_flush("Meteor:", ms)
                 else:
-                    #print("Dropped:",ms)
+                    #print_and_flush("Dropped:",ms)
                     pass
             else:
                 break
@@ -78,7 +81,7 @@ class MeteorCollector(object):
                     break
             if no_prob_met:
                 for json in self.jsonize_waiting_meteor():
-                    print("Meteor:", json)
+                    print_and_flush("Meteor: %s" % json)
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
@@ -95,7 +98,7 @@ class MeteorCollector(object):
             # 如果不属于已存在的序列，并且长度满足触发阈值，则为其构建新的序列开头
             if is_in_series or pt_len_4(line) < self.min_len:
                 continue
-            #print("pt %s is not in existing series. Generate new one.." % line)
+            #print_and_flush("pt %s is not in existing series. Generate new one.." % line)
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(
@@ -375,10 +378,11 @@ def detect_within_window_raw(stack, x, drawing, y, debug_mode=False):
     linesp = cv2.HoughLinesP(dst, 1, pi, 10, 10, 0)
     if not (linesp is None):
         linesp = linesp[0]
-        #print(linesp)
+        #print_and_flush(linesp)
         for pt in linesp:
-            print("center=(%.2f,%.2f)" % ((pt[3] + pt[1]) / 2,
-                                          (pt[2] + pt[0]) / 2))
+            print_and_flush("center=(%.2f,%.2f)" % ((pt[3] + pt[1]) / 2,
+                                               (pt[2] + pt[0]) / 2))
+            sys.stdout.flush()
             #cv2.line(drawing, (pt[0], pt[1]), (pt[2], pt[3]), (0, 0, 255), 10)
     return drawing, _, _
 
@@ -467,7 +471,8 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="backend"):
         speed_range=meteor_cfg_inp["speed_range"],
         thre2=meteor_cfg_inp["thre2"])
 
-    print("Total frames = %d ; FPS = %.2f" % (total_frame, fps))
+    print_and_flush("Total frames = %d ; FPS = %.2f" % (total_frame, fps))
+    sys.stdout.flush()
     window_stack = []
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
 
@@ -478,11 +483,10 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="backend"):
 
     for i in main_iterator:
         if work_mode == 'backend' and i % int(fps) == 0:
-            print("Processing: %d" % (i / fps * 1000))
+            print_and_flush("Processing: %d" % (i / fps * 1000))
+            sys.stdout.flush()
         status, frame = video.read()
         if not status:
-            if work_mode == 'backend':
-                print("Processing: %d" % (i / fps * 1000))
             break
         frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
@@ -507,7 +511,8 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="backend"):
     main_mc.update(np.inf, [])
     video.release()
     cv2.destroyAllWindows()
-    print('Video EOF detected.')
+    print_and_flush('Video EOF detected.')
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
