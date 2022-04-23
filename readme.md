@@ -6,11 +6,21 @@ MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDete
 
 ## Requirements
 
-Python>=3.6
+### Enviroments
 
-    numpy>=1.15.0
-    opencv_python>=4.0.0
-    tqdm>=4.0.0
+* Python>=3.6
+
+### Packages
+
+* numpy>=1.15.0
+* opencv_python>=4.0.0
+* tqdm>=4.0.0
+
+You can install these packages using:
+
+```sh
+pip install -r requirements.txt
+```
 
 ## Usage
 
@@ -24,14 +34,16 @@ python core.py  [--cfg CFG] [--mask MASK]
 ```
 
 #### Configs
-    --cfg: 指定配置文件。默认情况下使用同目录下的config.json文件。
-    --mask：指定掩模（遮罩）图像。使用黑色（任何颜色）涂抹不需要检测的区域即可。不强制要求尺寸与原图相同。默认不使用。
-    --mode：指定以前台方式运行（即直接启动）或作为后端被调用。两种情况下的输出流会存在一定差异。
-    target: 待检测视频。目前主要支持H264编码视频。
+
+* --cfg: 指定配置文件。默认情况下使用同目录下的config.json文件。
+* --mask：指定掩模（遮罩）图像。使用黑色（任何颜色）涂抹不需要检测的区域即可。不强制要求尺寸与原图相同。默认不使用。
+* --mode：指定以前台方式运行（即命令行直接启动）或作为后端被调用。两种情况下的输出流会存在一定差异。
+* target: 待检测视频。目前主要支持H264编码视频。
 
 #### Example
 
 ```sh
+python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 ```
 
 ### Evaulate A Series Of Video

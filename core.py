@@ -433,7 +433,7 @@ meteor_cfg_inp = dict(
 #debug_mode = False
 
 
-def test(video_name, mask_name, cfg, debug_mode, work_mode="backend"):
+def test(video_name, mask_name, cfg, debug_mode, work_mode="frontend"):
     # load config from cfg json.
     resize_param = cfg["resize_param"]
     visual_param = cfg["visual_param"]
