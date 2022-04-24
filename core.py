@@ -7,7 +7,7 @@ import sys
 import cv2
 import numpy as np
 import tqdm
-
+import numba
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
 
@@ -18,13 +18,11 @@ import tqdm
 pi = 3.141592653589793 / 180.0
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
+progout = None
 
 # POSITIVE: 3.85 3.11 3.03 2.68 2.55 2.13 2.61 1.94
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
-def print_and_flush(string: str):
-    sys.stdout.write(string)
-    sys.stdout.flush()
 
 class MeteorCollector(object):
     """
@@ -64,9 +62,9 @@ class MeteorCollector(object):
             if self.cur_frame - ms.end_frame > self.max_interval:
                 if ms.prob_meteor() >= self.det_thre:
                     self.waiting_meteor.append(ms)
-                    #print_and_flush("Meteor:", ms)
+                    #progout("Meteor:", ms)
                 else:
-                    #print_and_flush("Dropped:",ms)
+                    #progout("Dropped:",ms)
                     pass
             else:
                 break
@@ -81,7 +79,7 @@ class MeteorCollector(object):
                     break
             if no_prob_met:
                 for json in self.jsonize_waiting_meteor():
-                    print_and_flush("Meteor: %s" % json)
+                    progout("Meteor: %s" % json)
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
@@ -98,7 +96,7 @@ class MeteorCollector(object):
             # 如果不属于已存在的序列，并且长度满足触发阈值，则为其构建新的序列开头
             if is_in_series or pt_len_4(line) < self.min_len:
                 continue
-            #print_and_flush("pt %s is not in existing series. Generate new one.." % line)
+            #progout("pt %s is not in existing series. Generate new one.." % line)
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(
@@ -130,7 +128,7 @@ class MeteorCollector(object):
                 output_dict["target"].append(ms_json)
             else:
                 final_list.append(output_dict)
-                output_dict = init_output_dict(ms_json)
+                output_dict = init_output_dict(ms,ms_json)
         if len(output_dict) != 0:
             final_list.append(output_dict)
         final_list = [json.dumps(x) for x in final_list]
@@ -258,6 +256,19 @@ class MeteorSeries(object):
         return 1
 
 
+def set_out_pipe(workmode):
+    global progout
+    if workmode == "backend":
+        progout = stdout_backend
+    elif workmode == "frontend":
+        progout = print
+
+
+def stdout_backend(string: str):
+    sys.stdout.write(string)
+    sys.stdout.flush()
+
+
 def DrawHist(src, mask, hist_num=256, threshold=0):
     src = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
     hist = cv2.calcHist([src], [0], mask, [hist_num],
@@ -273,6 +284,81 @@ def DrawHist(src, mask, hist_num=256, threshold=0):
                                (int(bw * (i + 1)), h - int(bar * h)),
                                [128, 128, 128], 2, -1)
     return canvas
+
+
+#@numba.njit()
+def sanaas(stack: np.array, description: np.array, new_matrix):
+    '''
+    stack [list[np.array]],
+    new_matrix H*W
+    description[list[np.array]] L*H*W stack[description]是真实升序序列。description是下标序列。
+    '''
+    # 栈更新
+    L, H, W = stack.shape
+    ii, ij = 0, 20
+    print("1:", ii, ij, description[:, ii, ij],
+          stack[description[:, ii, ij], ii, ij])
+    stack = np.concatenate(
+        (stack[1:], np.expand_dims(new_matrix, axis=0)), axis=0)
+    description = np.concatenate((description[1:], description[0:1]), axis=0)
+    print("2:", ii, ij, description[:, ii, ij],
+          stack[description[:, ii, ij], ii, ij])
+    # 双向冒泡，更新序列
+    #for i in range(H):
+    #    for j in range(W):
+    #        for k in range(L - 1):
+    #            pk_0, pk_1 = np.where(description[:, i, j] == k)[0], np.where(
+    #                description[:, i, j] == k + 1)[0]
+    #            if stack[description[pk_0, i, j], i,
+    #                     j] > stack[description[pk_1, i, j], i, j]:
+    #                description[pk_0, i, j], description[
+    #                    pk_1, i, j] = description[pk_1, i, j], description[
+    #                        pk_0, i, j]
+    #        for k in range(L - 1, 0, -1):
+    #            pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[
+    #                0], np.where(description[:, i, j] == k)[0]
+    #            if stack[description[pk_0, i, j], i,
+    #                     j] > stack[description[pk_1, i, j], i, j]:
+    #                description[pk_0, i, j], description[
+    #                    pk_1, i, j] = description[pk_1, i, j], description[
+    #                        pk_0, i, j]
+    #        for k in range(L - 1):
+    #            if stack[description[k, i, j], i,
+    #                     j] > stack[description[k + 1, i, j], i, j]:
+    #                print("Fatal error!", description[:, i, j], i, j,
+    #                      stack[description[:, i, j], i, j])
+    #                raise ValueError("..")
+
+    # des: L*H*W
+    # description == k : L*H*W
+    for k in range(L - 1):
+        print(np.where(stack[description == k] < stack[description == k + 1]))
+        #ex_boolmap=np.reshape(stack[description == k]>stack[description == k + 1],(H,W))
+
+        #if stack[description[pk_0, i, j], i,
+        #            j] > stack[description[pk_1, i, j], i, j]:
+        #    description[pk_0, i, j], description[
+        #        pk_1, i, j] = description[pk_1, i, j], description[
+        #            pk_0, i, j]
+    for k in range(L - 1, 0, -1):
+        pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[0], np.where(
+            description[:, i, j] == k)[0]
+        if stack[description[pk_0, i, j], i, j] > stack[description[pk_1, i,
+                                                                    j], i, j]:
+            description[pk_0, i, j], description[pk_1, i, j] = description[
+                pk_1, i, j], description[pk_0, i, j]
+    for k in range(L - 1):
+        if stack[description[k, i, j], i, j] > stack[description[k + 1, i, j],
+                                                     i, j]:
+            print("Fatal error!", description[:, i, j], i, j,
+                  stack[description[:, i, j], i, j])
+            raise ValueError("..")
+
+    median = np.zeros_like(stack[-1])
+    for i in range(H):
+        for j in range(W):
+            median[i, j] = stack[L // 2, i, j]
+    return stack, description, stack[-1] - median
 
 
 def GammaCorrection(src, gamma):
@@ -297,7 +383,7 @@ def preprocessing(frame, mask=1, resize_param=(0, 0)):
     return frame * mask
 
 
-def detect_within_window(stack: list,
+def detect_within_window(diff_img: np.array,
                          cfg: dict,
                          drawing=None,
                          mask=None,
@@ -324,22 +410,21 @@ def detect_within_window(stack: list,
     # 初始时不进行中位数跳采估算
     #if len(stack)<=median_skipping*(cfg["median_sampling_num"]-1):
     #    median_skipping=1
-    diff23 = np.max(
-        stack, axis=0) - np.median(
-            stack[::median_skipping], axis=0)
-    _, dst = cv2.threshold(diff23, bi_threshold, 255, cv2.THRESH_BINARY)
+    _, dst = cv2.threshold(diff_img, bi_threshold, 255, cv2.THRESH_BINARY)
     linesp = cv2.HoughLinesP(
         np.array(dst, dtype=np.uint8), 1, pi, line_threshold, line_minlen, 0)
 
     if debug_mode:
-        diff23 = cv2.cvtColor(np.array(diff23, np.uint8), cv2.COLOR_GRAY2BGR)
+        diff_img = cv2.cvtColor(
+            np.array(diff_img, np.uint8), cv2.COLOR_GRAY2BGR)
         drawing = np.repeat(np.expand_dims(drawing, axis=-1), 3, axis=-1)
         y, x = visual_param
         canvas = np.zeros((x * 2, y * 2, 3), dtype=np.uint8)
         canvas[:x, :y] = cv2.resize(drawing, (y, x))
-        canvas[:x, y:] = cv2.resize(diff23, (y, x))
+        canvas[:x, y:] = cv2.resize(diff_img, (y, x))
         canvas[x:, :y] = cv2.cvtColor(
-            cv2.resize(DrawHist(diff23, mask, threshold=bi_threshold), (y, x)),
+            cv2.resize(
+                DrawHist(diff_img, mask, threshold=bi_threshold), (y, x)),
             cv2.COLOR_GRAY2BGR)
         canvas[x:, y:] = cv2.resize(drawing, (y, x))
         drawing = canvas
@@ -378,11 +463,10 @@ def detect_within_window_raw(stack, x, drawing, y, debug_mode=False):
     linesp = cv2.HoughLinesP(dst, 1, pi, 10, 10, 0)
     if not (linesp is None):
         linesp = linesp[0]
-        #print_and_flush(linesp)
+        #progout(linesp)
         for pt in linesp:
-            print_and_flush("center=(%.2f,%.2f)" % ((pt[3] + pt[1]) / 2,
-                                               (pt[2] + pt[0]) / 2))
-            sys.stdout.flush()
+            progout("center=(%.2f,%.2f)" % ((pt[3] + pt[1]) / 2,
+                                            (pt[2] + pt[0]) / 2))
             #cv2.line(drawing, (pt[0], pt[1]), (pt[2], pt[3]), (0, 0, 255), 10)
     return drawing, _, _
 
@@ -433,7 +517,12 @@ meteor_cfg_inp = dict(
 #debug_mode = False
 
 
-def test(video_name, mask_name, cfg, debug_mode, work_mode="frontend"):
+def test(video_name,
+         mask_name,
+         cfg,
+         debug_mode,
+         work_mode="frontend",
+         time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg["resize_param"]
     visual_param = cfg["visual_param"]
@@ -444,13 +533,29 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="frontend"):
 
     # load video
     video, mask = load_video_mask(video_name, mask_name, resize_param)
-    if not video.isOpened():
+    if (video is None) or (not video.isOpened()):
         raise FileNotFoundError(
             "The file \"%s\" cannot be opened as a supported video format." %
             video_name)
 
     total_frame, fps = int(video.get(cv2.CAP_PROP_FRAME_COUNT)), video.get(
         cv2.CAP_PROP_FPS)
+
+    # 根据指定头尾跳转指针与结束帧
+    start_frame, end_frame = 0, total_frame
+
+    if time_range[0] != None:
+        start_frame = max(0, int(time_range[0] / 1000 * fps))
+    if time_range[1] != None:
+        end_frame = min(int(time_range[1] / 1000 * fps), total_frame)
+    if not 0 <= start_frame < end_frame:
+        raise ValueError("Invalid start time or end time.")
+
+    set_out_pipe(work_mode)
+
+    # 起点跳转到指定帧
+    video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
     window_size = int(fps * window_size_s)
     # 原则上窗口长度为奇数
     if window_size // 2 == 0:
@@ -471,39 +576,47 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="frontend"):
         speed_range=meteor_cfg_inp["speed_range"],
         thre2=meteor_cfg_inp["thre2"])
 
-    print_and_flush("Total frames = %d ; FPS = %.2f" % (total_frame, fps))
-    sys.stdout.flush()
+    progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
     window_stack = []
+    sort_stack = None
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
 
     if work_mode == 'frontend':
-        main_iterator = tqdm.tqdm(range(total_frame), ncols=50)
+        main_iterator = tqdm.tqdm(range(start_frame, end_frame), ncols=50)
     elif work_mode == 'backend':
-        main_iterator = range(total_frame)
+        main_iterator = range(start_frame, end_frame)
 
     for i in main_iterator:
         if work_mode == 'backend' and i % int(fps) == 0:
-            print_and_flush("Processing: %d" % (i / fps * 1000))
-            sys.stdout.flush()
+            progout("Processing: %d" % (i / fps * 1000))
         status, frame = video.read()
         if not status:
             break
         frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
+        #if len(window_stack)==0:
+        #    window_stack = np.repeat(frame[None, ...], window_size, axis=0)
+        #    sort_stack = np.argsort(window_stack, axis=0)
+        #window_stack, sort_stack, diff_img = sanaas(window_stack, sort_stack,
+        #                                            frame)
+
+        # update and calculate
         window_stack.append(frame)
         if len(window_stack) > window_size:
             window_stack.pop(0)
+        diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
+
         flag, lines, draw_img = detect_within_window(
-            window_stack,
+            diff_img,
             detect_cfg,
-            window_stack[min(i, window_size // 2 + 1)],
+            window_stack[min(len(window_stack) - 1, window_size // 2 + 1)],
             mask,
             visual_param,
             debug_mode=debug_mode)
         if flag:
             main_mc.update(i, lines=lines)
         if debug_mode:
-            if (cv2.waitKey(20) & 0xff == ord("q")):
+            if (cv2.waitKey(1) & 0xff == ord("q")):
                 break
             draw_img = main_mc.draw_on_img(
                 draw_img, resize_param, ref_zp=visual_param)
@@ -511,17 +624,26 @@ def test(video_name, mask_name, cfg, debug_mode, work_mode="frontend"):
     main_mc.update(np.inf, [])
     video.release()
     cv2.destroyAllWindows()
-    print_and_flush('Video EOF detected.')
-    sys.stdout.flush()
+    progout('Video EOF detected.')
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.1')
+    parser = argparse.ArgumentParser(description='Meteor Detector V1.2')
 
     parser.add_argument('target', help="input H264 video.")
     parser.add_argument(
         '--cfg', '-C', help="Config file.", default="./config.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
+    parser.add_argument(
+        '--start-time',
+        help="The start time (ms) of the video.",
+        type=int,
+        default=None)
+    parser.add_argument(
+        '--end-time',
+        help="The end time (ms) of the video.",
+        type=int,
+        default=None)
     parser.add_argument(
         '--mode',
         '-W',
@@ -540,6 +662,14 @@ if __name__ == "__main__":
     mask_name = args.mask
     debug_mode = args.debug_mode
     work_mode = args.mode
+    start_time = args.start_time
+    end_time = args.end_time
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = json.load(f)
-    test(video_name, mask_name, cfg, debug_mode, work_mode)
+    test(
+        video_name,
+        mask_name,
+        cfg,
+        debug_mode,
+        work_mode,
+        time_range=(start_time, end_time))
