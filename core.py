@@ -57,19 +57,21 @@ class MeteorCollector(object):
         """
         # 维护活跃流星序列：将已经超过最长时间检测未响应的潜在流星序列移出，将满足条件的流星放入完成序列。
         self.cur_frame = cur_frame
-        i = 0
-        for i, ms in enumerate(self.active_meteor):
-            if self.cur_frame - ms.end_frame > self.max_interval:
+        temp_waiting_meteor, drop_meteor = [], []
+        for ms in self.active_meteor:
+            if self.cur_frame - ms.last_activate_frame > self.max_interval:
                 if ms.prob_meteor() >= self.det_thre:
-                    self.waiting_meteor.append(ms)
-                    #progout("Meteor:", ms)
+                    temp_waiting_meteor.append(ms)
                 else:
-                    #progout("Dropped:",ms)
+                    #progout("Dropped:%s"%ms)
+                    drop_meteor.append(ms)
                     pass
-            else:
-                break
-        self.active_meteor = self.active_meteor[i:]
-
+        # 维护
+        for ms in drop_meteor:
+            self.active_meteor.remove(ms)
+        for ms in temp_waiting_meteor:
+            self.active_meteor.remove(ms)
+        self.waiting_meteor.extend(temp_waiting_meteor)
         # 整合待导出序列：如果没有活跃的潜在流星，则导出
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
@@ -80,6 +82,7 @@ class MeteorCollector(object):
             if no_prob_met:
                 for json in self.jsonize_waiting_meteor():
                     progout("Meteor: %s" % json)
+                self.waiting_meteor.clear()
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
@@ -128,11 +131,10 @@ class MeteorCollector(object):
                 output_dict["target"].append(ms_json)
             else:
                 final_list.append(output_dict)
-                output_dict = init_output_dict(ms,ms_json)
+                output_dict = init_output_dict(ms, ms_json)
         if len(output_dict) != 0:
             final_list.append(output_dict)
         final_list = [json.dumps(x) for x in final_list]
-        self.waiting_meteor = []
         return final_list
 
     def draw_on_img(self, img, resize_param, ref_zp=(0, 0)):
@@ -163,6 +165,7 @@ class MeteorSeries(object):
         self.len_list.append(pt_len_4(init_box))
         self.start_frame = frame
         self.end_frame = frame
+        self.last_activate_frame = frame
         self.max_acceptable_dist = max_acceptable_dist
         self.time_range = time_range
         self.speed_range = speed_range
@@ -171,13 +174,14 @@ class MeteorSeries(object):
     def __repr__(self) -> str:
         return "Duration %s frames; (Dist=%s); speed=%.2f px(s)/frame; \"%s - %s : %s - %s\"" % (
             self.duration, self.dist, self.speed, self.start_frame,
-            self.end_frame, self.range[0], self.range[1])
+            self.last_activate_frame, self.range[0], self.range[1])
 
     @property
     def property_json(self) -> dict:
         return dict(
             start_time=self.frame2ts(self.start_frame),
             end_time=self.frame2ts(self.end_frame),
+            last_activate_time=self.frame2ts(self.last_activate_frame),
             duration=self.duration,
             speed=self.speed,
             dist=self.dist,
@@ -186,7 +190,7 @@ class MeteorSeries(object):
 
     @property
     def duration(self):
-        return self.end_frame - self.start_frame + 1
+        return self.last_activate_frame - self.start_frame + 1
 
     @property
     def range(self):
@@ -204,7 +208,7 @@ class MeteorSeries(object):
 
     @property
     def speed(self):
-        return self.dist / self.duration
+        return self.dist / (self.end_frame - self.start_frame)
 
     def frame2ts(self, frame):
         return datetime.datetime.strftime(
@@ -220,6 +224,7 @@ class MeteorSeries(object):
         if not (((x1 <= pt1[0] <= x2) and (y1 <= pt1[1] <= y2)) and
                 ((x1 <= pt2[0] <= x2) and (y1 <= pt2[1] <= y2))):
             self.end_frame = new_frame
+        self.last_activate_frame = new_frame
         self.coord_list.extend([pt1, pt2])
         self.len_list.append(pt_len_4(new_box))
 
@@ -286,7 +291,7 @@ def DrawHist(src, mask, hist_num=256, threshold=0):
     return canvas
 
 
-#@numba.njit()
+@numba.njit()
 def sanaas(stack: np.array, description: np.array, new_matrix):
     '''
     stack [list[np.array]],
@@ -295,14 +300,10 @@ def sanaas(stack: np.array, description: np.array, new_matrix):
     '''
     # 栈更新
     L, H, W = stack.shape
-    ii, ij = 0, 20
-    print("1:", ii, ij, description[:, ii, ij],
-          stack[description[:, ii, ij], ii, ij])
     stack = np.concatenate(
         (stack[1:], np.expand_dims(new_matrix, axis=0)), axis=0)
-    description = np.concatenate((description[1:], description[0:1]), axis=0)
-    print("2:", ii, ij, description[:, ii, ij],
-          stack[description[:, ii, ij], ii, ij])
+    description = np.argsort(stack, axis=0)
+    #description = np.concatenate((description[1:], description[0:1]), axis=0)
     # 双向冒泡，更新序列
     #for i in range(H):
     #    for j in range(W):
@@ -331,33 +332,32 @@ def sanaas(stack: np.array, description: np.array, new_matrix):
 
     # des: L*H*W
     # description == k : L*H*W
-    for k in range(L - 1):
-        print(np.where(stack[description == k] < stack[description == k + 1]))
-        #ex_boolmap=np.reshape(stack[description == k]>stack[description == k + 1],(H,W))
-
-        #if stack[description[pk_0, i, j], i,
-        #            j] > stack[description[pk_1, i, j], i, j]:
-        #    description[pk_0, i, j], description[
-        #        pk_1, i, j] = description[pk_1, i, j], description[
-        #            pk_0, i, j]
-    for k in range(L - 1, 0, -1):
-        pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[0], np.where(
-            description[:, i, j] == k)[0]
-        if stack[description[pk_0, i, j], i, j] > stack[description[pk_1, i,
-                                                                    j], i, j]:
-            description[pk_0, i, j], description[pk_1, i, j] = description[
-                pk_1, i, j], description[pk_0, i, j]
-    for k in range(L - 1):
-        if stack[description[k, i, j], i, j] > stack[description[k + 1, i, j],
-                                                     i, j]:
-            print("Fatal error!", description[:, i, j], i, j,
-                  stack[description[:, i, j], i, j])
-            raise ValueError("..")
+    #for k in range(L - 1):
+    #    print(np.where(stack[description == k] < stack[description == k + 1]))
+    #    #ex_boolmap=np.reshape(stack[description == k]>stack[description == k + 1],(H,W))
+    #    #if stack[description[pk_0, i, j], i,
+    #    #            j] > stack[description[pk_1, i, j], i, j]:
+    #    #    description[pk_0, i, j], description[
+    #    #        pk_1, i, j] = description[pk_1, i, j], description[
+    #    #            pk_0, i, j]
+    #for k in range(L - 1, 0, -1):
+    #    pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[0], np.where(
+    #        description[:, i, j] == k)[0]
+    #    if stack[description[pk_0, i, j], i, j] > stack[description[pk_1, i,
+    #                                                                j], i, j]:
+    #        description[pk_0, i, j], description[pk_1, i, j] = description[
+    #            pk_1, i, j], description[pk_0, i, j]
+    #for k in range(L - 1):
+    #    if stack[description[k, i, j], i, j] > stack[description[k + 1, i, j],
+    #                                                 i, j]:
+    #        print("Fatal error!", description[:, i, j], i, j,
+    #              stack[description[:, i, j], i, j])
+    #        raise ValueError("..")
 
     median = np.zeros_like(stack[-1])
     for i in range(H):
         for j in range(W):
-            median[i, j] = stack[L // 2, i, j]
+            median[i, j] = stack[description[:, i, j] == L // 2, i, j]
     return stack, description, stack[-1] - median
 
 
@@ -604,7 +604,9 @@ def test(video_name,
         window_stack.append(frame)
         if len(window_stack) > window_size:
             window_stack.pop(0)
-        diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
+        diff_img = np.max(
+            window_stack, axis=0) - np.median(
+                window_stack, axis=0)
 
         flag, lines, draw_img = detect_within_window(
             diff_img,
