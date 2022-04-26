@@ -478,7 +478,7 @@ meteor_cfg_inp = dict(
     thre2=320)
 '''
 
-frame_pool = []
+
 
 
 class VideoRead(object):
@@ -489,6 +489,7 @@ class VideoRead(object):
         self.resize_param = resize_param
         self.stopped = False
         self.status = False
+        self.frame_pool = []
         self.load_a_frame()
 
     def start(self):
@@ -501,13 +502,13 @@ class VideoRead(object):
         if self.status:
             self.frame = preprocessing(
                 frame, mask=self.mask, resize_param=self.resize_param)
-            frame_pool.append(self.frame)
+            self.frame_pool.append(self.frame)
         else:
             self.stop()
 
     def get(self):
         for i in range(self.iterations):
-            while len(frame_pool) > 20:
+            while len(self.frame_pool) > 20:
                 time.sleep(0.1)
             if self.stopped or not self.status: break
             self.load_a_frame()
@@ -592,7 +593,7 @@ def test(video_name,
         iterations=end_frame - start_frame,
         mask=mask,
         resize_param=resize_param)
-    video_reader.start()
+    
 
     window_stack = []
 
@@ -610,72 +611,76 @@ def test(video_name,
     elif work_mode == 'backend':
         main_iterator = range(start_frame, end_frame)
 
-    for i in main_iterator:
-        if work_mode == 'backend' and i % int(fps) == 0:
-            progout("Processing: %d" % (i / fps * 1000))
-        #status, frame = video.read()
-        #if not status:
-        #    break
-        #frame = preprocessing(frame, mask=mask, resize_param=resize_param)
+    try:
+        video_reader.start()
+        for i in main_iterator:
+            if work_mode == 'backend' and i % int(fps) == 0:
+                progout("Processing: %d" % (i / fps * 1000))
+            #status, frame = video.read()
+            #if not status:
+            #    break
+            #frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
-        if video_reader.stopped and len(frame_pool)==0:
-            break
-        
-        while (not video_reader.stopped) and len(frame_pool)==0:
-            time.sleep(0.1)
-
-        frame = frame_pool.pop(0)
-
-        if len(window_stack) == 0:
-            window_stack = np.repeat(frame[None, ...], window_size, axis=0)
-            #sort_stack = np.argsort(window_stack, axis=0)
-
-        # 栈更新
-        window_stack = np.concatenate(
-            (window_stack[1:], frame[None, ...]), axis=0)
-        #sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
-        ## Reshape为二维
-        #window_stack = np.reshape(window_stack, (L, H * W))
-        #sort_stack = np.reshape(sort_stack, (L, H * W))
-        ## numba加速的双向冒泡
-        #window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
-        #                                  H, W)
-        ## 计算max-median
-        #diff_img = np.reshape(window_stack[sort_stack[-1],
-        #                                   np.where(sort_stack[-1] >= 0)[0]],
-        #                      (H, W))
-        ## 形状还原
-        #window_stack = np.reshape(window_stack, (L, H, W))
-        #sort_stack = np.reshape(sort_stack, (L, H, W))
-
-        # update and calculate
-        #window_stack.append(frame)
-        #if len(window_stack) > window_size:
-        #    window_stack.pop(0)
-        #diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
-
-        sort_stack = np.sort(window_stack, axis=0)
-        diff_img = sort_stack[-1] - sort_stack[window_size // 2]
-
-        flag, lines, draw_img = detect_within_window(
-            diff_img,
-            detect_cfg,
-            window_stack[min(len(window_stack) - 1, window_size // 2 + 1)],
-            mask,
-            visual_param,
-            debug_mode=debug_mode)
-        if flag:
-            main_mc.update(i, lines=lines)
-        if debug_mode:
-            if (cv2.waitKey(1) & 0xff == ord("q")):
+            if video_reader.stopped and len(video_reader.frame_pool)==0:
                 break
-            draw_img = main_mc.draw_on_img(
-                draw_img, resize_param, ref_zp=visual_param)
-            cv2.imshow("DEBUG MODE", draw_img)
-    main_mc.update(np.inf, [])
-    video.release()
-    cv2.destroyAllWindows()
-    progout('Video EOF detected.')
+            
+            while (not video_reader.stopped) and len(video_reader.frame_pool)==0:
+                time.sleep(0.1)
+
+            frame = video_reader.frame_pool.pop(0)
+
+            if len(window_stack) == 0:
+                window_stack = np.repeat(frame[None, ...], window_size, axis=0)
+                #sort_stack = np.argsort(window_stack, axis=0)
+
+            # 栈更新
+            window_stack = np.concatenate(
+                (window_stack[1:], frame[None, ...]), axis=0)
+            #sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
+            ## Reshape为二维
+            #window_stack = np.reshape(window_stack, (L, H * W))
+            #sort_stack = np.reshape(sort_stack, (L, H * W))
+            ## numba加速的双向冒泡
+            #window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
+            #                                  H, W)
+            ## 计算max-median
+            #diff_img = np.reshape(window_stack[sort_stack[-1],
+            #                                   np.where(sort_stack[-1] >= 0)[0]],
+            #                      (H, W))
+            ## 形状还原
+            #window_stack = np.reshape(window_stack, (L, H, W))
+            #sort_stack = np.reshape(sort_stack, (L, H, W))
+
+            # update and calculate
+            #window_stack.append(frame)
+            #if len(window_stack) > window_size:
+            #    window_stack.pop(0)
+            #diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
+
+            sort_stack = np.sort(window_stack, axis=0)
+            diff_img = sort_stack[-1] - sort_stack[window_size // 2]
+
+            flag, lines, draw_img = detect_within_window(
+                diff_img,
+                detect_cfg,
+                window_stack[min(len(window_stack) - 1, window_size // 2 + 1)],
+                mask,
+                visual_param,
+                debug_mode=debug_mode)
+            if flag:
+                main_mc.update(i, lines=lines)
+            if debug_mode:
+                if (cv2.waitKey(1) & 0xff == ord("q")):
+                    break
+                draw_img = main_mc.draw_on_img(
+                    draw_img, resize_param, ref_zp=visual_param)
+                cv2.imshow("DEBUG MODE", draw_img)
+    finally:
+        video_reader.stop()
+        main_mc.update(np.inf, [])
+        video.release()
+        cv2.destroyAllWindows()
+        progout('Video EOF detected.')
 
 
 if __name__ == "__main__":
