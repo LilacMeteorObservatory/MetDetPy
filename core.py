@@ -66,7 +66,7 @@ class MeteorCollector(object):
                 if ms.prob_meteor() >= self.det_thre:
                     temp_waiting_meteor.append(ms)
                 else:
-                    #progout("Dropped:%s" % ms)
+                    #progout("Dropped:%s" % ms.property_json)
                     drop_meteor.append(ms)
                     pass
         # 维护
@@ -211,7 +211,7 @@ class MeteorSeries(object):
 
     @property
     def speed(self):
-        return self.dist / (self.end_frame - self.start_frame)
+        return self.dist / (self.end_frame - self.start_frame + 1e-6)
 
     def frame2ts(self, frame):
         return datetime.datetime.strftime(
@@ -479,8 +479,6 @@ meteor_cfg_inp = dict(
 '''
 
 
-
-
 class VideoRead(object):
     def __init__(self, video, iterations, mask, resize_param) -> None:
         self.video = video
@@ -512,7 +510,6 @@ class VideoRead(object):
                 time.sleep(0.1)
             if self.stopped or not self.status: break
             self.load_a_frame()
-            
 
     def stop(self):
         self.stopped = True
@@ -593,7 +590,6 @@ def test(video_name,
         iterations=end_frame - start_frame,
         mask=mask,
         resize_param=resize_param)
-    
 
     window_stack = []
 
@@ -621,10 +617,11 @@ def test(video_name,
             #    break
             #frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
-            if video_reader.stopped and len(video_reader.frame_pool)==0:
+            if video_reader.stopped and len(video_reader.frame_pool) == 0:
                 break
-            
-            while (not video_reader.stopped) and len(video_reader.frame_pool)==0:
+
+            while (not video_reader.stopped) and len(
+                    video_reader.frame_pool) == 0:
                 time.sleep(0.1)
 
             frame = video_reader.frame_pool.pop(0)
@@ -657,8 +654,9 @@ def test(video_name,
             #    window_stack.pop(0)
             #diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
 
-            sort_stack = np.sort(window_stack, axis=0)
-            diff_img = sort_stack[-1] - sort_stack[window_size // 2]
+            sort_stack = np.sort(
+                window_stack[::detect_cfg["median_skipping"]], axis=0)
+            diff_img = sort_stack[-1] - sort_stack[len(sort_stack) // 2]
 
             flag, lines, draw_img = detect_within_window(
                 diff_img,
@@ -702,7 +700,6 @@ if __name__ == "__main__":
         default=None)
     parser.add_argument(
         '--mode',
-        '-W',
         choices=['backend', 'frontend'],
         default='frontend',
         type=str,

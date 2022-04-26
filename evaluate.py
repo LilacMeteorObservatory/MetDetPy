@@ -5,7 +5,7 @@ import argparse
 parser = argparse.ArgumentParser(description='MetDetPy Evaluater.')
 
 parser.add_argument(
-    '--test_list',
+    '--videos',
     help="json file of test videos.",
     default="./test_video.json")
 parser.add_argument(
@@ -18,7 +18,7 @@ args = parser.parse_args()
 
 ## Load json files.
 
-with open(args.test_list, mode='r', encoding='utf-8') as f:
+with open(args.videos, mode='r', encoding='utf-8') as f:
     video_dict = json.load(f)
 
 with open('config.json', mode='r', encoding='utf-8') as f:
