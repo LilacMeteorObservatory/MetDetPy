@@ -3,11 +3,14 @@ import argparse
 import datetime
 import json
 import sys
+import time
 
 import cv2
 import numpy as np
 import tqdm
-import numba
+#import asyncio
+import threading
+
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
 
@@ -63,7 +66,7 @@ class MeteorCollector(object):
                 if ms.prob_meteor() >= self.det_thre:
                     temp_waiting_meteor.append(ms)
                 else:
-                    #progout("Dropped:%s"%ms)
+                    #progout("Dropped:%s" % ms)
                     drop_meteor.append(ms)
                     pass
         # 维护
@@ -291,74 +294,33 @@ def DrawHist(src, mask, hist_num=256, threshold=0):
     return canvas
 
 
-@numba.njit()
-def sanaas(stack: np.array, description: np.array, new_matrix):
+#@numba.jit(nopython=True, fastmath=True, parallel=True)
+def sanaas(stack: np.array, des: np.array, boolmap, L, H, W):
     '''
+    ================================DEPRECATED========================
     stack [list[np.array]],
     new_matrix H*W
-    description[list[np.array]] L*H*W stack[description]是真实升序序列。description是下标序列。
+    des[list[np.array]] L*H*W stack[des]是真实升序序列。des是下标序列。
+    已实现可借助numba的加速版本；但令人悲伤的仍然是其运行速度。
+    ================================DEPRECATED========================
     '''
-    # 栈更新
-    L, H, W = stack.shape
-    stack = np.concatenate(
-        (stack[1:], np.expand_dims(new_matrix, axis=0)), axis=0)
-    description = np.argsort(stack, axis=0)
-    #description = np.concatenate((description[1:], description[0:1]), axis=0)
-    # 双向冒泡，更新序列
-    #for i in range(H):
-    #    for j in range(W):
-    #        for k in range(L - 1):
-    #            pk_0, pk_1 = np.where(description[:, i, j] == k)[0], np.where(
-    #                description[:, i, j] == k + 1)[0]
-    #            if stack[description[pk_0, i, j], i,
-    #                     j] > stack[description[pk_1, i, j], i, j]:
-    #                description[pk_0, i, j], description[
-    #                    pk_1, i, j] = description[pk_1, i, j], description[
-    #                        pk_0, i, j]
-    #        for k in range(L - 1, 0, -1):
-    #            pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[
-    #                0], np.where(description[:, i, j] == k)[0]
-    #            if stack[description[pk_0, i, j], i,
-    #                     j] > stack[description[pk_1, i, j], i, j]:
-    #                description[pk_0, i, j], description[
-    #                    pk_1, i, j] = description[pk_1, i, j], description[
-    #                        pk_0, i, j]
-    #        for k in range(L - 1):
-    #            if stack[description[k, i, j], i,
-    #                     j] > stack[description[k + 1, i, j], i, j]:
-    #                print("Fatal error!", description[:, i, j], i, j,
-    #                      stack[description[:, i, j], i, j])
-    #                raise ValueError("..")
+    # 双向冒泡
+    # stack and des : L*(HW)
+    for k in np.arange(0, L - 1, 1):
+        # boolmap : (HW,) (bool)
+        for i in np.arange(H * W):
+            boolmap[i] = stack[des[k, i], i] > stack[des[k + 1, i], i]
+        des[k, np.where(boolmap)[0]], des[k + 1, np.where(boolmap)[0]] = des[
+            k + 1, np.where(boolmap)[0]], des[k, np.where(boolmap)[0]]
 
-    # des: L*H*W
-    # description == k : L*H*W
-    #for k in range(L - 1):
-    #    print(np.where(stack[description == k] < stack[description == k + 1]))
-    #    #ex_boolmap=np.reshape(stack[description == k]>stack[description == k + 1],(H,W))
-    #    #if stack[description[pk_0, i, j], i,
-    #    #            j] > stack[description[pk_1, i, j], i, j]:
-    #    #    description[pk_0, i, j], description[
-    #    #        pk_1, i, j] = description[pk_1, i, j], description[
-    #    #            pk_0, i, j]
-    #for k in range(L - 1, 0, -1):
-    #    pk_0, pk_1 = np.where(description[:, i, j] == k - 1)[0], np.where(
-    #        description[:, i, j] == k)[0]
-    #    if stack[description[pk_0, i, j], i, j] > stack[description[pk_1, i,
-    #                                                                j], i, j]:
-    #        description[pk_0, i, j], description[pk_1, i, j] = description[
-    #            pk_1, i, j], description[pk_0, i, j]
-    #for k in range(L - 1):
-    #    if stack[description[k, i, j], i, j] > stack[description[k + 1, i, j],
-    #                                                 i, j]:
-    #        print("Fatal error!", description[:, i, j], i, j,
-    #              stack[description[:, i, j], i, j])
-    #        raise ValueError("..")
-
-    median = np.zeros_like(stack[-1])
-    for i in range(H):
-        for j in range(W):
-            median[i, j] = stack[description[:, i, j] == L // 2, i, j]
-    return stack, description, stack[-1] - median
+    for k in np.arange(L - 2, -1, -1):
+        # boolmap : (HW,) (bool)
+        for i in np.arange(H * W):
+            boolmap[i] = stack[des[k, i], i] > stack[des[k + 1, i], i]
+        for position in np.where(boolmap)[0]:
+            des[k, position], des[k + 1, position] = des[k + 1, position], des[
+                k, position]
+    return stack, des
 
 
 def GammaCorrection(src, gamma):
@@ -471,6 +433,13 @@ def detect_within_window_raw(stack, x, drawing, y, debug_mode=False):
     return drawing, _, _
 
 
+#async def video_loader_generator(video,iterations,mask,resize_param):
+#    for i in range(iterations):
+#        status, frame = video.read()
+#        if not status:
+#            break
+#        frame = preprocessing(frame, mask=mask, resize_param=resize_param)
+#        yield frame
 '''
 # 配置参数
 # 常规设置
@@ -509,14 +478,52 @@ meteor_cfg_inp = dict(
     thre2=320)
 '''
 
+frame_pool = []
+
+
+class VideoRead(object):
+    def __init__(self, video, iterations, mask, resize_param) -> None:
+        self.video = video
+        self.iterations = iterations
+        self.mask = mask
+        self.resize_param = resize_param
+        self.stopped = False
+        self.status = False
+        self.load_a_frame()
+
+    def start(self):
+        self.thread = threading.Thread(target=self.get, args=())
+        self.thread.start()
+        return self
+
+    def load_a_frame(self):
+        self.status, frame = self.video.read()
+        if self.status:
+            self.frame = preprocessing(
+                frame, mask=self.mask, resize_param=self.resize_param)
+            frame_pool.append(self.frame)
+        else:
+            self.stop()
+
+    def get(self):
+        for i in range(self.iterations):
+            while len(frame_pool) > 20:
+                time.sleep(0.1)
+            if self.stopped or not self.status: break
+            self.load_a_frame()
+            
+
+    def stop(self):
+        self.stopped = True
+
+
 # 模式参数
 
 # debug_mode ： 是否启用debug模式。debug模式下，将会打印详细的日志，并且将启用可视化的渲染。
 # 程序运行速度可能会因此减慢，但可以通过日志排查参数设置问题，或者为视频找到更优的参数设置。
 
+
 #debug_mode = False
-
-
 def test(video_name,
          mask_name,
          cfg,
@@ -556,6 +563,8 @@ def test(video_name,
     # 起点跳转到指定帧
     video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
+    #video_loader=video_loader_generator(video,)
+    #frame = video_loader.__next__()
     window_size = int(fps * window_size_s)
     # 原则上窗口长度为奇数
     if window_size // 2 == 0:
@@ -577,8 +586,23 @@ def test(video_name,
         thre2=meteor_cfg_inp["thre2"])
 
     progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
+
+    video_reader = VideoRead(
+        video,
+        iterations=end_frame - start_frame,
+        mask=mask,
+        resize_param=resize_param)
+    video_reader.start()
+
     window_stack = []
-    sort_stack = None
+
+    #t = threading.Thread(
+    #    target=video_reader,
+    #    name="VideoReader",
+    #    args=(video, end_frame - start_frame + 1, mask, resize_param))
+    #t.start()
+
+    # 初始化流星收集器
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
 
     if work_mode == 'frontend':
@@ -589,24 +613,49 @@ def test(video_name,
     for i in main_iterator:
         if work_mode == 'backend' and i % int(fps) == 0:
             progout("Processing: %d" % (i / fps * 1000))
-        status, frame = video.read()
-        if not status:
-            break
-        frame = preprocessing(frame, mask=mask, resize_param=resize_param)
+        #status, frame = video.read()
+        #if not status:
+        #    break
+        #frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
-        #if len(window_stack)==0:
-        #    window_stack = np.repeat(frame[None, ...], window_size, axis=0)
-        #    sort_stack = np.argsort(window_stack, axis=0)
-        #window_stack, sort_stack, diff_img = sanaas(window_stack, sort_stack,
-        #                                            frame)
+        if video_reader.stopped and len(frame_pool)==0:
+            break
+        
+        while (not video_reader.stopped) and len(frame_pool)==0:
+            time.sleep(0.1)
+
+        frame = frame_pool.pop(0)
+
+        if len(window_stack) == 0:
+            window_stack = np.repeat(frame[None, ...], window_size, axis=0)
+            #sort_stack = np.argsort(window_stack, axis=0)
+
+        # 栈更新
+        window_stack = np.concatenate(
+            (window_stack[1:], frame[None, ...]), axis=0)
+        #sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
+        ## Reshape为二维
+        #window_stack = np.reshape(window_stack, (L, H * W))
+        #sort_stack = np.reshape(sort_stack, (L, H * W))
+        ## numba加速的双向冒泡
+        #window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
+        #                                  H, W)
+        ## 计算max-median
+        #diff_img = np.reshape(window_stack[sort_stack[-1],
+        #                                   np.where(sort_stack[-1] >= 0)[0]],
+        #                      (H, W))
+        ## 形状还原
+        #window_stack = np.reshape(window_stack, (L, H, W))
+        #sort_stack = np.reshape(sort_stack, (L, H, W))
 
         # update and calculate
-        window_stack.append(frame)
-        if len(window_stack) > window_size:
-            window_stack.pop(0)
-        diff_img = np.max(
-            window_stack, axis=0) - np.median(
-                window_stack, axis=0)
+        #window_stack.append(frame)
+        #if len(window_stack) > window_size:
+        #    window_stack.pop(0)
+        #diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
+
+        sort_stack = np.sort(window_stack, axis=0)
+        diff_img = sort_stack[-1] - sort_stack[window_size // 2]
 
         flag, lines, draw_img = detect_within_window(
             diff_img,
