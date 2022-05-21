@@ -2,15 +2,14 @@
 import argparse
 import json
 import sys
+import threading
 import time
 
 import cv2
 import numpy as np
 import tqdm
-#import asyncio
-import threading
 
-from meteorlib import MeteorCollector
+from .MetLib.MeteorLib import MeteorCollector
 
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
@@ -26,10 +25,11 @@ progout = None
 # POSITIVE: 3.85 3.11 3.03 2.68 2.55 2.13 2.61 1.94
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
+
 def output_meteors(update_info):
-    met_lst,drop_lst = update_info
+    met_lst, drop_lst = update_info
     for met in met_lst:
-        progout("Meteor: %s"%met)
+        progout("Meteor: %s" % met)
     #for met in drop_lst:
     #    progout("Dropped: %s"%met)
 
@@ -246,7 +246,15 @@ meteor_cfg_inp = dict(
     time_range=(0.12, 10),
     speed_range=(1.6, 4.6),
     thre2=320)
+
+# 模式参数
+
+# debug_mode ： 是否启用debug模式。debug模式下，将会打印详细的日志，并且将启用可视化的渲染。
+# 程序运行速度可能会因此减慢，但可以通过日志排查参数设置问题，或者为视频找到更优的参数设置。
+
 '''
+
+# TODO: 目前的读入硬编码参数比较多。酌情在后期参数化他们。
 
 
 class VideoRead(object):
@@ -266,17 +274,19 @@ class VideoRead(object):
         return self
 
     def load_a_frame(self):
-        self.status, frame = self.video.read()
-        if self.status:
-            self.frame = preprocessing(
-                frame, mask=self.mask, resize_param=self.resize_param)
-            self.frame_pool.append(self.frame)
-        else:
-            self.stop()
+        for t in range(10):
+            self.status, frame = self.video.read()
+            if self.status:
+                self.frame = preprocessing(
+                    frame, mask=self.mask, resize_param=self.resize_param)
+                self.frame_pool.append(self.frame)
+            else:
+                self.stop()
+                break
 
     def get(self):
         for i in range(self.iterations):
-            while len(self.frame_pool) > 20:
+            while len(self.frame_pool) > 30:
                 time.sleep(0.1)
             if self.stopped or not self.status: break
             self.load_a_frame()
@@ -285,10 +295,51 @@ class VideoRead(object):
         self.stopped = True
 
 
-# 模式参数
+def stack_updater(video_stack, detect_stack):
+    # 原始的栈更新方法
+    # 从video_stack直接加载帧放入检测窗口内
+    detect_stack.pop(0)
+    detect_stack.append(video_stack.pop(0))
+    return video_stack, detect_stack
 
-# debug_mode ： 是否启用debug模式。debug模式下，将会打印详细的日志，并且将启用可视化的渲染。
-# 程序运行速度可能会因此减慢，但可以通过日志排查参数设置问题，或者为视频找到更优的参数设置。
+
+def stack_merger(video_stack, detect_stack, func, nums=1):
+    # 实验性的栈更新方法
+    # 从video_stack加载若干帧，通过合并算法计算为一帧后放入检测窗口内
+    detect_stack.pop(0)
+    clipped_stack, video_stack = video_stack[:nums], video_stack[nums:]
+    clipped_merged = func(clipped_stack)
+    detect_stack.append(clipped_merged)
+    return video_stack, detect_stack
+
+
+def init_stack_updater()
+    pass
+
+
+'''
+def series_keeping(sort_stack):
+    sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
+    # Reshape为二维
+    window_stack = np.reshape(window_stack, (L, H * W))
+    sort_stack = np.reshape(sort_stack, (L, H * W))
+    # numba加速的双向冒泡
+    window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
+                                      H, W)
+    # 计算max-median
+    diff_img = np.reshape(window_stack[sort_stack[-1],
+                                       np.where(sort_stack[-1] >= 0)[0]],
+                          (H, W))
+    # 形状还原
+    window_stack = np.reshape(window_stack, (L, H, W))
+    sort_stack = np.reshape(sort_stack, (L, H, W))
+
+    #update and calculate
+    window_stack.append(frame)
+    if len(window_stack) > window_size:
+        window_stack.pop(0)
+    diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
+'''
 
 
 #debug_mode = False
@@ -302,7 +353,7 @@ def test(video_name,
     resize_param = cfg["resize_param"]
     visual_param = cfg["visual_param"]
     window_size_s = cfg["window_size_s"]
-
+    detect_algo = cfg["detect_algo"]
     detect_cfg = cfg["detect_cfg"]
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
 
@@ -382,10 +433,6 @@ def test(video_name,
         for i in main_iterator:
             if work_mode == 'backend' and i % int(fps) == 0:
                 progout("Processing: %d" % (i / fps * 1000))
-            #status, frame = video.read()
-            #if not status:
-            #    break
-            #frame = preprocessing(frame, mask=mask, resize_param=resize_param)
 
             if video_reader.stopped and len(video_reader.frame_pool) == 0:
                 break
@@ -394,7 +441,9 @@ def test(video_name,
                     video_reader.frame_pool) == 0:
                 time.sleep(0.1)
 
-            frame = video_reader.frame_pool.pop(0)
+            # 加载帧数
+            if detect_algo == "merged":
+                frame = video_reader.frame_pool.pop(0)
 
             if len(window_stack) == 0:
                 window_stack = np.repeat(frame[None, ...], window_size, axis=0)
@@ -403,26 +452,6 @@ def test(video_name,
             # 栈更新
             window_stack = np.concatenate(
                 (window_stack[1:], frame[None, ...]), axis=0)
-            #sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
-            ## Reshape为二维
-            #window_stack = np.reshape(window_stack, (L, H * W))
-            #sort_stack = np.reshape(sort_stack, (L, H * W))
-            ## numba加速的双向冒泡
-            #window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
-            #                                  H, W)
-            ## 计算max-median
-            #diff_img = np.reshape(window_stack[sort_stack[-1],
-            #                                   np.where(sort_stack[-1] >= 0)[0]],
-            #                      (H, W))
-            ## 形状还原
-            #window_stack = np.reshape(window_stack, (L, H, W))
-            #sort_stack = np.reshape(sort_stack, (L, H, W))
-
-            # update and calculate
-            #window_stack.append(frame)
-            #if len(window_stack) > window_size:
-            #    window_stack.pop(0)
-            #diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
 
             sort_stack = np.sort(
                 window_stack[::detect_cfg["median_skipping"]], axis=0)
