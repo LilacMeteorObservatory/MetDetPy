@@ -9,7 +9,10 @@ import cv2
 import numpy as np
 import tqdm
 
-from .MetLib.MeteorLib import MeteorCollector
+from MetLib.MeteorLib import MeteorCollector
+from MetLib.Stacker import SimpleStacker,MergeStacker
+from MetLib.Detector import ClassicDetector,M3Detector
+from MetLib.utils import m3func
 
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
@@ -18,7 +21,6 @@ from .MetLib.MeteorLib import MeteorCollector
 ## spring-v1: 9 fps (debug mode)/ 16 fps (speed mode); tp 4/4; tn 4/6; fp 8/11.
 ## spring-v2: 20 fps (no-skipping); 25 fps(median-skipping, fp 6/8)
 
-pi = 3.141592653589793 / 180.0
 
 progout = None
 
@@ -47,56 +49,6 @@ def stdout_backend(string: str):
     sys.stdout.flush()
 
 
-def DrawHist(src, mask, hist_num=256, threshold=0):
-    src = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
-    hist = cv2.calcHist([src], [0], mask, [hist_num],
-                        [0, hist_num - 1])[:, 0] / np.sum(mask)
-    h, w = src.shape
-    bw = w / hist_num
-    canvas = np.zeros_like(src, dtype=np.uint8)
-    i = threshold
-    canvas = cv2.rectangle(canvas, (int(bw * i), h), (int(bw * i), 0),
-                           [255, 255, 255], 2, -1)
-    for i, bar in enumerate(hist):
-        canvas = cv2.rectangle(canvas, (int(bw * i), h),
-                               (int(bw * (i + 1)), h - int(bar * h)),
-                               [128, 128, 128], 2, -1)
-    return canvas
-
-
-#@numba.jit(nopython=True, fastmath=True, parallel=True)
-def sanaas(stack: np.array, des: np.array, boolmap, L, H, W):
-    '''
-    ================================DEPRECATED========================
-    stack [list[np.array]],
-    new_matrix H*W
-    des[list[np.array]] L*H*W stack[des]是真实升序序列。des是下标序列。
-    已实现可借助numba的加速版本；但令人悲伤的仍然是其运行速度。
-    ================================DEPRECATED========================
-    '''
-    # 双向冒泡
-    # stack and des : L*(HW)
-    for k in np.arange(0, L - 1, 1):
-        # boolmap : (HW,) (bool)
-        for i in np.arange(H * W):
-            boolmap[i] = stack[des[k, i], i] > stack[des[k + 1, i], i]
-        des[k, np.where(boolmap)[0]], des[k + 1, np.where(boolmap)[0]] = des[
-            k + 1, np.where(boolmap)[0]], des[k, np.where(boolmap)[0]]
-
-    for k in np.arange(L - 2, -1, -1):
-        # boolmap : (HW,) (bool)
-        for i in np.arange(H * W):
-            boolmap[i] = stack[des[k, i], i] > stack[des[k + 1, i], i]
-        for position in np.where(boolmap)[0]:
-            des[k, position], des[k + 1, position] = des[k + 1, position], des[
-                k, position]
-    return stack, des
-
-
-def GammaCorrection(src, gamma):
-    """deprecated."""
-    return np.array((src / 255.)**(1 / gamma) * 255, dtype=np.uint8)
-
 
 def load_video_mask(video_name, mask_name=None, resize_param=(0, 0)):
     return cv2.VideoCapture(video_name), load_mask(
@@ -113,94 +65,6 @@ def load_mask(filename, resize_param):
 def preprocessing(frame, mask=1, resize_param=(0, 0)):
     frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
     return frame * mask
-
-
-def detect_within_window(diff_img: np.array,
-                         cfg: dict,
-                         drawing=None,
-                         mask=None,
-                         visual_param=None,
-                         debug_mode=False) -> tuple:
-    """Detector, but version spring.
-
-    主要工作原理： 以X帧为窗口的帧差法 （最大值-中值）。
-    
-    采取了相比原算法更激进的阈值和直线检测限，将假阳性样本通过排除记录流星的算法移除。
-
-    Args:
-        stack (_type_): _description_
-        threshold (_type_): _description_
-        drawing (_type_): _description_
-        debug_mode (bool, optional): _description_. Defaults to False.
-
-    Returns:
-        _type_: _description_
-    """
-    bi_threshold, line_threshold, line_minlen, median_skipping = cfg[
-        "bi_threshold"], cfg["line_threshold"], cfg["line_minlen"], cfg[
-            "median_skipping"]
-    # 初始时不进行中位数跳采估算
-    #if len(stack)<=median_skipping*(cfg["median_sampling_num"]-1):
-    #    median_skipping=1
-    _, dst = cv2.threshold(diff_img, bi_threshold, 255, cv2.THRESH_BINARY)
-    linesp = cv2.HoughLinesP(
-        np.array(dst, dtype=np.uint8), 1, pi, line_threshold, line_minlen, 0)
-
-    if debug_mode:
-        diff_img = cv2.cvtColor(
-            np.array(diff_img, np.uint8), cv2.COLOR_GRAY2BGR)
-        drawing = np.repeat(np.expand_dims(drawing, axis=-1), 3, axis=-1)
-        y, x = visual_param
-        canvas = np.zeros((x * 2, y * 2, 3), dtype=np.uint8)
-        canvas[:x, :y] = cv2.resize(drawing, (y, x))
-        canvas[:x, y:] = cv2.resize(diff_img, (y, x))
-        canvas[x:, :y] = cv2.cvtColor(
-            cv2.resize(
-                DrawHist(diff_img, mask, threshold=bi_threshold), (y, x)),
-            cv2.COLOR_GRAY2BGR)
-        canvas[x:, y:] = cv2.resize(drawing, (y, x))
-        drawing = canvas
-
-    if linesp is None:
-        return False, [], drawing
-    return True, linesp[0], drawing
-
-
-def detect_within_window_raw(stack, x, drawing, y, debug_mode=False):
-    # 来自日本人版本的检测器。
-    # 为统一API，在接口增加了不会使用的x,y。
-    # 4帧为窗口，差分2,3帧，二值化，膨胀（高亮为有差异部分）
-    #drawing = np.repeat(np.expand_dims(drawing, axis=-1), 3, axis=-1)
-    diff23 = cv2.absdiff(stack[2], stack[3])
-    _, diff23 = cv2.threshold(diff23, 20, 255, cv2.THRESH_BINARY)
-
-    diff23 = cv2.dilate(
-        diff23,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-    )
-    diff23 = 255 - diff23
-    ## 用diff23和0,1帧做位与运算（掩模？），屏蔽2,3帧的差一部分
-    f1 = cv2.bitwise_and(diff23, stack[0])
-    f2 = cv2.bitwise_and(diff23, stack[1])
-    ## 差分0,1帧，二值化，膨胀（高亮有差异部分）
-    dst = cv2.absdiff(f1, f2)
-    _, dst = cv2.threshold(dst, 20, 255, cv2.THRESH_BINARY)
-    dst = cv2.dilate(
-        dst,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-    )
-
-    # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
-    # 所以即使检出应该也是第一帧上面检出。
-    linesp = cv2.HoughLinesP(dst, 1, pi, 10, 10, 0)
-    if not (linesp is None):
-        linesp = linesp[0]
-        #progout(linesp)
-        for pt in linesp:
-            progout("center=(%.2f,%.2f)" % ((pt[3] + pt[1]) / 2,
-                                            (pt[2] + pt[0]) / 2))
-            #cv2.line(drawing, (pt[0], pt[1]), (pt[2], pt[3]), (0, 0, 255), 10)
-    return drawing, _, _
 
 
 #async def video_loader_generator(video,iterations,mask,resize_param):
@@ -274,15 +138,17 @@ class VideoRead(object):
         return self
 
     def load_a_frame(self):
+        temp_pool=[]
         for t in range(10):
             self.status, frame = self.video.read()
             if self.status:
                 self.frame = preprocessing(
                     frame, mask=self.mask, resize_param=self.resize_param)
-                self.frame_pool.append(self.frame)
+                temp_pool.append(self.frame)
             else:
                 self.stop()
                 break
+        self.frame_pool.extend(temp_pool)
 
     def get(self):
         for i in range(self.iterations):
@@ -295,54 +161,6 @@ class VideoRead(object):
         self.stopped = True
 
 
-def stack_updater(video_stack, detect_stack):
-    # 原始的栈更新方法
-    # 从video_stack直接加载帧放入检测窗口内
-    detect_stack.pop(0)
-    detect_stack.append(video_stack.pop(0))
-    return video_stack, detect_stack
-
-
-def stack_merger(video_stack, detect_stack, func, nums=1):
-    # 实验性的栈更新方法
-    # 从video_stack加载若干帧，通过合并算法计算为一帧后放入检测窗口内
-    detect_stack.pop(0)
-    clipped_stack, video_stack = video_stack[:nums], video_stack[nums:]
-    clipped_merged = func(clipped_stack)
-    detect_stack.append(clipped_merged)
-    return video_stack, detect_stack
-
-
-def init_stack_updater()
-    pass
-
-
-'''
-def series_keeping(sort_stack):
-    sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
-    # Reshape为二维
-    window_stack = np.reshape(window_stack, (L, H * W))
-    sort_stack = np.reshape(sort_stack, (L, H * W))
-    # numba加速的双向冒泡
-    window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
-                                      H, W)
-    # 计算max-median
-    diff_img = np.reshape(window_stack[sort_stack[-1],
-                                       np.where(sort_stack[-1] >= 0)[0]],
-                          (H, W))
-    # 形状还原
-    window_stack = np.reshape(window_stack, (L, H, W))
-    sort_stack = np.reshape(sort_stack, (L, H, W))
-
-    #update and calculate
-    window_stack.append(frame)
-    if len(window_stack) > window_size:
-        window_stack.pop(0)
-    diff_img = np.max(window_stack, axis=0) - np.median(window_stack, axis=0)
-'''
-
-
-#debug_mode = False
 def test(video_name,
          mask_name,
          cfg,
@@ -353,7 +171,8 @@ def test(video_name,
     resize_param = cfg["resize_param"]
     visual_param = cfg["visual_param"]
     window_size_s = cfg["window_size_s"]
-    detect_algo = cfg["detect_algo"]
+    stack_algo = cfg["stack_algo"]
+    detector_name = cfg["detector"]
     detect_cfg = cfg["detect_cfg"]
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
 
@@ -405,20 +224,23 @@ def test(video_name,
         thre2=meteor_cfg_inp["thre2"])
 
     progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
-
     video_reader = VideoRead(
         video,
         iterations=end_frame - start_frame,
         mask=mask,
         resize_param=resize_param)
 
-    window_stack = []
+    stack_manager = None
+    if stack_algo == "SimpleStacker":
+        stack_manager = SimpleStacker()
+    elif stack_algo == "MergeStacker":
+        stack_manager = MergeStacker(func=m3func, frames=window_size)
 
-    #t = threading.Thread(
-    #    target=video_reader,
-    #    name="VideoReader",
-    #    args=(video, end_frame - start_frame + 1, mask, resize_param))
-    #t.start()
+    detector=None
+    if detector_name == "ClassicDetector":
+        detector = ClassicDetector(window_size,detect_cfg,debug_mode)
+    elif detector_name == "M3Detector":
+        detector = M3Detector(window_size,detect_cfg,debug_mode)
 
     # 初始化流星收集器
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
@@ -431,39 +253,25 @@ def test(video_name,
     try:
         video_reader.start()
         for i in main_iterator:
+            # Logging for backend only.
+            # TODO: Use Logging module to replace progout
             if work_mode == 'backend' and i % int(fps) == 0:
                 progout("Processing: %d" % (i / fps * 1000))
-
+            
+            # Load and Update Stacks.
             if video_reader.stopped and len(video_reader.frame_pool) == 0:
                 break
-
-            while (not video_reader.stopped) and len(
-                    video_reader.frame_pool) == 0:
+            while True:
+                flag, video_reader.frame_pool, detector = stack_manager.update(
+                    video_reader.frame_pool, detector, video_reader.stopped)
+                
+                if flag:
+                    break
                 time.sleep(0.1)
 
-            # 加载帧数
-            if detect_algo == "merged":
-                frame = video_reader.frame_pool.pop(0)
+            #TODO: Mask, visual
+            flag, lines = detector.detect()
 
-            if len(window_stack) == 0:
-                window_stack = np.repeat(frame[None, ...], window_size, axis=0)
-                #sort_stack = np.argsort(window_stack, axis=0)
-
-            # 栈更新
-            window_stack = np.concatenate(
-                (window_stack[1:], frame[None, ...]), axis=0)
-
-            sort_stack = np.sort(
-                window_stack[::detect_cfg["median_skipping"]], axis=0)
-            diff_img = sort_stack[-1] - sort_stack[len(sort_stack) // 2]
-
-            flag, lines, draw_img = detect_within_window(
-                diff_img,
-                detect_cfg,
-                window_stack[min(len(window_stack) - 1, window_size // 2 + 1)],
-                mask,
-                visual_param,
-                debug_mode=debug_mode)
             if flag:
                 output_meteors(main_mc.update(i, lines=lines))
             if debug_mode:

@@ -7,8 +7,9 @@
         480,
         270
     ],
-    "detect_algo": "merged",
+    "stack_algo": "SimpleStacker",
     "window_size_s": 0.36,
+    "detector": "M3Detector",
     "detect_cfg": {
         "bi_threshold": 5.4,
         "median_sampling_num": -1,
