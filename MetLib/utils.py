@@ -1,4 +1,22 @@
 import numpy as np
+import cv2
+import sys
+
+
+def preprocessing(frame, mask=1, resize_param=(0, 0)):
+    frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
+    return frame * mask
+
+def set_out_pipe(workmode):
+    if workmode == "backend":
+        return stdout_backend
+    elif workmode == "frontend":
+        return print
+
+
+def stdout_backend(string: str):
+    print(string)
+    sys.stdout.flush()
 
 def m3func(image_stack, skipping=1):
     """M3 for Max Minus Median.

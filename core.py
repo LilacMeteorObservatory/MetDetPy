@@ -1,18 +1,16 @@
 #import logging
 import argparse
 import json
-import sys
-import threading
-import time
-
+import asyncio
 import cv2
 import numpy as np
 import tqdm
 
 from MetLib.MeteorLib import MeteorCollector
-from MetLib.Stacker import SimpleStacker,MergeStacker
-from MetLib.Detector import ClassicDetector,M3Detector
-from MetLib.utils import m3func
+from MetLib.Stacker import SimpleStacker, MergeStacker
+from MetLib.Detector import ClassicDetector, M3Detector
+from MetLib.utils import m3func, set_out_pipe, preprocessing
+from MetLib.VideoLoader import AsyncVideoReader
 
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
@@ -21,33 +19,16 @@ from MetLib.utils import m3func
 ## spring-v1: 9 fps (debug mode)/ 16 fps (speed mode); tp 4/4; tn 4/6; fp 8/11.
 ## spring-v2: 20 fps (no-skipping); 25 fps(median-skipping, fp 6/8)
 
-
-progout = None
-
 # POSITIVE: 3.85 3.11 3.03 2.68 2.55 2.13 2.61 1.94
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
 
-def output_meteors(update_info):
+def output_meteors(update_info, stream):
     met_lst, drop_lst = update_info
     for met in met_lst:
-        progout("Meteor: %s" % met)
-    #for met in drop_lst:
-    #    progout("Dropped: %s"%met)
-
-
-def set_out_pipe(workmode):
-    global progout
-    if workmode == "backend":
-        progout = stdout_backend
-    elif workmode == "frontend":
-        progout = print
-
-
-def stdout_backend(string: str):
-    sys.stdout.write(string)
-    sys.stdout.flush()
-
+        stream("Meteor: %s" % met)
+    for met in drop_lst:
+        stream("Dropped: %s" % met)
 
 
 def load_video_mask(video_name, mask_name=None, resize_param=(0, 0)):
@@ -62,18 +43,6 @@ def load_mask(filename, resize_param):
     return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
 
 
-def preprocessing(frame, mask=1, resize_param=(0, 0)):
-    frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
-    return frame * mask
-
-
-#async def video_loader_generator(video,iterations,mask,resize_param):
-#    for i in range(iterations):
-#        status, frame = video.read()
-#        if not status:
-#            break
-#        frame = preprocessing(frame, mask=mask, resize_param=resize_param)
-#        yield frame
 '''
 # 配置参数
 # 常规设置
@@ -118,55 +87,13 @@ meteor_cfg_inp = dict(
 
 '''
 
-# TODO: 目前的读入硬编码参数比较多。酌情在后期参数化他们。
 
-
-class VideoRead(object):
-    def __init__(self, video, iterations, mask, resize_param) -> None:
-        self.video = video
-        self.iterations = iterations
-        self.mask = mask
-        self.resize_param = resize_param
-        self.stopped = False
-        self.status = False
-        self.frame_pool = []
-        self.load_a_frame()
-
-    def start(self):
-        self.thread = threading.Thread(target=self.get, args=())
-        self.thread.start()
-        return self
-
-    def load_a_frame(self):
-        temp_pool=[]
-        for t in range(10):
-            self.status, frame = self.video.read()
-            if self.status:
-                self.frame = preprocessing(
-                    frame, mask=self.mask, resize_param=self.resize_param)
-                temp_pool.append(self.frame)
-            else:
-                self.stop()
-                break
-        self.frame_pool.extend(temp_pool)
-
-    def get(self):
-        for i in range(self.iterations):
-            while len(self.frame_pool) > 30:
-                time.sleep(0.1)
-            if self.stopped or not self.status: break
-            self.load_a_frame()
-
-    def stop(self):
-        self.stopped = True
-
-
-def test(video_name,
-         mask_name,
-         cfg,
-         debug_mode,
-         work_mode="frontend",
-         time_range=(None, None)):
+async def detect_video(video_name,
+                       mask_name,
+                       cfg,
+                       debug_mode,
+                       work_mode="frontend",
+                       time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg["resize_param"]
     visual_param = cfg["visual_param"]
@@ -196,7 +123,7 @@ def test(video_name,
     if not 0 <= start_frame < end_frame:
         raise ValueError("Invalid start time or end time.")
 
-    set_out_pipe(work_mode)
+    progout = set_out_pipe(work_mode)
 
     # 起点跳转到指定帧
     video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -224,11 +151,14 @@ def test(video_name,
         thre2=meteor_cfg_inp["thre2"])
 
     progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
-    video_reader = VideoRead(
+
+    video_reader = AsyncVideoReader(
         video,
         iterations=end_frame - start_frame,
         mask=mask,
-        resize_param=resize_param)
+        resize_param=resize_param,
+        batch=10)
+    reading_coroutine = video_reader.read_a_batch()
 
     stack_manager = None
     if stack_algo == "SimpleStacker":
@@ -236,14 +166,15 @@ def test(video_name,
     elif stack_algo == "MergeStacker":
         stack_manager = MergeStacker(func=m3func, frames=window_size)
 
-    detector=None
+    detector = None
     if detector_name == "ClassicDetector":
-        detector = ClassicDetector(window_size,detect_cfg,debug_mode)
+        detector = ClassicDetector(window_size, detect_cfg, debug_mode)
     elif detector_name == "M3Detector":
-        detector = M3Detector(window_size,detect_cfg,debug_mode)
+        detector = M3Detector(window_size, detect_cfg, debug_mode)
 
     # 初始化流星收集器
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
+
 
     if work_mode == 'frontend':
         main_iterator = tqdm.tqdm(range(start_frame, end_frame), ncols=50)
@@ -251,38 +182,40 @@ def test(video_name,
         main_iterator = range(start_frame, end_frame)
 
     try:
-        video_reader.start()
         for i in main_iterator:
             # Logging for backend only.
             # TODO: Use Logging module to replace progout
             if work_mode == 'backend' and i % int(fps) == 0:
                 progout("Processing: %d" % (i / fps * 1000))
-            
-            # Load and Update Stacks.
-            if video_reader.stopped and len(video_reader.frame_pool) == 0:
-                break
-            while True:
-                flag, video_reader.frame_pool, detector = stack_manager.update(
-                    video_reader.frame_pool, detector, video_reader.stopped)
-                
-                if flag:
-                    break
-                time.sleep(0.1)
+            print(len(video_reader.frame_pool))
+            if not video_reader.stopped:
+                # Load and Update Stacks.
+                await reading_coroutine
+                # video_reader.preprocessing_pool()
+                # load next batch as async goes.
+                reading_coroutine = video_reader.read_a_batch()
+            else:
+                print("Program is assumed to be stopped.")
+
+            # TODO: Replace with API of video_reader.
+            flag, video_reader.frame_pool, detector = stack_manager.update(
+                video_reader.frame_pool, detector, video_reader.stopped)
 
             #TODO: Mask, visual
             flag, lines = detector.detect()
 
             if flag:
-                output_meteors(main_mc.update(i, lines=lines))
+                output_meteors(main_mc.update(i, lines=lines), progout)
             if debug_mode:
                 if (cv2.waitKey(1) & 0xff == ord("q")):
                     break
                 draw_img = main_mc.draw_on_img(
                     draw_img, resize_param, cv2.rectangle, ref_zp=visual_param)
                 cv2.imshow("DEBUG MODE", draw_img)
+
     finally:
-        video_reader.stop()
-        output_meteors(main_mc.update(np.inf, []))
+        await reading_coroutine
+        output_meteors(main_mc.update(np.inf, []), progout)
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
@@ -326,10 +259,17 @@ if __name__ == "__main__":
     end_time = args.end_time
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = json.load(f)
-    test(
-        video_name,
-        mask_name,
-        cfg,
-        debug_mode,
-        work_mode,
-        time_range=(start_time, end_time))
+
+    # async main loop
+    loop = asyncio.get_event_loop()
+    tasks = [
+        detect_video(
+            video_name,
+            mask_name,
+            cfg,
+            debug_mode,
+            work_mode,
+            time_range=(start_time, end_time))
+    ]
+    loop.run_until_complete(asyncio.wait(tasks))
+    loop.close()

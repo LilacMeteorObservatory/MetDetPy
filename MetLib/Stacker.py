@@ -5,7 +5,7 @@ class BaseStacker(object):
     def update(self, video_stack, detect_stack, force=False):
         flag = True
         if (len(video_stack) < self.frames) and (not force):
-            return flag, video_stack, detect_stack
+            return False, video_stack, detect_stack
         video_stack, detect_stack = self._update(video_stack, detect_stack)
         return flag, video_stack, detect_stack
 
