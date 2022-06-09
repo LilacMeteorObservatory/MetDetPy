@@ -10,7 +10,7 @@ from MetLib.MeteorLib import MeteorCollector
 from MetLib.Stacker import SimpleStacker, MergeStacker
 from MetLib.Detector import ClassicDetector, M3Detector
 from MetLib.utils import m3func, set_out_pipe, preprocessing
-from MetLib.VideoLoader import AsyncVideoReader
+from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
@@ -152,13 +152,11 @@ async def detect_video(video_name,
 
     progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
 
-    video_reader = AsyncVideoReader(
+    video_reader = ThreadVideoReader(
         video,
         iterations=end_frame - start_frame,
         mask=mask,
-        resize_param=resize_param,
-        batch=10)
-    reading_coroutine = video_reader.read_a_batch()
+        resize_param=resize_param)
 
     stack_manager = None
     if stack_algo == "SimpleStacker":
@@ -182,24 +180,21 @@ async def detect_video(video_name,
         main_iterator = range(start_frame, end_frame)
 
     try:
+        video_reader.start()
         for i in main_iterator:
             # Logging for backend only.
             # TODO: Use Logging module to replace progout
             if work_mode == 'backend' and i % int(fps) == 0:
                 progout("Processing: %d" % (i / fps * 1000))
-            print(len(video_reader.frame_pool))
-            if not video_reader.stopped:
-                # Load and Update Stacks.
-                await reading_coroutine
-                # video_reader.preprocessing_pool()
-                # load next batch as async goes.
-                reading_coroutine = video_reader.read_a_batch()
-            else:
-                print("Program is assumed to be stopped.")
+            
+            #print(len(video_reader.frame_pool))
+
+            if video_reader.stopped and len(video_reader.frame_pool)==0:
+                break
 
             # TODO: Replace with API of video_reader.
-            flag, video_reader.frame_pool, detector = stack_manager.update(
-                video_reader.frame_pool, detector, video_reader.stopped)
+            detector = stack_manager.update(
+                video_reader, detector)
 
             #TODO: Mask, visual
             flag, lines = detector.detect()
@@ -214,7 +209,7 @@ async def detect_video(video_name,
                 cv2.imshow("DEBUG MODE", draw_img)
 
     finally:
-        await reading_coroutine
+        video_reader.stop()
         output_meteors(main_mc.update(np.inf, []), progout)
         video.release()
         cv2.destroyAllWindows()
