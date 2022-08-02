@@ -1,15 +1,18 @@
 #import logging
 import argparse
 import json
-import asyncio
 import cv2
 import numpy as np
 import tqdm
+import asyncio
+from munch import Munch
+from functools import partial
+
 
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.Stacker import SimpleStacker, MergeStacker
 from MetLib.Detector import ClassicDetector, M3Detector
-from MetLib.utils import m3func, set_out_pipe, preprocessing
+from MetLib.utils import m3func, set_out_pipe, preprocessing, load_video_and_mask
 from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:
@@ -29,18 +32,6 @@ def output_meteors(update_info, stream):
         stream("Meteor: %s" % met)
     for met in drop_lst:
         stream("Dropped: %s" % met)
-
-
-def load_video_mask(video_name, mask_name=None, resize_param=(0, 0)):
-    return cv2.VideoCapture(video_name), load_mask(
-        mask_name, resize_param) if mask_name else np.ones(
-            (resize_param[1], resize_param[0]), dtype=np.uint8)
-
-
-def load_mask(filename, resize_param):
-    mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8), 1)
-    mask = preprocessing(mask, resize_param=resize_param)
-    return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
 
 
 '''
@@ -104,7 +95,7 @@ async def detect_video(video_name,
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
 
     # load video
-    video, mask = load_video_mask(video_name, mask_name, resize_param)
+    video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     if (video is None) or (not video.isOpened()):
         raise FileNotFoundError(
             "The file \"%s\" cannot be opened as a supported video format." %
@@ -141,22 +132,23 @@ async def detect_video(video_name,
         detect_cfg.update(
             median_skipping=(window_size - 1) // (
                 detect_cfg["median_sampling_num"] - 1))
+    # TODO: To be renewed
+    meteor_cfg_inp=Munch(meteor_cfg_inp)
     meteor_cfg = dict(
-        min_len=meteor_cfg_inp["min_len"],
-        max_interval=meteor_cfg_inp["max_interval"] * fps,
+        min_len=meteor_cfg_inp.min_len,
+        max_interval=meteor_cfg_inp.max_interval * fps,
         det_thre=0.5,
-        time_range=(meteor_cfg_inp["time_range"][0] * fps,
-                    meteor_cfg_inp["time_range"][1] * fps),
-        speed_range=meteor_cfg_inp["speed_range"],
-        thre2=meteor_cfg_inp["thre2"])
+        time_range=(meteor_cfg_inp.time_range[0] * fps,
+                    meteor_cfg_inp.time_range[1] * fps),
+        speed_range=meteor_cfg_inp.speed_range,
+        thre2=meteor_cfg_inp.thre2)
 
     progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
 
     video_reader = ThreadVideoReader(
         video,
         iterations=end_frame - start_frame,
-        mask=mask,
-        resize_param=resize_param)
+        pre_func=partial(preprocessing, mask=mask, resize_param=resize_param))
 
     stack_manager = None
     if stack_algo == "SimpleStacker":
@@ -173,7 +165,6 @@ async def detect_video(video_name,
     # 初始化流星收集器
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
 
-
     if work_mode == 'frontend':
         main_iterator = tqdm.tqdm(range(start_frame, end_frame), ncols=50)
     elif work_mode == 'backend':
@@ -186,15 +177,14 @@ async def detect_video(video_name,
             # TODO: Use Logging module to replace progout
             if work_mode == 'backend' and i % int(fps) == 0:
                 progout("Processing: %d" % (i / fps * 1000))
-            
+
             #print(len(video_reader.frame_pool))
 
-            if video_reader.stopped and len(video_reader.frame_pool)==0:
+            if video_reader.stopped and len(video_reader.frame_pool) == 0:
                 break
 
             # TODO: Replace with API of video_reader.
-            detector = stack_manager.update(
-                video_reader, detector)
+            detector = stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
             flag, lines = detector.detect()
@@ -244,7 +234,7 @@ if __name__ == "__main__":
         '--debug-mode', '-D', help="Apply Debug Mode.", default=False)
 
     args = parser.parse_args()
-
+    
     video_name = args.target
     cfg_filename = args.cfg
     mask_name = args.mask
@@ -253,8 +243,7 @@ if __name__ == "__main__":
     start_time = args.start_time
     end_time = args.end_time
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
-        cfg = json.load(f)
-
+        cfg = Munch(json.load(f))
     # async main loop
     loop = asyncio.get_event_loop()
     tasks = [
