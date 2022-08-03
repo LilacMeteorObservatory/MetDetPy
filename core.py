@@ -8,11 +8,9 @@ import asyncio
 from munch import Munch
 from functools import partial
 
-
 from MetLib.MeteorLib import MeteorCollector
-from MetLib.Stacker import SimpleStacker, MergeStacker
-from MetLib.Detector import ClassicDetector, M3Detector
-from MetLib.utils import m3func, set_out_pipe, preprocessing, load_video_and_mask
+from MetLib import init_stacker, init_detector
+from MetLib.utils import set_out_pipe, preprocessing, load_video_and_mask
 from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:
@@ -86,13 +84,12 @@ async def detect_video(video_name,
                        work_mode="frontend",
                        time_range=(None, None)):
     # load config from cfg json.
-    resize_param = cfg["resize_param"]
-    visual_param = cfg["visual_param"]
-    window_size_s = cfg["window_size_s"]
-    stack_algo = cfg["stack_algo"]
-    detector_name = cfg["detector"]
-    detect_cfg = cfg["detect_cfg"]
+    resize_param = cfg.resize_param
+    visual_param = cfg.visual_param
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
+
+    # set output mode
+    progout = set_out_pipe(work_mode)
 
     # load video
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
@@ -106,34 +103,28 @@ async def detect_video(video_name,
 
     # 根据指定头尾跳转指针与结束帧
     start_frame, end_frame = 0, total_frame
-
-    if time_range[0] != None:
-        start_frame = max(0, int(time_range[0] / 1000 * fps))
-    if time_range[1] != None:
-        end_frame = min(int(time_range[1] / 1000 * fps), total_frame)
+    start_time, end_time = time_range
+    if start_time != None:
+        start_frame = max(0, int(start_time / 1000 * fps))
+    if end_time != None:
+        end_frame = min(int(end_time / 1000 * fps), total_frame)
     if not 0 <= start_frame < end_frame:
         raise ValueError("Invalid start time or end time.")
-
-    progout = set_out_pipe(work_mode)
-
     # 起点跳转到指定帧
     video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
 
-    #video_loader=video_loader_generator(video,)
-    #frame = video_loader.__next__()
-    window_size = int(fps * window_size_s)
-    # 原则上窗口长度为奇数
-    if window_size // 2 == 0:
-        window_size += 1
-    if detect_cfg["median_sampling_num"] == -1:
-        detect_cfg.update(median_skipping=1)
-    else:
-        assert detect_cfg["median_sampling_num"] >= 3, "You must set median_sampling_num to 3 or larger."
-        detect_cfg.update(
-            median_skipping=(window_size - 1) // (
-                detect_cfg["median_sampling_num"] - 1))
+    # Init stacker_manager
+    stack_manager, exp_time = init_stacker(cfg.stacker, cfg.stacker_cfg, video,
+                                           mask, fps)
+    progout("Apply exposure time of %.2fs." % (exp_time))
+
+    # Init detector
+    detector = init_detector(cfg.detector, cfg.detect_cfg, debug_mode, fps)
+
+    # Init meteor collector
     # TODO: To be renewed
-    meteor_cfg_inp=Munch(meteor_cfg_inp)
+    meteor_cfg_inp = Munch(meteor_cfg_inp)
     meteor_cfg = dict(
         min_len=meteor_cfg_inp.min_len,
         max_interval=meteor_cfg_inp.max_interval * fps,
@@ -142,29 +133,15 @@ async def detect_video(video_name,
                     meteor_cfg_inp.time_range[1] * fps),
         speed_range=meteor_cfg_inp.speed_range,
         thre2=meteor_cfg_inp.thre2)
-
-    progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
-
+    main_mc = MeteorCollector(**meteor_cfg, fps=fps)
+    
+    # Init videoReader
     video_reader = ThreadVideoReader(
         video,
         iterations=end_frame - start_frame,
         pre_func=partial(preprocessing, mask=mask, resize_param=resize_param))
 
-    stack_manager = None
-    if stack_algo == "SimpleStacker":
-        stack_manager = SimpleStacker()
-    elif stack_algo == "MergeStacker":
-        stack_manager = MergeStacker(func=m3func, frames=window_size)
-
-    detector = None
-    if detector_name == "ClassicDetector":
-        detector = ClassicDetector(window_size, detect_cfg, debug_mode)
-    elif detector_name == "M3Detector":
-        detector = M3Detector(window_size, detect_cfg, debug_mode)
-
-    # 初始化流星收集器
-    main_mc = MeteorCollector(**meteor_cfg, fps=fps)
-
+    # Init main iterator
     if work_mode == 'frontend':
         main_iterator = tqdm.tqdm(range(start_frame, end_frame), ncols=50)
     elif work_mode == 'backend':
@@ -234,7 +211,7 @@ if __name__ == "__main__":
         '--debug-mode', '-D', help="Apply Debug Mode.", default=False)
 
     args = parser.parse_args()
-    
+
     video_name = args.target
     cfg_filename = args.cfg
     mask_name = args.mask

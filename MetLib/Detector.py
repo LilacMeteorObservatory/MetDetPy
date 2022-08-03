@@ -4,6 +4,24 @@ from .utils import m3func
 
 pi = 3.141592653589793 / 180.0
 
+def init_detector(name, detect_cfg, debug_mode, fps):
+    if name == "ClassicDetector":
+        return ClassicDetector(window_size, detect_cfg, debug_mode)
+
+    elif name == "M3Detector":
+        # Odd Length for M3Detector
+        window_size = int(detect_cfg["window_sec"] * fps)
+        if window_size // 2 == 0:
+            window_size += 1
+        if detect_cfg["median_sampling_num"] == -1:
+            detect_cfg.update(median_skipping=1)
+        else:
+            assert detect_cfg["median_sampling_num"] >= 3, "You must set median_sampling_num to 3 or larger."
+            detect_cfg.update(
+                median_skipping=(window_size - 1) // (
+                    detect_cfg["median_sampling_num"] - 1))
+        return M3Detector(window_size, detect_cfg, debug_mode)
+
 
 def DrawHist(src, mask, hist_num=256, threshold=0):
     """使用Opencv给给定的图像上绘制直方图。绘制的直方图大小和输入图像尺寸相当。
@@ -59,7 +77,7 @@ class BaseDetector(object):
 
     def update(self, new_frames):
         self.stack.extend(new_frames)
-        self.stack=self.stack[-self.stack_maxsize:]
+        self.stack = self.stack[-self.stack_maxsize:]
 
     def draw_on(self, canvas):
         """

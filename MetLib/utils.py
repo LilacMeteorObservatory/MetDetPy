@@ -18,9 +18,11 @@ def load_mask(filename, resize_param):
     mask = preprocessing(mask, resize_param=resize_param)
     return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
 
+
 def preprocessing(frame, mask=1, resize_param=(0, 0)):
     frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
     return frame * mask
+
 
 def set_out_pipe(workmode):
     if workmode == "backend":
@@ -33,6 +35,7 @@ def stdout_backend(*args):
     print(*args)
     sys.stdout.flush()
 
+
 def m3func(image_stack, skipping=1):
     """M3 for Max Minus Median.
     Args:
@@ -40,6 +43,7 @@ def m3func(image_stack, skipping=1):
     """
     sort_stack = np.sort(image_stack[::skipping], axis=0)
     return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
+
 
 def _rf_est_kernel(video,
                    n_frames,
@@ -95,21 +99,65 @@ def rf_estimator(video, img_mask):
     else:
         # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
         intervals_1 = _rf_est_kernel(video, 100, img_mask, 0)
-        intervals_2 =_rf_est_kernel(video, 100, img_mask, (total_frame - 100) // 2)
-        intervals_3 =_rf_est_kernel(video, 100, img_mask, total_frame - 100)
-        intervals = np.concatenate([intervals_1,intervals_2,intervals_3])
+        intervals_2 = _rf_est_kernel(video, 100, img_mask,
+                                     (total_frame - 100) // 2)
+        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 100)
+        intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     est_frames = np.median(intervals)
     return est_frames
 
-def test_tf_eestimator(test_video,test_mask):
+
+def init_exp_time(exp_time, video, mask):
+    """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
+    (SimpleStacker do not rely on this.)
+
+    Args:
+        exp_time (int,float,str): value from config.json. It can be either a value or a specified string.
+        video (cv2.VideoCapture): the video.
+        mask (np.array): mask array.
+
+    Raises:
+        ValueError: raised if the exp_time is invalid.
+
+    Returns:
+        exp_time, exp_frame: the exposure time in float, and the exposure frames in int.
+    """
+    # TODO: Rewrite this annotation.
+    fps = video.get(cv2.CAP_PROP_FPS)
+    assert isinstance(
+        exp_time,
+        (str, float,
+         int)), "exp_time should be either <str, float, int>, got %s" % (
+             type(exp_time))
+    if isinstance(exp_time, (float, int)):
+        return float(exp_time)
+    else:
+        if exp_time == "real-time":
+            return 1 / fps
+        if exp_time == "slow":
+            # TODO: Any better idea?
+            return 1 / 4
+        if exp_time == "auto":
+            rf = rf_estimator(video, mask)
+            return rf / fps
+        raise ValueError(
+            "Invalid exp_time string value. It should be selected from \
+                \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
+
+
+def test_tf_estimator(test_video, test_mask):
     video, img_mask = load_video_and_mask(
         test_video, test_mask, resize_param=(960, 540))
     assume_rf = rf_estimator(video, img_mask)
-    print("The given video is assumed to have a exposure time of %.2f s each frame."%(assume_rf/video.get(cv2.CAP_PROP_FPS)))
+    print(
+        "The given video is assumed to have a exposure time of %.2f s each frame."
+        % (assume_rf / video.get(cv2.CAP_PROP_FPS)))
+
 
 #####################################################
 ##WARNING: The Following Functions Are Deprecatred.##
 #####################################################
+
 
 def GammaCorrection(src, gamma):
     """deprecated."""
@@ -144,14 +192,15 @@ def sanaas(stack: np.array, des: np.array, boolmap, L, H, W):
                 k, position]
     return stack, des
 
+
 def series_keeping(sort_stack, frame, window_size, boolmap, L, H, W):
     sort_stack = np.concatenate((sort_stack[1:], sort_stack[:1]), axis=0)
     # Reshape为二维
     window_stack = np.reshape(window_stack, (L, H * W))
     sort_stack = np.reshape(sort_stack, (L, H * W))
     # numba加速的双向冒泡
-    window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L,
-                                      H, W)
+    window_stack, sort_stack = sanaas(window_stack, sort_stack, boolmap, L, H,
+                                      W)
     # 计算max-median
     diff_img = np.reshape(window_stack[sort_stack[-1],
                                        np.where(sort_stack[-1] >= 0)[0]],
