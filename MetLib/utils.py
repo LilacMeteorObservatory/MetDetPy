@@ -120,7 +120,7 @@ def init_exp_time(exp_time, video, mask):
         ValueError: raised if the exp_time is invalid.
 
     Returns:
-        exp_time, exp_frame: the exposure time in float, and the exposure frames in int.
+        exp_time: the exposure time in float.
     """
     # TODO: Rewrite this annotation.
     fps = video.get(cv2.CAP_PROP_FPS)

@@ -7,10 +7,10 @@
         480,
         270
     ],
-    "stacker": "SimpleStacker",
+    "exp_time": "auto",
+    "stacker": "MergeStacker",
     "stacker_cfg": {
-        "pfunc": "max",
-        "exp_time": "auto"
+        "pfunc": "max"
     },
 
     "detector": "M3Detector",
@@ -29,7 +29,7 @@
             10
         ],
         "speed_range": [
-            1.6,
+            1.5,
             4.6
         ],
         "thre2": 320

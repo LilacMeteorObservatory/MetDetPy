@@ -1,16 +1,20 @@
 #import logging
 import argparse
+import asyncio
 import json
+import time
+from functools import partial
+from math import floor, trunc
+
 import cv2
 import numpy as np
 import tqdm
-import asyncio
 from munch import Munch
-from functools import partial
 
+from MetLib import init_detector, init_stacker
 from MetLib.MeteorLib import MeteorCollector
-from MetLib import init_stacker, init_detector
-from MetLib.utils import set_out_pipe, preprocessing, load_video_and_mask
+from MetLib.utils import (init_exp_time, load_video_and_mask, preprocessing,
+                          set_out_pipe)
 from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:
@@ -98,9 +102,19 @@ async def detect_video(video_name,
             "The file \"%s\" cannot be opened as a supported video format." %
             video_name)
 
+    # Acquire exposure time and eqirvent FPS(eq_fps)
     total_frame, fps = int(video.get(cv2.CAP_PROP_FRAME_COUNT)), video.get(
         cv2.CAP_PROP_FPS)
-
+    if cfg.stacker == "SimpleStacker":
+        progout(
+            "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
+        exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
+    else:
+        progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
+        exp_time = init_exp_time(cfg.exp_time, video, mask)
+        exp_frame, eq_fps, eq_int_fps = trunc(
+            exp_time * fps), 1 / exp_time, floor(1 / exp_time)
+    progout("Apply exposure time of %.2fs." % (exp_time))
     # 根据指定头尾跳转指针与结束帧
     start_frame, end_frame = 0, total_frame
     start_time, end_time = time_range
@@ -112,15 +126,14 @@ async def detect_video(video_name,
         raise ValueError("Invalid start time or end time.")
     # 起点跳转到指定帧
     video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    progout("Total frames = %d ; FPS = %.2f" % (end_frame - start_frame, fps))
+    progout("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
+            (end_frame - start_frame, fps, eq_fps))
 
     # Init stacker_manager
-    stack_manager, exp_time = init_stacker(cfg.stacker, cfg.stacker_cfg, video,
-                                           mask, fps)
-    progout("Apply exposure time of %.2fs." % (exp_time))
+    stack_manager = init_stacker(cfg.stacker, cfg.stacker_cfg, exp_frame)
 
     # Init detector
-    detector = init_detector(cfg.detector, cfg.detect_cfg, debug_mode, fps)
+    detector = init_detector(cfg.detector, cfg.detect_cfg, debug_mode, eq_fps)
 
     # Init meteor collector
     # TODO: To be renewed
@@ -134,7 +147,7 @@ async def detect_video(video_name,
         speed_range=meteor_cfg_inp.speed_range,
         thre2=meteor_cfg_inp.thre2)
     main_mc = MeteorCollector(**meteor_cfg, fps=fps)
-    
+
     # Init videoReader
     video_reader = ThreadVideoReader(
         video,
@@ -142,18 +155,18 @@ async def detect_video(video_name,
         pre_func=partial(preprocessing, mask=mask, resize_param=resize_param))
 
     # Init main iterator
+    main_iterator = range(start_frame, end_frame, exp_frame)
     if work_mode == 'frontend':
-        main_iterator = tqdm.tqdm(range(start_frame, end_frame), ncols=50)
-    elif work_mode == 'backend':
-        main_iterator = range(start_frame, end_frame)
+        main_iterator = tqdm.tqdm(main_iterator, ncols=100)
 
     try:
+        t0 = time.time()
         video_reader.start()
         for i in main_iterator:
             # Logging for backend only.
             # TODO: Use Logging module to replace progout
-            if work_mode == 'backend' and i % int(fps) == 0:
-                progout("Processing: %d" % (i / fps * 1000))
+            if work_mode == 'backend' and i % eq_int_fps == 0:
+                progout("Processing: %d" % (int(1000 * i * exp_time)))
 
             #print(len(video_reader.frame_pool))
 
@@ -181,6 +194,7 @@ async def detect_video(video_name,
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
+        progout("Time cost: %.4ss."%(time.time()-t0))
 
 
 if __name__ == "__main__":

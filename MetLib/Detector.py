@@ -4,14 +4,15 @@ from .utils import m3func
 
 pi = 3.141592653589793 / 180.0
 
+
 def init_detector(name, detect_cfg, debug_mode, fps):
     if name == "ClassicDetector":
-        return ClassicDetector(window_size, detect_cfg, debug_mode)
+        return ClassicDetector(-1, detect_cfg, debug_mode)
 
     elif name == "M3Detector":
         # Odd Length for M3Detector
-        window_size = int(detect_cfg["window_sec"] * fps)
-        if window_size // 2 == 0:
+        window_size = min(int(detect_cfg["window_sec"] * fps), 2)
+        if window_size % 2 == 0:
             window_size += 1
         if detect_cfg["median_sampling_num"] == -1:
             detect_cfg.update(median_skipping=1)
@@ -160,12 +161,12 @@ class M3Detector(BaseDetector):
         super().__init__(*args, **kwargs)
 
     def detect(self) -> tuple:
-        if len(self.stack) <= self.stack_maxsize:
+        if 3<= len(self.stack) <= self.stack_maxsize:
             diff_img = m3func(self.stack)
         else:
-            diff_img = m3func(self.stack,
-                              getattr(self, "median_sampling_num", 1))
-
+            return False, []
+            #diff_img = m3func(self.stack,
+            #                  getattr(self, "median_sampling_num", 1))
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
         linesp = cv2.HoughLinesP(

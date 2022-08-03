@@ -1,24 +1,24 @@
-from matplotlib.style import available
+from functools import partial
+
 import numpy as np
-from .utils import m3func, init_exp_time
 
-available_func = dict(max=np.max, m3func=m3func)
-auto_framer = dict(realtime=1, )
+from .utils import m3func
+
+available_func = dict(max=partial(np.max, axis=0), m3func=m3func)
 
 
-def init_stacker(name, cfg, video, mask, fps):
+def init_stacker(name, cfg, exp_frame):
     if name == "SimpleStacker":
-        return SimpleStacker(), 1 / fps
+        return SimpleStacker()
     elif name == "MergeStacker":
-        pfunc, exp_time = cfg["pfunc"], cfg["exp_time"]
+        pfunc = cfg["pfunc"]
         if not pfunc in available_func:
             raise NameError(
                 "Unsupported preprocessing function name: %s; Only %s are supported now."
                 % (pfunc, available_func))
-        func = available(pfunc)
-        exp_time = init_exp_time(exp_time, video, mask)
+        func = available_func[pfunc]
 
-        return MergeStacker(func, window_size=int(exp_time * fps)), exp_time
+        return MergeStacker(func, window_size=exp_frame)
     else:
         raise NameError("Undefined stacker name: %s" % (name))
 
