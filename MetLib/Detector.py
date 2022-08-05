@@ -77,7 +77,7 @@ class BaseDetector(object):
         pass
 
     def update(self, new_frames):
-        self.stack.extend(new_frames)
+        self.stack.append(new_frames)
         self.stack = self.stack[-self.stack_maxsize:]
 
     def draw_on(self, canvas):
@@ -192,3 +192,45 @@ class M3Detector(BaseDetector):
                     (y, x)), cv2.COLOR_GRAY2BGR)
             canvas[x:, y:] = cv2.resize(drawing, (y, x))
             drawing = canvas
+
+class FastDetector(BaseDetector):
+    '''基于日本人版本改写的更快更简洁的检测器。
+    用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
+    '''
+
+    # 必须包含的参数
+    # bi_threshold line_threshold self.line_minlen
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 2帧窗口（硬编码）
+        self.stack_maxsize = 2
+    def detect(self):
+        # 短于4帧时不进行判定
+        if len(self.stack) < self.stack_maxsize:
+            return False, []
+        # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
+        diff23 = cv2.absdiff(self.stack[2], self.stack[3])
+        _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
+                                  cv2.THRESH_BINARY)
+        diff23 = cv2.dilate(
+            diff23,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
+        diff23 = 255 - diff23
+        ## 用diff23和0,1帧做位与运算（掩模？），屏蔽2,3帧的差一部分
+        f1 = cv2.bitwise_and(diff23, self.stack[0])
+        f2 = cv2.bitwise_and(diff23, self.stack[1])
+        ## 差分0,1帧，二值化，膨胀（高亮有差异部分）
+        dst = cv2.absdiff(f1, f2)
+        _, dst = cv2.threshold(dst, self.bi_threshold, 255, cv2.THRESH_BINARY)
+        dst = cv2.dilate(
+            dst,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
+        # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
+        # 所以即使检出应该也是第一帧上面检出。
+        self.linesp = cv2.HoughLinesP(dst, 1, pi, self.line_threshold,
+                                      self.line_minlen, 0)
+        if self.linesp is None:
+            return False, []
+        return True, self.linesp[0]

@@ -1,6 +1,7 @@
 import numpy as np
 import datetime
 import json
+import cv2
 
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
@@ -117,17 +118,13 @@ class MeteorCollector(object):
         final_list = [json.dumps(x) for x in final_list]
         return final_list
 
-    def draw_on_img(self, img, resize_param,draw_func , ref_zp=(0, 0)):
+    def draw_on_img(self, img):
         #raise NotImplementedError("Global vars are not solved until next update.")
-        rescale_param = [y / x for (x, y) in zip(resize_param, ref_zp)]
+        draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
-            pt1 = tuple(
-                int(x * p + d) for x, p, d in zip(pt1, rescale_param, ref_zp))
-            pt2 = tuple(
-                int(x * p + d) for x, p, d in zip(pt2, rescale_param, ref_zp))
-            img = draw_func(img, pt1, pt2, [0, 0, 255], 2)
-        return img
+            draw_img = cv2.rectangle(draw_img, pt1, pt2, [0, 0, 255], 2)
+        return draw_img
 
 
 class MeteorSeries(object):

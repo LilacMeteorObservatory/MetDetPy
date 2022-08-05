@@ -89,7 +89,6 @@ async def detect_video(video_name,
                        time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg.resize_param
-    visual_param = cfg.visual_param
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
 
     # set output mode
@@ -166,7 +165,7 @@ async def detect_video(video_name,
             # Logging for backend only.
             # TODO: Use Logging module to replace progout
             if work_mode == 'backend' and i % eq_int_fps == 0:
-                progout("Processing: %d" % (int(1000 * i * exp_time)))
+                progout("Processing: %d" % (int(1000 * i / fps)))
 
             #print(len(video_reader.frame_pool))
 
@@ -174,7 +173,7 @@ async def detect_video(video_name,
                 break
 
             # TODO: Replace with API of video_reader.
-            detector = stack_manager.update(video_reader, detector)
+            stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
             flag, lines = detector.detect()
@@ -185,7 +184,7 @@ async def detect_video(video_name,
                 if (cv2.waitKey(1) & 0xff == ord("q")):
                     break
                 draw_img = main_mc.draw_on_img(
-                    draw_img, resize_param, cv2.rectangle, ref_zp=visual_param)
+                    stack_manager.cur_frame)
                 cv2.imshow("DEBUG MODE", draw_img)
 
     finally:
@@ -194,7 +193,7 @@ async def detect_video(video_name,
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
-        progout("Time cost: %.4ss."%(time.time()-t0))
+        progout("Time cost: %.4ss." % (time.time() - t0))
 
 
 if __name__ == "__main__":
@@ -222,14 +221,18 @@ if __name__ == "__main__":
         help='Working mode. Logging will change according to the working mode.'
     )
     parser.add_argument(
-        '--debug-mode', '-D', help="Apply Debug Mode.", default=False)
+        '--debug',
+        '-D',
+        action='store_true',
+        help="Apply Debug Mode",
+        default=False)
 
     args = parser.parse_args()
 
     video_name = args.target
     cfg_filename = args.cfg
     mask_name = args.mask
-    debug_mode = args.debug_mode
+    debug_mode = args.debug
     work_mode = args.mode
     start_time = args.start_time
     end_time = args.end_time

@@ -3,10 +3,6 @@
         960,
         540
     ],
-    "visual_param": [
-        480,
-        270
-    ],
     "exp_time": "auto",
     "stacker": "MergeStacker",
     "stacker_cfg": {
@@ -32,6 +28,6 @@
             1.5,
             4.6
         ],
-        "thre2": 320
+        "thre2": 640
     }
 }

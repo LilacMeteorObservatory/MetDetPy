@@ -34,7 +34,8 @@ class BaseStacker(object):
 
 class SimpleStacker(BaseStacker):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        # force window_size=1
+        super().__init__(window_size=1)
 
     def update(self, video_reader, detector):
         """原始的栈更新方法: 从video_stack直接加载帧放入检测窗口内。 
@@ -43,8 +44,8 @@ class SimpleStacker(BaseStacker):
             video_stack (_type_): _description_
             detector (_type_): _description_
         """
-        detector.update(video_reader.pop(self.window_size))
-        return detector
+        self.cur_frame = video_reader.pop(self.window_size)[0]
+        detector.update(self.cur_frame)
 
 
 class MergeStacker(BaseStacker):
@@ -62,5 +63,5 @@ class MergeStacker(BaseStacker):
         Returns:
             _type_: _description_
         """
-        detector.update([self.func(video_reader.pop(self.window_size))])
-        return detector
+        self.cur_frame = self.func(video_reader.pop(self.window_size))
+        detector.update(self.cur_frame)

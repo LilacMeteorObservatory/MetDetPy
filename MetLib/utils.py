@@ -101,7 +101,7 @@ def rf_estimator(video, img_mask):
         intervals_1 = _rf_est_kernel(video, 100, img_mask, 0)
         intervals_2 = _rf_est_kernel(video, 100, img_mask,
                                      (total_frame - 100) // 2)
-        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 100)
+        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 101)
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     est_frames = np.median(intervals)
     return est_frames
