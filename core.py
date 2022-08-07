@@ -81,12 +81,12 @@ meteor_cfg_inp = dict(
 '''
 
 
-async def detect_video(video_name,
-                       mask_name,
-                       cfg,
-                       debug_mode,
-                       work_mode="frontend",
-                       time_range=(None, None)):
+def detect_video(video_name,
+                 mask_name,
+                 cfg,
+                 debug_mode,
+                 work_mode="frontend",
+                 time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg.resize_param
     meteor_cfg_inp = cfg["meteor_cfg_inp"]
@@ -176,15 +176,15 @@ async def detect_video(video_name,
             stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
-            flag, lines = detector.detect()
+            flag, lines,img_api = detector.detect()
 
             if flag:
                 output_meteors(main_mc.update(i, lines=lines), progout)
             if debug_mode:
                 if (cv2.waitKey(1) & 0xff == ord("q")):
                     break
-                draw_img = main_mc.draw_on_img(
-                    stack_manager.cur_frame)
+                draw_img = main_mc.draw_on_img(img_api)
+                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
                 cv2.imshow("DEBUG MODE", draw_img)
 
     finally:
@@ -238,16 +238,23 @@ if __name__ == "__main__":
     end_time = args.end_time
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = Munch(json.load(f))
+    detect_video(
+        video_name,
+        mask_name,
+        cfg,
+        debug_mode,
+        work_mode,
+        time_range=(start_time, end_time))
     # async main loop
-    loop = asyncio.get_event_loop()
-    tasks = [
-        detect_video(
-            video_name,
-            mask_name,
-            cfg,
-            debug_mode,
-            work_mode,
-            time_range=(start_time, end_time))
-    ]
-    loop.run_until_complete(asyncio.wait(tasks))
-    loop.close()
+    #loop = asyncio.get_event_loop()
+    #tasks = [
+    #    detect_video(
+    #        video_name,
+    #        mask_name,
+    #        cfg,
+    #        debug_mode,
+    #        work_mode,
+    #        time_range=(start_time, end_time))
+    #]
+    #loop.run_until_complete(asyncio.wait(tasks))
+    #loop.close()

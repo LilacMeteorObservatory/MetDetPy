@@ -5,6 +5,7 @@ import cv2
 
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
+color_map = [[0,0,255],[0,255,0]]
 
 class MeteorCollector(object):
     """
@@ -123,7 +124,7 @@ class MeteorCollector(object):
         draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
-            draw_img = cv2.rectangle(draw_img, pt1, pt2, [0, 0, 255], 2)
+            draw_img = cv2.rectangle(draw_img, pt1, pt2, color_map[ms.prob_meteor()], 2)
         return draw_img
 
 

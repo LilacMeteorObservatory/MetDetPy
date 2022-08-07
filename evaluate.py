@@ -1,6 +1,9 @@
-from core import test
+from asyncore import loop
+from core import detect_video
 import json
 import argparse
+import asyncio
+from munch import Munch
 
 parser = argparse.ArgumentParser(description='MetDetPy Evaluater.')
 
@@ -12,7 +15,11 @@ parser.add_argument(
     '--cfg', '-C', help="Config file.", default="./config.json")
 
 parser.add_argument(
-    '--debug-mode', '-D', help="Apply Debug Mode.", default=False)
+        '--debug',
+        '-D',
+        action='store_true',
+        help="Apply Debug Mode",
+        default=False)
 
 args = parser.parse_args()
 
@@ -22,13 +29,16 @@ with open(args.videos, mode='r', encoding='utf-8') as f:
     video_dict = json.load(f)
 
 with open('config.json', mode='r', encoding='utf-8') as f:
-    cfg = json.load(f)
+    cfg = Munch(json.load(f))
 
 # single_test
 #test(*fp_database[-2], cfg, True)
 
-for video,mask in video_dict["false_positive"]:
-    test(video,mask,cfg,args.debug_mode)
+tasks = []
+for obj in video_dict["false_positive"]:
+    obj=Munch(obj)
+    detect_video(obj.video,obj.mask,cfg,args.debug)
+
 
 # overall_test
 #:

@@ -11,7 +11,7 @@ def init_detector(name, detect_cfg, debug_mode, fps):
 
     elif name == "M3Detector":
         # Odd Length for M3Detector
-        window_size = min(int(detect_cfg["window_sec"] * fps), 2)
+        window_size = max(int(detect_cfg["window_sec"] * fps), 2)
         if window_size % 2 == 0:
             window_size += 1
         if detect_cfg["median_sampling_num"] == -1:
@@ -107,7 +107,7 @@ class ClassicDetector(BaseDetector):
     def detect(self):
         # 短于4帧时不进行判定
         if len(self.stack) < self.stack_maxsize:
-            return False, []
+            return False, [], self.stack[-1]
         # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
         diff23 = cv2.absdiff(self.stack[2], self.stack[3])
         _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
@@ -132,8 +132,8 @@ class ClassicDetector(BaseDetector):
         self.linesp = cv2.HoughLinesP(dst, 1, pi, self.line_threshold,
                                       self.line_minlen, 0)
         if self.linesp is None:
-            return False, []
-        return True, self.linesp[0]
+            return False, [], dst
+        return True, self.linesp[0], dst
 
 
 class M3Detector(BaseDetector):
@@ -164,18 +164,23 @@ class M3Detector(BaseDetector):
         if 3<= len(self.stack) <= self.stack_maxsize:
             diff_img = m3func(self.stack)
         else:
-            return False, []
+            return False, [], self.stack[-1]
             #diff_img = m3func(self.stack,
             #                  getattr(self, "median_sampling_num", 1))
+        diff_img = cv2.medianBlur(diff_img,3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
+        dst = cv2.dilate(
+            dst,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
         linesp = cv2.HoughLinesP(
             np.array(dst, dtype=np.uint8), 1, pi, self.line_threshold,
             self.line_minlen, 0)
 
         if linesp is None:
-            return False, []
-        return True, linesp[0]
+            return False, [], diff_img
+        return True, linesp[0], diff_img
 
     def draw_on(self, canvas):
         if self.debug_mode:
@@ -195,7 +200,7 @@ class M3Detector(BaseDetector):
 
 class FastDetector(BaseDetector):
     '''基于日本人版本改写的更快更简洁的检测器。
-    用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
+    拟用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
     '''
 
     # 必须包含的参数

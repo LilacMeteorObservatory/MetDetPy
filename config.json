@@ -19,15 +19,15 @@
     },
     "meteor_cfg_inp": {
         "min_len": 10,
-        "max_interval": 1.6,
+        "max_interval": 2,
         "time_range": [
             0.12,
             10
         ],
         "speed_range": [
-            1.5,
-            4.6
+            1,
+            5
         ],
-        "thre2": 640
+        "thre2": 320
     }
 }

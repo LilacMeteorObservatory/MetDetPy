@@ -139,7 +139,11 @@ def init_exp_time(exp_time, video, mask):
             return 1 / 4
         if exp_time == "auto":
             rf = rf_estimator(video, mask)
-            return rf / fps
+            if rf>0:
+                return rf / fps
+            else:
+                # TODO: Put a log here.
+                return 1 / fps
         raise ValueError(
             "Invalid exp_time string value. It should be selected from \
                 \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
