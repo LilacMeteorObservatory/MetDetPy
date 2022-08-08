@@ -11,8 +11,8 @@ import tqdm
 
 from MetLib import init_detector, init_stacker
 from MetLib.MeteorLib import MeteorCollector
-from MetLib.utils import (init_exp_time, load_video_and_mask, preprocessing,
-                          set_out_pipe,Munch)
+from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
+                          preprocessing, set_out_pipe)
 from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:

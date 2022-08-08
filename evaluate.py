@@ -1,8 +1,7 @@
-from asyncore import loop
-from core import detect_video
-import json
 import argparse
-import asyncio
+import json
+
+from core import detect_video
 from MetLib.utils import Munch
 
 parser = argparse.ArgumentParser(description='MetDetPy Evaluater.')

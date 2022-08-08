@@ -10,12 +10,12 @@ MetDetPy is a python script project that can detect meteors from video files. Me
 
 ## Release Version
 
-MetDetPy (is going to) work as the backend of the Meteor Master since version 1.2. You can get its Windows release version from:
+MetDetPy (is going to) work as the backend of the Meteor Master since version 1.2. You can get MeteorMaster(Windows release) version from:
 
 * [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
-We are planning to provide release versions of MetDetPy for other platforms (like macOS and Linux). Before which you can build it with `pyinstaller` (see [Package python codes to executables](#packaging)).
+We are planning to provide release versions of MetDetPy for other platforms (like macOS and Linux). Before which you can build it with `pyinstaller` (see [Package python codes to executables](#package-python-codes-to-executables)).
 
 ## Requirements
 
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 python core.py  [--cfg CFG] [--mask MASK] 
                 [--mode {backend,frontend}] 
                 [--start-time START_TIME] [--end-time END_TIME]
-                [--debug-mode DEBUG_MODE] 
+                [--debug-mode] 
                 target
 ```
 
@@ -82,23 +82,25 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 
 If a video has no corresponding mask, simply use `""` .
 
-<a name="packaging"></a>
-
 ## Package python codes to executables
 
-In order to successfully freeze MetDetPy programs into stand-alone executables, we suggest using `pyinstaller`. You should have `Python>=3.7` installed to avoid compatibility issues. Besides, the package `opencv-python<=4.5.3.56` is required to avoid recursion errors. (not fixed yet, 2022.08.08)
+In order to successfully freeze MetDetPy programs into stand-alone executables, we suggest using `pyinstaller>=5.0`. You should have `Python>=3.7` installed to avoid compatibility issues. Besides, the package `opencv-python<=4.5.3.56` is required to avoid recursion errors. (not fixed yet, 2022.08.08)
 
 When everything is ready, run `pyinstaller core.spec --clean` to package the code. The target executable will be generated in "./dist/" directory.
 
-## TODO
+## Todo List
 
  1. 更快的速度 Faster Speed (Almost Done.)
  2. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
  3. 完善日志系统
  4. 改善对蝙蝠等情况的误检
- 5. 改善对中文路径的支持(Done.)
- 6. 支持rtmp
- 7. 添加GUI
- 8. 为不同信噪比/焦距的图像设置合适的超参数组合？
+ 5. 支持rtmp
+ 6. 添加GUI
+ 7. 为不同信噪比/焦距的图像设置合适的超参数组合？
+
+## Done
+
+ 1. Improving non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持
+    By packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
 
 

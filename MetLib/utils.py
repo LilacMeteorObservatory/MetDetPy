@@ -1,9 +1,11 @@
 import sys
 from functools import partial
+
 import cv2
 import numpy as np
 
 from .VideoLoader import ThreadVideoReader
+
 
 class Munch(object):
     def __init__(self, idict) -> None:

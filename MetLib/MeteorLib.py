@@ -1,7 +1,8 @@
-import numpy as np
 import datetime
 import json
+
 import cv2
+import numpy as np
 
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
