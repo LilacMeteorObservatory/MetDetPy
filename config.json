@@ -3,7 +3,7 @@
         960,
         540
     ],
-    "exp_time": "auto",
+    "exp_time": 1,
     "stacker": "MergeStacker",
     "stacker_cfg": {
         "pfunc": "max"

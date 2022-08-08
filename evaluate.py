@@ -3,7 +3,7 @@ from core import detect_video
 import json
 import argparse
 import asyncio
-from munch import Munch
+from MetLib.utils import Munch
 
 parser = argparse.ArgumentParser(description='MetDetPy Evaluater.')
 

@@ -1,6 +1,5 @@
 #import logging
 import argparse
-import asyncio
 import json
 import time
 from functools import partial
@@ -9,12 +8,11 @@ from math import floor, trunc
 import cv2
 import numpy as np
 import tqdm
-from munch import Munch
 
 from MetLib import init_detector, init_stacker
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.utils import (init_exp_time, load_video_and_mask, preprocessing,
-                          set_out_pipe)
+                          set_out_pipe,Munch)
 from MetLib.VideoLoader import ThreadVideoReader
 
 ## baseline:
@@ -89,7 +87,7 @@ def detect_video(video_name,
                  time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg.resize_param
-    meteor_cfg_inp = cfg["meteor_cfg_inp"]
+    meteor_cfg_inp = cfg.meteor_cfg_inp
 
     # set output mode
     progout = set_out_pipe(work_mode)
@@ -110,7 +108,7 @@ def detect_video(video_name,
         exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
     else:
         progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
-        exp_time = init_exp_time(cfg.exp_time, video, mask)
+        exp_time = init_exp_time(cfg.exp_time, *load_video_and_mask(video_name, mask_name, resize_param))
         exp_frame, eq_fps, eq_int_fps = trunc(
             exp_time * fps), 1 / exp_time, floor(1 / exp_time)
     progout("Apply exposure time of %.2fs." % (exp_time))
@@ -136,6 +134,7 @@ def detect_video(video_name,
 
     # Init meteor collector
     # TODO: To be renewed
+    # TODO: Update My Munch
     meteor_cfg_inp = Munch(meteor_cfg_inp)
     meteor_cfg = dict(
         min_len=meteor_cfg_inp.min_len,
@@ -183,8 +182,8 @@ def detect_video(video_name,
             if debug_mode:
                 if (cv2.waitKey(1) & 0xff == ord("q")):
                     break
-                draw_img = main_mc.draw_on_img(img_api)
-                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                #draw_img = main_mc.draw_on_img(img_api)
+                draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
                 cv2.imshow("DEBUG MODE", draw_img)
 
     finally:

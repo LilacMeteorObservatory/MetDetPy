@@ -1,10 +1,16 @@
 import sys
 from functools import partial
-
 import cv2
 import numpy as np
 
 from .VideoLoader import ThreadVideoReader
+
+class Munch(object):
+    def __init__(self, idict) -> None:
+        for (key, value) in idict.items():
+            #if isinstance(value,dict):
+            #    value = Munch(value)
+            setattr(self, key, value)
 
 
 def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
@@ -14,10 +20,14 @@ def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
 
 
 def load_mask(filename, resize_param):
-    mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8), 1)
-    mask = preprocessing(mask, resize_param=resize_param)
-    return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
-
+    mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    if filename.lower().endswith(".jpg"):
+        mask = preprocessing(mask, resize_param=resize_param)
+        return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
+    elif filename.lower().endswith(".png"):
+        mask = cv2.resize(mask[:,:,-1], resize_param)
+        return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY_INV)[-1]
+    
 
 def preprocessing(frame, mask=1, resize_param=(0, 0)):
     frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
@@ -98,11 +108,14 @@ def rf_estimator(video, img_mask):
         intervals = _rf_est_kernel(video, total_frame, img_mask, 0)
     else:
         # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
+        # TODO: 规避bug的设计 不太美观。
         intervals_1 = _rf_est_kernel(video, 100, img_mask, 0)
         intervals_2 = _rf_est_kernel(video, 100, img_mask,
                                      (total_frame - 100) // 2)
-        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 101)
+        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 110)
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
+    if len(intervals)==0:
+        return 1
     est_frames = np.median(intervals)
     return est_frames
 
@@ -139,11 +152,7 @@ def init_exp_time(exp_time, video, mask):
             return 1 / 4
         if exp_time == "auto":
             rf = rf_estimator(video, mask)
-            if rf>0:
-                return rf / fps
-            else:
-                # TODO: Put a log here.
-                return 1 / fps
+            return rf / fps
         raise ValueError(
             "Invalid exp_time string value. It should be selected from \
                 \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))

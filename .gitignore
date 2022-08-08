@@ -1,4 +1,5 @@
 *.exe
 test_video.json
 __pycache__/
-compile_dir/
+build/
+dist/

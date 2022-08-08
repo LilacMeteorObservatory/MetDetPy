@@ -1,8 +1,12 @@
 # MetDetPy
 
-MetDetPy is a python script project that can detect meteors from video files.
+MetDetPy is a python script project that can detect meteors from video files. MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector). 
 
-MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector). Different from their frame-difference approach, we apply a shifted window highlight detection (by misusing max to median) to achieve highly sensitive detection.
+* We reproduce their work and implement moree detectors (like M3Detector (where M3 for maximum minus median)). These detectors can help realize highly sensitive meteor detection. 
+
+* We also implement a meteor detection result manager (MeteorLib) to help filter and integrate detection response, which is helpful to exclude false positive samples.
+
+* An evaluation code is under development.
 
 ## Release Version
 
@@ -11,16 +15,18 @@ MetDetPy (is going to) work as the backend of the Meteor Master since version 1.
 * [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
+We are planning to provide release versions of MetDetPy for other platforms (like macOS and Linux). Before which you can build it with `pyinstaller` (see [Package python codes to executables](#packaging)).
+
 ## Requirements
 
 ### Enviroments
 
-* Python>=3.6
+* Python>=3.6 (3.7 and later is recommended if packaging codes is required)
 
 ### Packages
 
 * numpy>=1.15.0
-* opencv_python>=4.0.0
+* opencv_python>=4.0.0 (but <=4.5.3.56 if packaging codes is required)
 * tqdm>=4.0.0
 
 You can install these packages using:
@@ -76,12 +82,23 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 
 If a video has no corresponding mask, simply use `""` .
 
+<a name="packaging"></a>
+
+## Package python codes to executables
+
+In order to successfully freeze MetDetPy programs into stand-alone executables, we suggest using `pyinstaller`. You should have `Python>=3.7` installed to avoid compatibility issues. Besides, the package `opencv-python<=4.5.3.56` is required to avoid recursion errors. (not fixed yet, 2022.08.08)
+
+When everything is ready, run `pyinstaller core.spec --clean` to package the code. The target executable will be generated in "./dist/" directory.
+
 ## TODO
 
- 1. 更快的速度 Faster Speed (now working on i5-7500 with an average of 50 fps)
- 2. 改善对于实际低帧率视频的检测效果
+ 1. 更快的速度 Faster Speed (Almost Done.)
+ 2. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
  3. 完善日志系统
  4. 改善对蝙蝠等情况的误检
- 5. 改善对中文路径的支持
+ 5. 改善对中文路径的支持(Done.)
  6. 支持rtmp
  7. 添加GUI
+ 8. 为不同信噪比/焦距的图像设置合适的超参数组合？
+
+
