@@ -9,6 +9,13 @@ pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 color_map = [[0, 0, 255], [0, 255, 0]]
 
 
+def init_output_dict(ms, ms_json):
+    return dict(start_time=ms_json['start_time'],
+                end_time=ms_json['end_time'],
+                end_frame=ms.end_frame,
+                target=[ms_json])
+
+
 class MeteorCollector(object):
     """
     全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列。
@@ -47,17 +54,20 @@ class MeteorCollector(object):
         temp_waiting_meteor, drop_list = [], []
         met_list = []
         for ms in self.active_meteor:
-            if self.cur_frame - ms.last_activate_frame > self.max_interval:
+            if self.cur_frame - ms.last_activate_frame >= self.max_interval:
                 if ms.prob_meteor() >= self.det_thre:
                     temp_waiting_meteor.append(ms)
                 else:
                     drop_list.append(ms)
-                    pass
         # 维护
         for ms in drop_list:
             self.active_meteor.remove(ms)
         for ms in temp_waiting_meteor:
             self.active_meteor.remove(ms)
+        drop_list = [
+            json.dumps(init_output_dict(ms, ms.property_json))
+            for ms in drop_list
+        ]
         self.waiting_meteor.extend(temp_waiting_meteor)
         # 整合待导出序列：如果没有活跃的潜在流星，则导出
         if len(self.waiting_meteor) > 0:
@@ -97,12 +107,6 @@ class MeteorCollector(object):
         return met_list, drop_list
 
     def jsonize_waiting_meteor(self):
-
-        def init_output_dict(ms, ms_json):
-            return dict(start_time=ms_json['start_time'],
-                        end_time=ms_json['end_time'],
-                        end_frame=ms.end_frame,
-                        target=[ms_json])
 
         output_dict = dict()
         final_list = []

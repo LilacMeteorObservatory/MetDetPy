@@ -26,12 +26,13 @@ from MetLib.VideoLoader import ThreadVideoReader
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
 
-def output_meteors(update_info, stream):
+def output_meteors(update_info, stream,debug_mode):
     met_lst, drop_lst = update_info
     for met in met_lst:
         stream("Meteor: %s" % met)
-    for met in drop_lst:
-        stream("Dropped: %s" % met)
+    if debug_mode:
+        for met in drop_lst:
+            stream("Dropped: %s" % met)
 
 
 '''
@@ -178,7 +179,7 @@ def detect_video(video_name,
             flag, lines,img_api = detector.detect()
 
             if flag:
-                output_meteors(main_mc.update(i, lines=lines), progout)
+                output_meteors(main_mc.update(i, lines=lines), progout,debug_mode)
             if debug_mode:
                 if (cv2.waitKey(1) & 0xff == ord("q")):
                     break
@@ -189,7 +190,7 @@ def detect_video(video_name,
 
     finally:
         video_reader.stop()
-        output_meteors(main_mc.update(np.inf, []), progout)
+        output_meteors(main_mc.update(np.inf, []), progout,debug_mode)
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
