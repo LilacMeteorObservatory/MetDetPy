@@ -26,13 +26,11 @@ from MetLib.VideoLoader import ThreadVideoReader
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
 
-def output_meteors(update_info, stream,debug_mode):
+def output_meteors(update_info, stream, debug_mode):
     met_lst, drop_lst = update_info
-    for met in met_lst:
-        stream("Meteor: %s" % met)
+    stream("Meteor: [%s]" % (",".join([met for met in met_lst])))
     if debug_mode:
-        for met in drop_lst:
-            stream("Dropped: %s" % met)
+        stream("Dropped: [%s]" % (",".join([met for met in drop_lst])))
 
 
 '''
@@ -65,7 +63,7 @@ detect_cfg=dict(
 # speed_range ： 描述流星的速度范围。超过或者没有到达阈值的响应将会被排除。单位：frame^(-1)。
 # thre ： 描述若干响应之间允许的最长距离平方。
 
-meteor_cfg_inp = dict(
+meteor_cfg = dict(
     min_len=10,
     max_interval=4,
     time_range=(0.12, 10),
@@ -85,10 +83,11 @@ def detect_video(video_name,
                  cfg,
                  debug_mode,
                  work_mode="frontend",
+                 inp_exp_time="as_cfg",
                  time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg.resize_param
-    meteor_cfg_inp = cfg.meteor_cfg_inp
+    meteor_cfg = cfg.meteor_cfg
 
     # set output mode
     progout = set_out_pipe(work_mode)
@@ -108,8 +107,12 @@ def detect_video(video_name,
             "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
         exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
     else:
+        if inp_exp_time is not "as_cfg":
+            cfg.exp_time=inp_exp_time
         progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
-        exp_time = init_exp_time(cfg.exp_time, *load_video_and_mask(video_name, mask_name, resize_param))
+        exp_time = init_exp_time(
+            cfg.exp_time,
+            *load_video_and_mask(video_name, mask_name, resize_param))
         exp_frame, eq_fps, eq_int_fps = round(
             exp_time * fps), 1 / exp_time, floor(1 / exp_time)
     progout("Apply exposure time of %.2fs." % (exp_time))
@@ -136,22 +139,23 @@ def detect_video(video_name,
     # Init meteor collector
     # TODO: To be renewed
     # TODO: Update My Munch
-    meteor_cfg_inp = Munch(meteor_cfg_inp)
-    meteor_cfg = dict(
-        min_len=meteor_cfg_inp.min_len,
-        max_interval=meteor_cfg_inp.max_interval * fps,
-        det_thre=0.5,
-        time_range=(meteor_cfg_inp.time_range[0] * fps,
-                    meteor_cfg_inp.time_range[1] * fps),
-        speed_range=meteor_cfg_inp.speed_range,
-        thre2=meteor_cfg_inp.thre2*(exp_frame**2))
-    main_mc = MeteorCollector(**meteor_cfg,eframe=exp_frame, fps=fps)
+    meteor_cfg = Munch(meteor_cfg)
+    meteor_cfg = dict(min_len=meteor_cfg.min_len,
+                      max_interval=meteor_cfg.max_interval * fps,
+                      det_thre=0.5,
+                      time_range=(meteor_cfg.time_range[0] * fps,
+                                  meteor_cfg.time_range[1] * fps),
+                      speed_range=meteor_cfg.speed_range,
+                      thre2=meteor_cfg.thre2 * (exp_frame**2))
+    main_mc = MeteorCollector(**meteor_cfg, eframe=exp_frame, fps=fps)
 
     # Init videoReader
-    video_reader = ThreadVideoReader(
-        video,
-        iterations=end_frame - start_frame,
-        pre_func=partial(preprocessing, mask=mask, resize_param=resize_param))
+    video_reader = ThreadVideoReader(video,
+                                     iterations=end_frame - start_frame,
+                                     pre_func=partial(
+                                         preprocessing,
+                                         mask=mask,
+                                         resize_param=resize_param))
 
     # Init main iterator
     main_iterator = range(start_frame, end_frame, exp_frame)
@@ -176,12 +180,13 @@ def detect_video(video_name,
             stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
-            flag, lines,img_api = detector.detect()
+            flag, lines, img_api = detector.detect()
 
             if flag:
-                output_meteors(main_mc.update(i, lines=lines), progout,debug_mode)
+                output_meteors(main_mc.update(i, lines=lines), progout,
+                               debug_mode)
             if debug_mode:
-                if (cv2.waitKey(1) & 0xff == ord("q")):
+                if (cv2.waitKey(int(exp_time * 1000)) & 0xff == ord("q")):
                     break
                 #draw_img = main_mc.draw_on_img(img_api)
                 draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
@@ -190,7 +195,7 @@ def detect_video(video_name,
 
     finally:
         video_reader.stop()
-        output_meteors(main_mc.update(np.inf, []), progout,debug_mode)
+        output_meteors(main_mc.update(np.inf, []), progout, debug_mode)
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
@@ -201,19 +206,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Meteor Detector V1.2')
 
     parser.add_argument('target', help="input H264 video.")
-    parser.add_argument(
-        '--cfg', '-C', help="Config file.", default="./config.json")
+    parser.add_argument('--cfg',
+                        '-C',
+                        help="Config file.",
+                        default="./config.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
-    parser.add_argument(
-        '--start-time',
-        help="The start time (ms) of the video.",
-        type=int,
-        default=None)
-    parser.add_argument(
-        '--end-time',
-        help="The end time (ms) of the video.",
-        type=int,
-        default=None)
+    parser.add_argument('--start-time',
+                        help="The start time (ms) of the video.",
+                        type=int,
+                        default=None)
+    parser.add_argument('--end-time',
+                        help="The end time (ms) of the video.",
+                        type=int,
+                        default=None)
+    parser.add_argument('--exp-time',
+                        help="The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
+                        type=str,
+                        default="as_cfg")
     parser.add_argument(
         '--mode',
         choices=['backend', 'frontend'],
@@ -221,12 +230,11 @@ if __name__ == "__main__":
         type=str,
         help='Working mode. Logging will change according to the working mode.'
     )
-    parser.add_argument(
-        '--debug',
-        '-D',
-        action='store_true',
-        help="Apply Debug Mode",
-        default=False)
+    parser.add_argument('--debug',
+                        '-D',
+                        action='store_true',
+                        help="Apply Debug Mode",
+                        default=False)
 
     args = parser.parse_args()
 
@@ -237,15 +245,16 @@ if __name__ == "__main__":
     work_mode = args.mode
     start_time = args.start_time
     end_time = args.end_time
+    exp_time = args.exp_time
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = Munch(json.load(f))
-    detect_video(
-        video_name,
-        mask_name,
-        cfg,
-        debug_mode,
-        work_mode,
-        time_range=(start_time, end_time))
+    detect_video(video_name,
+                 mask_name,
+                 cfg,
+                 debug_mode,
+                 work_mode,
+                 inp_exp_time=exp_time,
+                 time_range=(start_time, end_time))
     # async main loop
     #loop = asyncio.get_event_loop()
     #tasks = [

@@ -17,7 +17,7 @@
         "line_threshold": 10,
         "line_minlen": 16
     },
-    "meteor_cfg_inp": {
+    "meteor_cfg": {
         "min_len": 10,
         "max_interval": 2,
         "time_range": [

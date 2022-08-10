@@ -2,9 +2,9 @@ from functools import partial
 
 import numpy as np
 
-from .utils import m3func
+from .utils import m3func, mix_max_median_stacker
 
-available_func = dict(max=partial(np.max, axis=0), m3func=m3func)
+available_func = dict(max=partial(np.max, axis=0), m3func=m3func, mix=mix_max_median_stacker)
 
 
 def init_stacker(name, cfg, exp_frame):

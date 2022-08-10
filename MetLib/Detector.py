@@ -171,6 +171,7 @@ class M3Detector(BaseDetector):
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
+        # TODO: 这一套对噪点大的不太适用。。。
         dst = cv2.dilate(
             dst,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),

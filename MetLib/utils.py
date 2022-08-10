@@ -56,6 +56,12 @@ def m3func(image_stack, skipping=1):
     sort_stack = np.sort(image_stack[::skipping], axis=0)
     return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
 
+def mix_max_median_stacker(image_stack, threshold=80):
+    img_mean = np.mean(image_stack,axis=0)
+    img_max = np.max(image_stack,axis=0)
+    img_max[img_max<threshold]=img_mean[img_max<threshold]
+    return img_max
+
 
 def _rf_est_kernel(video,
                    n_frames,
