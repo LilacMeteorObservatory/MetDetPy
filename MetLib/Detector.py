@@ -18,10 +18,10 @@ def init_detector(name, detect_cfg, debug_mode, fps):
         if detect_cfg["median_sampling_num"] == -1:
             detect_cfg.update(median_skipping=1)
         else:
-            assert detect_cfg["median_sampling_num"] >= 3, "You must set median_sampling_num to 3 or larger."
-            detect_cfg.update(
-                median_skipping=(window_size - 1) // (
-                    detect_cfg["median_sampling_num"] - 1))
+            assert detect_cfg[
+                "median_sampling_num"] >= 3, "You must set median_sampling_num to 3 or larger."
+            detect_cfg.update(median_skipping=(window_size - 1) //
+                              (detect_cfg["median_sampling_num"] - 1))
         return M3Detector(window_size, detect_cfg, debug_mode)
 
 
@@ -162,31 +162,33 @@ class M3Detector(BaseDetector):
         super().__init__(*args, **kwargs)
 
     def detect(self) -> tuple:
-        if 3<= len(self.stack) <= self.stack_maxsize:
+        if 3 <= len(self.stack) <= self.stack_maxsize:
             diff_img = m3func(self.stack)
         else:
             return False, [], self.stack[-1]
             #diff_img = m3func(self.stack,
             #                  getattr(self, "median_sampling_num", 1))
-        diff_img = cv2.medianBlur(diff_img,3)
+        diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
         dst = cv2.dilate(
             dst,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         )
-        linesp = cv2.HoughLinesP(
-            np.array(dst, dtype=np.uint8), 1, pi, self.line_threshold,
-            self.line_minlen, 0)
+        dst = cv2.morphologyEx(
+            dst, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
+        linesp = cv2.HoughLinesP(np.array(dst, dtype=np.uint8), 1, pi,
+                                 self.line_threshold, self.line_minlen, 0)
 
         if linesp is None:
-            return False, [], diff_img
-        return True, linesp[0], diff_img
+            return False, [], dst
+        return True, linesp[0], dst
 
     def draw_on(self, canvas):
         if self.debug_mode:
-            diff_img = cv2.cvtColor(
-                np.array(diff_img, np.uint8), cv2.COLOR_GRAY2BGR)
+            diff_img = cv2.cvtColor(np.array(diff_img, np.uint8),
+                                    cv2.COLOR_GRAY2BGR)
             drawing = np.repeat(np.expand_dims(drawing, axis=-1), 3, axis=-1)
             y, x = self.visual_param
             canvas = np.zeros((x * 2, y * 2, 3), dtype=np.uint8)
@@ -199,6 +201,7 @@ class M3Detector(BaseDetector):
             canvas[x:, y:] = cv2.resize(drawing, (y, x))
             drawing = canvas
 
+
 class FastDetector(BaseDetector):
     '''基于日本人版本改写的更快更简洁的检测器。
     拟用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
@@ -210,6 +213,7 @@ class FastDetector(BaseDetector):
         super().__init__(*args, **kwargs)
         # 2帧窗口（硬编码）
         self.stack_maxsize = 2
+
     def detect(self):
         # 短于4帧时不进行判定
         if len(self.stack) < self.stack_maxsize:

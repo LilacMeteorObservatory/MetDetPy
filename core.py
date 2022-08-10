@@ -3,7 +3,7 @@ import argparse
 import json
 import time
 from functools import partial
-from math import floor, trunc
+from math import floor
 
 import cv2
 import numpy as np
@@ -109,7 +109,7 @@ def detect_video(video_name,
     else:
         progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
         exp_time = init_exp_time(cfg.exp_time, *load_video_and_mask(video_name, mask_name, resize_param))
-        exp_frame, eq_fps, eq_int_fps = trunc(
+        exp_frame, eq_fps, eq_int_fps = round(
             exp_time * fps), 1 / exp_time, floor(1 / exp_time)
     progout("Apply exposure time of %.2fs." % (exp_time))
     # 根据指定头尾跳转指针与结束帧
@@ -143,8 +143,8 @@ def detect_video(video_name,
         time_range=(meteor_cfg_inp.time_range[0] * fps,
                     meteor_cfg_inp.time_range[1] * fps),
         speed_range=meteor_cfg_inp.speed_range,
-        thre2=meteor_cfg_inp.thre2)
-    main_mc = MeteorCollector(**meteor_cfg, fps=fps)
+        thre2=meteor_cfg_inp.thre2*(exp_frame**2))
+    main_mc = MeteorCollector(**meteor_cfg,eframe=exp_frame, fps=fps)
 
     # Init videoReader
     video_reader = ThreadVideoReader(
@@ -184,6 +184,7 @@ def detect_video(video_name,
                     break
                 #draw_img = main_mc.draw_on_img(img_api)
                 draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("DEBUG MODE", draw_img)
 
     finally:

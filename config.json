@@ -3,7 +3,7 @@
         960,
         540
     ],
-    "exp_time": 1,
+    "exp_time": "auto",
     "stacker": "MergeStacker",
     "stacker_cfg": {
         "pfunc": "max"
@@ -12,7 +12,7 @@
     "detector": "M3Detector",
     "detect_cfg": {
         "window_sec": 0.36,
-        "bi_threshold": 5.4,
+        "bi_threshold": 4,
         "median_sampling_num": -1,
         "line_threshold": 10,
         "line_minlen": 16
@@ -28,6 +28,6 @@
             1,
             5
         ],
-        "thre2": 320
+        "thre2": 512
     }
 }

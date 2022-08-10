@@ -6,7 +6,8 @@ import numpy as np
 
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
-color_map = [[0,0,255],[0,255,0]]
+color_map = [[0, 0, 255], [0, 255, 0]]
+
 
 class MeteorCollector(object):
     """
@@ -14,19 +15,21 @@ class MeteorCollector(object):
     """
 
     def __init__(self, min_len, max_interval, det_thre, time_range,
-                 speed_range, thre2, fps) -> None:
+                 speed_range, thre2, eframe, fps) -> None:
         self.min_len = min_len
         self.max_interval = max_interval
         self.det_thre = det_thre
         self.active_meteor = [
-            MeteorSeries(np.inf, [-100, -100, -100, -100], (-np.nan, -np.nan),
-                         (-np.nan, -np.nan), np.nan, np.nan)
+            MeteorSeries(np.inf, np.inf, [-100, -100, -100, -100],
+                         (-np.nan, -np.nan), (-np.nan, -np.nan), np.nan,
+                         np.nan)
         ]
         self.waiting_meteor = []
         self.cur_frame = 0
         self.thre2 = thre2
         self.time_range = time_range
         self.speed_range = speed_range
+        self.eframe = eframe
         self.fps = fps
 
     def update(self, cur_frame, lines):
@@ -42,7 +45,7 @@ class MeteorCollector(object):
         # 维护活跃流星序列：将已经超过最长时间检测未响应的潜在流星序列移出，将满足条件的流星放入完成序列。
         self.cur_frame = cur_frame
         temp_waiting_meteor, drop_list = [], []
-        met_list= []
+        met_list = []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame > self.max_interval:
                 if ms.prob_meteor() >= self.det_thre:
@@ -84,22 +87,22 @@ class MeteorCollector(object):
                 continue
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
-                MeteorSeries(
-                    self.cur_frame,
-                    line,
-                    time_range=self.time_range,
-                    speed_range=self.speed_range,
-                    max_acceptable_dist=self.thre2,
-                    fps=self.fps))
+                MeteorSeries(self.cur_frame - self.eframe,
+                             self.cur_frame,
+                             line,
+                             time_range=self.time_range,
+                             speed_range=self.speed_range,
+                             max_acceptable_dist=self.thre2,
+                             fps=self.fps))
         return met_list, drop_list
 
     def jsonize_waiting_meteor(self):
+
         def init_output_dict(ms, ms_json):
-            return dict(
-                start_time=ms_json['start_time'],
-                end_time=ms_json['end_time'],
-                end_frame=ms.end_frame,
-                target=[ms_json])
+            return dict(start_time=ms_json['start_time'],
+                        end_time=ms_json['end_time'],
+                        end_frame=ms.end_frame,
+                        target=[ms_json])
 
         output_dict = dict()
         final_list = []
@@ -109,8 +112,8 @@ class MeteorCollector(object):
                 output_dict = init_output_dict(ms, ms_json)
                 continue
             if ms.start_frame < output_dict['end_frame'] + self.max_interval:
-                output_dict.update(
-                    end_time=ms_json['end_time'], end_frame=ms.end_frame)
+                output_dict.update(end_time=ms_json['end_time'],
+                                   end_frame=ms.end_frame)
                 output_dict["target"].append(ms_json)
             else:
                 final_list.append(output_dict)
@@ -121,11 +124,11 @@ class MeteorCollector(object):
         return final_list
 
     def draw_on_img(self, img):
-        #raise NotImplementedError("Global vars are not solved until next update.")
         draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
-            draw_img = cv2.rectangle(draw_img, pt1, pt2, color_map[ms.prob_meteor()], 2)
+            draw_img = cv2.rectangle(draw_img, pt1, pt2,
+                                     color_map[ms.prob_meteor()], 2)
         return draw_img
 
 
@@ -136,15 +139,15 @@ class MeteorSeries(object):
         object (_type_): _description_
     """
 
-    def __init__(self, frame, init_box, time_range, speed_range,
-                 max_acceptable_dist, fps):
+    def __init__(self, start_frame, cur_frame, init_box, time_range,
+                 speed_range, max_acceptable_dist, fps):
         self.coord_list = []
         self.len_list = []
-        self.coord_list.append(self.box2coord(init_box))
+        self.coord_list.extend(self.box2coord(init_box))
         self.len_list.append(pt_len_4(init_box))
-        self.start_frame = frame
-        self.end_frame = frame
-        self.last_activate_frame = frame
+        self.start_frame = start_frame
+        self.end_frame = cur_frame
+        self.last_activate_frame = cur_frame
         self.max_acceptable_dist = max_acceptable_dist
         self.time_range = time_range
         self.speed_range = speed_range
@@ -157,15 +160,14 @@ class MeteorSeries(object):
 
     @property
     def property_json(self) -> dict:
-        return dict(
-            start_time=self.frame2ts(self.start_frame),
-            end_time=self.frame2ts(self.end_frame),
-            last_activate_time=self.frame2ts(self.last_activate_frame),
-            duration=self.duration,
-            speed=self.speed,
-            dist=self.dist,
-            pt1=self.range[0],
-            pt2=self.range[1])
+        return dict(start_time=self.frame2ts(self.start_frame),
+                    end_time=self.frame2ts(self.end_frame),
+                    last_activate_time=self.frame2ts(self.last_activate_frame),
+                    duration=self.duration,
+                    speed=self.speed,
+                    dist=self.dist,
+                    pt1=self.range[0],
+                    pt2=self.range[1])
 
     @property
     def duration(self):
@@ -195,7 +197,8 @@ class MeteorSeries(object):
             "%H:%M:%S.%f")
 
     def box2coord(cls, box):
-        return [(box[0] + box[2]) // 2, (box[1] + box[3]) // 2]
+        return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) / 2,
+                                                    (box[1] + box[3]) / 2]
 
     def update(self, new_frame, new_box):
         pt1, pt2 = new_box[:2], new_box[2:]
@@ -212,10 +215,10 @@ class MeteorSeries(object):
         #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
         #    return True
         # 策略二：近邻法（对于距离中间点近的，采取收入但不作为边界点策略）
-        for in_pt in self.coord_list:
-            if pt_len_xy(self.box2coord(new_box),
-                         in_pt) < self.max_acceptable_dist:
-                return True
+        for tgt_pt in self.box2coord(new_box):
+            for in_pt in self.coord_list:
+                if pt_len_xy(tgt_pt, in_pt) < self.max_acceptable_dist:
+                    return True
         return False
 
     def is_in_range(self, value, range_tuple):
