@@ -11,8 +11,8 @@ color_map = [[0, 0, 255], [0, 255, 0]]
 
 def init_output_dict(ms, ms_json):
     return dict(start_time=ms_json['start_time'],
-                end_time=ms_json['end_time'],
-                end_frame=ms.end_frame,
+                end_time=ms_json['last_activate_time'],
+                end_frame=ms.last_activate_frame,
                 target=[ms_json])
 
 
@@ -73,7 +73,8 @@ class MeteorCollector(object):
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
             for ms in self.active_meteor:
-                if ms.prob_meteor() >= self.det_thre:
+                if ms.prob_meteor() >= self.det_thre and \
+                    (ms.start_frame - self.waiting_meteor[-1].last_activate_frame<= self.max_interval):
                     no_prob_met = False
                     break
             if no_prob_met:
@@ -85,11 +86,12 @@ class MeteorCollector(object):
         for line in lines:
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
+            # TODO: cur_frame+-eframe fixed!!
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
                 is_in = ms.may_in_series(line)
                 if is_in:
-                    ms.update(self.cur_frame, line)
+                    ms.update(self.cur_frame + self.eframe, line)
                     is_in_series = True
                     break
             # 如果不属于已存在的序列，并且长度满足触发阈值，则为其构建新的序列开头
@@ -98,7 +100,7 @@ class MeteorCollector(object):
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(self.cur_frame - self.eframe,
-                             self.cur_frame,
+                             self.cur_frame + self.eframe,
                              line,
                              time_range=self.time_range,
                              speed_range=self.speed_range,

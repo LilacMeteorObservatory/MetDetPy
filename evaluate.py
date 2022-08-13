@@ -34,7 +34,7 @@ with open('config.json', mode='r', encoding='utf-8') as f:
 #test(*fp_database[-2], cfg, True)
 
 tasks = []
-for obj in video_dict["false_positive"]:
+for obj in video_dict["true_positive"]:
     obj=Munch(obj)
     detect_video(obj.video,obj.mask,cfg,args.debug)
 

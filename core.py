@@ -28,54 +28,11 @@ from MetLib.VideoLoader import ThreadVideoReader
 
 def output_meteors(update_info, stream, debug_mode):
     met_lst, drop_lst = update_info
-    stream("Meteor: [%s]" % (",".join([met for met in met_lst])))
+    for met in met_lst:
+        stream("Meteor:", met)
     if debug_mode:
-        stream("Dropped: [%s]" % (",".join([met for met in drop_lst])))
-
-
-'''
-# 配置参数
-# 常规设置
-# resize_param ： 描述代码主干在何种分辨率下进行检测。更低的分辨率可以做到更高的fps，更高的则可能检测到更暗弱和短的流星。
-# visual_param ： Debug模式下使用何种分辨率进行可视化。不启用Debug模式时，无需配置该项。
-# window_size ： 时间滑窗大小（以秒为单位），程序将自动将其转换为帧数。建议使用默认值。
-resize_param = (960, 540)
-visual_param = (480, 270)
-window_size_s = 0.36
-
-# 流星检测参数
-
-# bi_threshold ：描述检出流星所使用的阈值。可以根据使用的ISO进行调整，过低可能会引入更多噪声误检。
-# median_sampling_num ：描述中位数的采样数目。更少的采样数目可能会引发低信噪比导致的误差，但可以达到更高的速度。设置-1时表示不跳采。
-# line_* : 直线检测参数。默认情况下不用动。
-
-detect_cfg=dict(
-    bi_threshold = 5.4,
-    median_sampling_num=-1,
-    line_threshold=10,
-    line_minlen=16)
-
-# 流星判别参数
-
-# min_len ：开始记录流星所需要的最小长度（占长边的比）。
-# max_interval：流星最长间隔时间（经过该时间长度没有响应的流星将被认为已经结束）。单位：s。
-# time_range ： 描述流星的持续时间范围。超过或者没有到达阈值的响应将会被排除。单位：s。
-# speed_range ： 描述流星的速度范围。超过或者没有到达阈值的响应将会被排除。单位：frame^(-1)。
-# thre ： 描述若干响应之间允许的最长距离平方。
-
-meteor_cfg = dict(
-    min_len=10,
-    max_interval=4,
-    time_range=(0.12, 10),
-    speed_range=(1.6, 4.6),
-    thre2=320)
-
-# 模式参数
-
-# debug_mode ： 是否启用debug模式。debug模式下，将会打印详细的日志，并且将启用可视化的渲染。
-# 程序运行速度可能会因此减慢，但可以通过日志排查参数设置问题，或者为视频找到更优的参数设置。
-
-'''
+        for met in drop_lst:
+            stream("Dropped: ", met)
 
 
 def detect_video(video_name,
@@ -107,15 +64,17 @@ def detect_video(video_name,
             "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
         exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
     else:
-        if inp_exp_time is not "as_cfg":
-            cfg.exp_time=inp_exp_time
+        if inp_exp_time != "as_cfg":
+            cfg.exp_time = inp_exp_time
         progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
         exp_time = init_exp_time(
             cfg.exp_time,
-            *load_video_and_mask(video_name, mask_name, resize_param))
+            *load_video_and_mask(video_name, mask_name, resize_param),
+            resize_param)
         exp_frame, eq_fps, eq_int_fps = round(
             exp_time * fps), 1 / exp_time, floor(1 / exp_time)
-    progout("Apply exposure time of %.2fs." % (exp_time))
+    progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
+            (exp_time, (1000 * exp_frame * eq_int_fps / fps)))
     # 根据指定头尾跳转指针与结束帧
     start_frame, end_frame = 0, total_frame
     start_time, end_time = time_range
@@ -146,7 +105,7 @@ def detect_video(video_name,
                       time_range=(meteor_cfg.time_range[0] * fps,
                                   meteor_cfg.time_range[1] * fps),
                       speed_range=meteor_cfg.speed_range,
-                      thre2=meteor_cfg.thre2 * (exp_frame**2))
+                      thre2=meteor_cfg.thre2 * exp_frame)
     main_mc = MeteorCollector(**meteor_cfg, eframe=exp_frame, fps=fps)
 
     # Init videoReader
@@ -168,7 +127,8 @@ def detect_video(video_name,
         for i in main_iterator:
             # Logging for backend only.
             # TODO: Use Logging module to replace progout
-            if work_mode == 'backend' and i % eq_int_fps == 0:
+            if work_mode == 'backend' and (((i - start_frame) // exp_frame) %
+                                           eq_int_fps == 0):
                 progout("Processing: %d" % (int(1000 * i / fps)))
 
             #print(len(video_reader.frame_pool))
@@ -182,7 +142,7 @@ def detect_video(video_name,
             #TODO: Mask, visual
             flag, lines, img_api = detector.detect()
 
-            if flag:
+            if flag or (((i - start_frame) // exp_frame) % eq_int_fps == 0):
                 output_meteors(main_mc.update(i, lines=lines), progout,
                                debug_mode)
             if debug_mode:
@@ -219,10 +179,12 @@ if __name__ == "__main__":
                         help="The end time (ms) of the video.",
                         type=int,
                         default=None)
-    parser.add_argument('--exp-time',
-                        help="The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
-                        type=str,
-                        default="as_cfg")
+    parser.add_argument(
+        '--exp-time',
+        help=
+        "The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
+        type=str,
+        default="as_cfg")
     parser.add_argument(
         '--mode',
         choices=['backend', 'frontend'],

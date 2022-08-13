@@ -171,14 +171,18 @@ class M3Detector(BaseDetector):
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
+        dst = cv2.medianBlur(dst, 3)
         # TODO: 这一套对噪点大的不太适用。。。
+        #dst = cv2.morphologyEx(
+        #    dst, cv2.MORPH_OPEN,
+        #    cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
+        dst = cv2.morphologyEx(
+            dst, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
         dst = cv2.dilate(
             dst,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         )
-        dst = cv2.morphologyEx(
-            dst, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
         linesp = cv2.HoughLinesP(np.array(dst, dtype=np.uint8), 1, pi,
                                  self.line_threshold, self.line_minlen, 0)
 

@@ -67,7 +67,7 @@ def _rf_est_kernel(video,
                    n_frames,
                    img_mask,
                    start_frame=0,
-                   resize_param=(960, 540)):
+                   resize_param=None):
     try:
         video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         video_loader = ThreadVideoReader(video, n_frames,
@@ -98,7 +98,7 @@ def _rf_est_kernel(video,
     return rmax_pos[1:] - rmax_pos[:-1]
 
 
-def rf_estimator(video, img_mask):
+def rf_estimator(video, img_mask,resize_param):
     """用于为给定的视频估算实际的曝光时间。
 
     部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
@@ -113,14 +113,14 @@ def rf_estimator(video, img_mask):
 
     if total_frame < 300:
         # 若不超过300帧 则进行全局估算
-        intervals = _rf_est_kernel(video, total_frame, img_mask, 0)
+        intervals = _rf_est_kernel(video, total_frame, img_mask, 0,resize_param)
     else:
         # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
         # TODO: 规避bug的设计 不太美观。
-        intervals_1 = _rf_est_kernel(video, 100, img_mask, 0)
+        intervals_1 = _rf_est_kernel(video, 100, img_mask, 0,resize_param)
         intervals_2 = _rf_est_kernel(video, 100, img_mask,
-                                     (total_frame - 100) // 2)
-        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 110)
+                                     (total_frame - 100) // 2,resize_param)
+        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 110,resize_param)
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     if len(intervals)==0:
         return 1
@@ -128,7 +128,7 @@ def rf_estimator(video, img_mask):
     return est_frames
 
 
-def init_exp_time(exp_time, video, mask):
+def init_exp_time(exp_time, video, mask, resize_param):
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -150,20 +150,23 @@ def init_exp_time(exp_time, video, mask):
         (str, float,
          int)), "exp_time should be either <str, float, int>, got %s" % (
              type(exp_time))
-    if isinstance(exp_time, (float, int)):
-        return float(exp_time)
-    else:
+    if isinstance(exp_time, str):
         if exp_time == "real-time":
             return 1 / fps
         if exp_time == "slow":
             # TODO: Any better idea?
             return 1 / 4
         if exp_time == "auto":
-            rf = rf_estimator(video, mask)
+            rf = rf_estimator(video, mask, resize_param)
             return rf / fps
-        raise ValueError(
-            "Invalid exp_time string value. It should be selected from \
-                \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
+        try:
+            exp_time = float(exp_time)
+        except ValueError as E:
+            raise ValueError(
+                "Invalid exp_time string value: It should be selected from [float], [int], \
+                    \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
+    if isinstance(exp_time, (float, int)):
+        return float(exp_time)
 
 
 def test_tf_estimator(test_video, test_mask):
