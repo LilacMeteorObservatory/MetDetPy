@@ -113,10 +113,15 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 ### Special Thanks
 
 [奔跑的龟斯](https://weibo.com/u/1184392917)
+
 [MG_Raiden扬](https://weibo.com/811151123)
+
 [DustYe夜尘](https://space.bilibili.com/343640654)
-星北之羽
-纸片儿
+
+[星北之羽](https://space.bilibili.com/366525868/)
+
+[纸片儿](https://github.com/ArtisticZhao)
+
 LittleQ
 
 ### Done
