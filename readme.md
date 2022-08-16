@@ -103,8 +103,21 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
  4. 支持rtmp
  5. 添加GUI
  6. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？新Detector)
+ 7. 添加使用分辨率的接口
+ 8. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 9. 自动启停
+ 10. 时间水印
 
 ## Appendix
+
+### Special Thanks
+
+[奔跑的龟斯](https://weibo.com/u/1184392917)
+[MG_Raiden扬](https://weibo.com/811151123)
+[DustYe夜尘](https://space.bilibili.com/343640654)
+星北之羽
+纸片儿
+LittleQ
 
 ### Done
 
@@ -116,3 +129,4 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
  1. With `MergeStacker`, MetDetPy now can detect meteors with a 20% time cost of video length on average (tested with an Intel i5-7500).
 
  2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
+  

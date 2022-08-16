@@ -40,7 +40,6 @@ def detect_video(video_name,
                  cfg,
                  debug_mode,
                  work_mode="frontend",
-                 inp_exp_time="as_cfg",
                  time_range=(None, None)):
     # load config from cfg json.
     resize_param = cfg.resize_param
@@ -51,10 +50,7 @@ def detect_video(video_name,
 
     # load video
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
-    if (video is None) or (not video.isOpened()):
-        raise FileNotFoundError(
-            "The file \"%s\" cannot be opened as a supported video format." %
-            video_name)
+    resize_param = list(reversed(mask.shape))
 
     # Acquire exposure time and eqirvent FPS(eq_fps)
     total_frame, fps = int(video.get(cv2.CAP_PROP_FRAME_COUNT)), video.get(
@@ -64,8 +60,6 @@ def detect_video(video_name,
             "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
         exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
     else:
-        if inp_exp_time != "as_cfg":
-            cfg.exp_time = inp_exp_time
         progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
         exp_time = init_exp_time(
             cfg.exp_time,
@@ -148,8 +142,8 @@ def detect_video(video_name,
             if debug_mode:
                 if (cv2.waitKey(int(exp_time * 100)) & 0xff == ord("q")):
                     break
-                draw_img = main_mc.draw_on_img(img_api)
-                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                #draw_img = main_mc.draw_on_img(img_api)
+                draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("DEBUG MODE", draw_img)
 
@@ -185,6 +179,10 @@ if __name__ == "__main__":
         "The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
         type=str,
         default="as_cfg")
+    parser.add_argument('--resize',
+                        help="Running-time resolution",
+                        type=str,
+                        default="as_cfg")
     parser.add_argument(
         '--mode',
         choices=['backend', 'frontend'],
@@ -208,14 +206,20 @@ if __name__ == "__main__":
     start_time = args.start_time
     end_time = args.end_time
     exp_time = args.exp_time
+    resize_param = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = Munch(json.load(f))
+    # replace config value
+    if exp_time != "as_cfg":
+        cfg.exp_time = exp_time
+    if resize_param != "as_cfg":
+        cfg.resize_param = resize_param
+
     detect_video(video_name,
                  mask_name,
                  cfg,
                  debug_mode,
                  work_mode,
-                 inp_exp_time=exp_time,
                  time_range=(start_time, end_time))
     # async main loop
     #loop = asyncio.get_event_loop()

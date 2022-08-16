@@ -1,8 +1,5 @@
 {
-    "resize_param": [
-        960,
-        540
-    ],
+    "resize_param": 960,
     "exp_time": "auto",
     "stacker": "MergeStacker",
     "stacker_cfg": {

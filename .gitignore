@@ -3,3 +3,4 @@ test_video.json
 __pycache__/
 build/
 dist/
+test/test*.json
