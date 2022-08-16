@@ -146,10 +146,10 @@ def detect_video(video_name,
                 output_meteors(main_mc.update(i, lines=lines), progout,
                                debug_mode)
             if debug_mode:
-                if (cv2.waitKey(int(exp_time * 1000)) & 0xff == ord("q")):
+                if (cv2.waitKey(int(exp_time * 100)) & 0xff == ord("q")):
                     break
-                #draw_img = main_mc.draw_on_img(img_api)
-                draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                draw_img = main_mc.draw_on_img(img_api)
+                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("DEBUG MODE", draw_img)
 

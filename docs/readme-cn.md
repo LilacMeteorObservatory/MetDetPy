@@ -1,23 +1,25 @@
 # MetDetPy
 
-Other Language Version: [[中文版]](./docs/readme-cn.md)
+其他语言版本：[[Eng]](../readme.md)
 
-MetDetPy is a python script project that can detect meteors from video files. MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector).
+MetDetPy 是一个用于从视频中检测流星的python脚本项目。本项目受到[MeteorDetector](https://github.com/uzanka/MeteorDetector)的启发。
 
-* We reproduce their work and implement more detectors (like M3Detector (where M3 for maximum minus median)). These detectors can help realize highly sensitive meteor detection.
+* MetDetPy使用Python复现了[MeteorDetector](https://github.com/uzanka/MeteorDetector)的工作，并在其基础上进一步实现了更多检测器。
 
-* We also implement a meteor detection result manager (MeteorLib) to help filter and integrate detection response, which is helpful to exclude false positive samples.
+* 我们在MetDetPy中开发了流星检测结果管理器（MeteorLib）用于整合和过滤流星检测响应，改善了对假阳性样本的过滤效果。
 
-* An evaluation code is under development.
+* 未来将提供用于测试和评估的脚本，用于选择最佳阈值和检测器。
 
-## Release Version
+## 发行版
 
-MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get MeteorMaster(Windows release) version from:
+目前 MetDetPy 没有直接的发行版，但这已在将来的计划中。在那之前，你可以使用`pyinstaller`构建MetDetPy的可执行文件（见 [Package python codes to executables](#package-python-codes-to-executables)).
+
+此外，MetDetPy 从 MeteorMaster 的 1.2.0 版本开始作为其后端。MeteorMaster的Windows发行版可以从如下源获取:
 
 * [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
-We are planning to provide release versions of MetDetPy for other platforms (like macOS and Linux). Before which you can build it with `pyinstaller` (see [Package python codes to executables](#package-python-codes-to-executables)).
+
 
 ## Requirements
 
