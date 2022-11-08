@@ -66,8 +66,11 @@ python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 
 #### Customize Configuration
 
-Series of arguments can be defined and set in command lines, but there are more details...
-(没写完还)
+Basically all configurations adopt key-value pairs in the configuration file. If not specified by "--cfg" through command lines, the "config.json" under the same directory will be adopted as default.
+
+Although, resized resolution "resize_param" and exposure time "exp_time" can be set in command lines, there are more to do
+
+See [documents of configurations](./docs/config-doc.md) for more information.
 
 ### Evaulate A Series Of Video
 
@@ -98,15 +101,16 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
+ 2. 调整阈值与检测限
+ 2. 优化vr逻辑
  2. 完善日志系统
  3. 改善对蝙蝠等情况的误检
  4. 支持rtmp
  5. 添加GUI
  6. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？新Detector)
- 7. 添加使用分辨率的接口
- 8. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 9. 自动启停
- 10. 时间水印
+ 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 8. 自动启停
+ 9. 时间水印
 
 ## Appendix
 
@@ -114,20 +118,22 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 
 [奔跑的龟斯](https://weibo.com/u/1184392917)
 
-[MG_Raiden扬](https://weibo.com/811151123)
+[纸片儿](https://github.com/ArtisticZhao)
 
 [DustYe夜尘](https://space.bilibili.com/343640654)
 
-[星北之羽](https://space.bilibili.com/366525868/)
+[MG_Raiden扬](https://weibo.com/811151123)
 
-[纸片儿](https://github.com/ArtisticZhao)
+[星北之羽](https://space.bilibili.com/366525868/)
 
 LittleQ
 
 ### Done
 
- 1. Improving non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持
+ 1. Improving non-ASCII filename support for packaging version /改善了对非ASCII文字路径的支持
     By packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
+
+ 2. 添加了分辨率的接口，支持多种分辨率输入设置，自适应适配竖屏视频
 
 ### Performance and Efficiency
 

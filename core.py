@@ -51,7 +51,7 @@ def detect_video(video_name,
     # load video
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     resize_param = list(reversed(mask.shape))
-
+    progout("Apply running-time resolution = %s." % resize_param)
     # Acquire exposure time and eqirvent FPS(eq_fps)
     total_frame, fps = int(video.get(cv2.CAP_PROP_FRAME_COUNT)), video.get(
         cv2.CAP_PROP_FPS)
@@ -140,7 +140,7 @@ def detect_video(video_name,
                 output_meteors(main_mc.update(i, lines=lines), progout,
                                debug_mode)
             if debug_mode:
-                if (cv2.waitKey(int(exp_time * 100)) & 0xff == ord("q")):
+                if (cv2.waitKey(int(exp_time * 1000)) & 0xff == ord("q")):
                     break
                 #draw_img = main_mc.draw_on_img(img_api)
                 draw_img = main_mc.draw_on_img(stack_manager.cur_frame)

@@ -184,7 +184,7 @@ class M3Detector(BaseDetector):
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         )
         linesp = cv2.HoughLinesP(np.array(dst, dtype=np.uint8), 1, pi,
-                                 self.line_threshold, self.line_minlen, 0)
+                                 self.line_threshold, self.line_minlen, 10)
 
         if linesp is None:
             return False, [], dst
@@ -207,7 +207,7 @@ class M3Detector(BaseDetector):
             drawing = canvas
 
 
-class FastDetector(BaseDetector):
+class FasterDetector(BaseDetector):
     '''基于日本人版本改写的更快更简洁的检测器。
     拟用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
     '''
@@ -220,11 +220,12 @@ class FastDetector(BaseDetector):
         self.stack_maxsize = 2
 
     def detect(self):
-        # 短于4帧时不进行判定
+        # 短于窗口时不进行判定
         if len(self.stack) < self.stack_maxsize:
             return False, []
         # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
-        diff23 = cv2.absdiff(self.stack[2], self.stack[3])
+        diff23 = cv2.absdiff(self.stack[0], self.stack[1])
+
         _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
                                   cv2.THRESH_BINARY)
         diff23 = cv2.dilate(
@@ -245,7 +246,7 @@ class FastDetector(BaseDetector):
         # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
         # 所以即使检出应该也是第一帧上面检出。
         self.linesp = cv2.HoughLinesP(dst, 1, pi, self.line_threshold,
-                                      self.line_minlen, 0)
+                                      self.line_minlen, 10)
         if self.linesp is None:
             return False, []
         return True, self.linesp[0]

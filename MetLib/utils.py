@@ -8,7 +8,7 @@ from .VideoLoader import ThreadVideoReader
 
 
 class Munch(object):
-
+        
     def __init__(self, idict) -> None:
         for (key, value) in idict.items():
             #if isinstance(value,dict):
@@ -36,7 +36,7 @@ def parse_resize_param(tgt_wh, raw_wh):
         assert len(tgt_wh) == 2, "2 values expected, got %d." % len(tgt_wh)
         # replace default value
         if tgt_wh[0] <= 0 or tgt_wh[1] <= 0:
-            if tgt_wh[0] * tgt_wh[1] < 0 or tgt_wh[0] == tgt_wh[1] == 0:
+            if tgt_wh[0] <= 0 and tgt_wh[1] <= 0:
                 warnings.warn("Invalid param. Raw resolution will be used.")
                 return raw_wh
             idn = 0 if tgt_wh[0] <= 0 else 1
@@ -166,6 +166,7 @@ def rf_estimator(video, img_mask, resize_param):
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     if len(intervals) == 0:
         return 1
+    print(intervals)
     est_frames = np.median(intervals)
     return est_frames
 
