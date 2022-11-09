@@ -125,9 +125,7 @@ def detect_video(video_name,
                                            eq_int_fps == 0):
                 progout("Processing: %d" % (int(1000 * i / fps)))
 
-            #print(len(video_reader.frame_pool))
-
-            if video_reader.stopped and len(video_reader.frame_pool) == 0:
+            if video_reader.stopped and video_reader.is_empty == 0:
                 break
 
             # TODO: Replace with API of video_reader.
@@ -142,8 +140,8 @@ def detect_video(video_name,
             if debug_mode:
                 if (cv2.waitKey(int(exp_time * 1000)) & 0xff == ord("q")):
                     break
-                #draw_img = main_mc.draw_on_img(img_api)
-                draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                draw_img = main_mc.draw_on_img(img_api)
+                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("DEBUG MODE", draw_img)
 
