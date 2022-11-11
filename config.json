@@ -8,22 +8,22 @@
 
     "detector": "M3Detector",
     "detect_cfg": {
-        "window_sec": 0.36,
+        "window_sec": 1,
         "bi_threshold": 5,
-        "median_sampling_num": -1,
-        "line_threshold": 10,
-        "line_minlen": 100
+        "hough_threshold": 1,
+        "min_len": 10,
+        "max_gap": 10
     },
     "meteor_cfg": {
         "min_len": 100,
         "max_interval": 2,
         "time_range": [
             0.12,
-            10
+            8
         ],
         "speed_range": [
             1,
-            5
+            8
         ],
         "thre2": 512
     }

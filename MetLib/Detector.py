@@ -3,26 +3,19 @@ import numpy as np
 
 from .utils import m3func
 
-pi = 3.141592653589793 / 180.0
+pi = np.pi / 180.0
 
 
 def init_detector(name, detect_cfg, debug_mode, fps):
     if name == "ClassicDetector":
-        return ClassicDetector(-1, detect_cfg, debug_mode)
+        return ClassicDetector(-1, detect_cfg, debug_mode=debug_mode)
 
     elif name == "M3Detector":
         # Odd Length for M3Detector
         window_size = max(int(detect_cfg["window_sec"] * fps), 2)
         if window_size % 2 == 0:
             window_size += 1
-        if detect_cfg["median_sampling_num"] == -1:
-            detect_cfg.update(median_skipping=1)
-        else:
-            assert detect_cfg[
-                "median_sampling_num"] >= 3, "You must set median_sampling_num to 3 or larger."
-            detect_cfg.update(median_skipping=(window_size - 1) //
-                              (detect_cfg["median_sampling_num"] - 1))
-        return M3Detector(window_size, detect_cfg, debug_mode)
+        return M3Detector(window_size, detect_cfg, debug_mode=debug_mode)
 
 
 def DrawHist(src, mask, hist_num=256, threshold=0):
@@ -81,14 +74,21 @@ class BaseDetector(object):
         self.stack.append(new_frames)
         self.stack = self.stack[-self.stack_maxsize:]
 
-    def draw_on(self, canvas):
-        """
-        用于在给定画布上绘制有关包含中间状态的检测细节。
+    def draw_light_on_bg(self, bg, light):
+        """ 简单实现的闭包式的绘图API，用于支持可视化响应等
 
         Args:
-            canvas (_type_): _description_
+            bg (np.array): 背景图像
+            light (np.array): 响应图像
         """
-        pass
+
+        def core_drawer():
+            p = cv2.cvtColor(light, cv2.COLOR_GRAY2RGB)
+            b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
+            p[:, :, [0, 1]] = 0
+            return cv2.addWeighted(b, 1, p, 1, 1)
+
+        return core_drawer
 
     def cfg_loader(self, cfg: dict):
         for name, value in cfg.items():
@@ -99,7 +99,7 @@ class ClassicDetector(BaseDetector):
     '''基于日本人版本实现的检测器类别。'''
 
     # 必须包含的参数
-    # bi_threshold line_threshold self.line_minlen
+    # bi_threshold line_threshold self.max_gap
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 4帧窗口（硬编码）
@@ -130,17 +130,19 @@ class ClassicDetector(BaseDetector):
         )
         # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
         # 所以即使检出应该也是第一帧上面检出。
-        self.linesp = cv2.HoughLinesP(dst, 1, pi, self.line_threshold,
-                                      self.line_minlen, 0)
-        if self.linesp is None:
-            return False, [], dst
-        return True, self.linesp[0], dst
+        self.linesp = cv2.HoughLinesP(dst, 1, pi, 1, self.min_len,
+                                      self.max_gap)
+
+        linesp = [] if linesp is None else linesp[0]
+        return linesp, self.draw_light_on_bg(self.stack[3], dst)
 
 
 class M3Detector(BaseDetector):
     """Detector, but version spring.
 
     主要工作原理： 以X帧为窗口的帧差法 （最大值-中值）。
+    
+    20221109：Update：利用更大的滑窗范围（滑窗中值法）和简化的最大值-阈值方法提升精度与速度
     
     采取了相比原算法更激进的阈值和直线检测限，将假阳性样本通过排除记录流星的算法移除。
 
@@ -154,20 +156,31 @@ class M3Detector(BaseDetector):
         _type_: _description_
     """
 
-    # 必须包含的参数
-    # bi_threshold line_threshold self.line_minlen
-    # 需要可视化时包含的参数
-    # mask
     def __init__(self, *args, **kwargs):
+        # 必须包含的参数
+        # bi_threshold line_threshold self.max_gap img_shape
+        # 需要可视化时包含的参数
+        # mask
         super().__init__(*args, **kwargs)
+        self.ref_img = np.zeros(self.img_shape, dtype=float)
+
+    def update(self, new_frames):
+        # 更新背景估计参考
+        # TODO: 之后考虑添加阈值估计参考（即方差）
+        if len(self.stack) >= self.stack_maxsize:
+            #p = (self.stack - self.ref_img / len(self.stack))
+            # 方差估算可以左右SNR的参考依据。但总的来说低于单帧之间。
+            #print(np.mean(p),np.std(p))
+            self.ref_img -= self.stack[0]
+        self.ref_img += new_frames
+
+        super().update(new_frames)
 
     def detect(self) -> tuple:
-        if 3 <= len(self.stack) <= self.stack_maxsize:
-            diff_img = m3func(self.stack)
-        else:
-            return False, [], self.stack[-1]
-            #diff_img = m3func(self.stack,
-            #                  getattr(self, "median_sampling_num", 1))
+        light_img = np.max(self.stack, axis=0)
+        diff_img = (light_img -
+                    (self.ref_img / len(self.stack))).astype(dtype=np.uint8)
+
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
@@ -178,17 +191,16 @@ class M3Detector(BaseDetector):
         #    cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
         dst = cv2.morphologyEx(
             dst, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
         dst = cv2.dilate(
             dst,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         )
-        linesp = cv2.HoughLinesP(np.array(dst, dtype=np.uint8), 1, pi,
-                                 self.line_threshold, self.line_minlen, 10)
+        linesp = cv2.HoughLinesP(dst, 0.8, pi, self.hough_threshold,
+                                 self.min_len, self.max_gap)
 
-        if linesp is None:
-            return False, [], dst
-        return True, linesp[0], dst
+        linesp = [] if linesp is None else linesp[0]
+        return linesp, self.draw_light_on_bg(light_img, dst)
 
     def draw_on(self, canvas):
         if self.debug_mode:
@@ -205,48 +217,3 @@ class M3Detector(BaseDetector):
                     (y, x)), cv2.COLOR_GRAY2BGR)
             canvas[x:, y:] = cv2.resize(drawing, (y, x))
             drawing = canvas
-
-
-class FasterDetector(BaseDetector):
-    '''基于日本人版本改写的更快更简洁的检测器。
-    拟用于对多帧输入（或者可视为单个输入具有长曝光的）实现检测。
-    '''
-
-    # 必须包含的参数
-    # bi_threshold line_threshold self.line_minlen
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # 2帧窗口（硬编码）
-        self.stack_maxsize = 2
-
-    def detect(self):
-        # 短于窗口时不进行判定
-        if len(self.stack) < self.stack_maxsize:
-            return False, []
-        # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
-        diff23 = cv2.absdiff(self.stack[0], self.stack[1])
-
-        _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
-                                  cv2.THRESH_BINARY)
-        diff23 = cv2.dilate(
-            diff23,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-        )
-        diff23 = 255 - diff23
-        ## 用diff23和0,1帧做位与运算（掩模？），屏蔽2,3帧的差一部分
-        f1 = cv2.bitwise_and(diff23, self.stack[0])
-        f2 = cv2.bitwise_and(diff23, self.stack[1])
-        ## 差分0,1帧，二值化，膨胀（高亮有差异部分）
-        dst = cv2.absdiff(f1, f2)
-        _, dst = cv2.threshold(dst, self.bi_threshold, 255, cv2.THRESH_BINARY)
-        dst = cv2.dilate(
-            dst,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-        )
-        # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
-        # 所以即使检出应该也是第一帧上面检出。
-        self.linesp = cv2.HoughLinesP(dst, 1, pi, self.line_threshold,
-                                      self.line_minlen, 10)
-        if self.linesp is None:
-            return False, []
-        return True, self.linesp[0]

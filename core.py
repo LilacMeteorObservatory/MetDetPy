@@ -64,7 +64,8 @@ def detect_video(video_name,
         exp_time = init_exp_time(
             cfg.exp_time,
             *load_video_and_mask(video_name, mask_name, resize_param),
-            resize_param)
+            resize_param,
+            upper_bound=0.25)
         exp_frame, eq_fps, eq_int_fps = round(
             exp_time * fps), 1 / exp_time, floor(1 / exp_time)
     progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
@@ -87,6 +88,7 @@ def detect_video(video_name,
     stack_manager = init_stacker(cfg.stacker, cfg.stacker_cfg, exp_frame)
 
     # Init detector
+    cfg.detect_cfg.update(img_shape=mask.shape)
     detector = init_detector(cfg.detector, cfg.detect_cfg, debug_mode, eq_fps)
 
     # Init meteor collector
@@ -125,25 +127,26 @@ def detect_video(video_name,
                                            eq_int_fps == 0):
                 progout("Processing: %d" % (int(1000 * i / fps)))
 
-            if video_reader.stopped and video_reader.is_empty == 0:
+            if video_reader.stopped and video_reader.is_empty:
                 break
 
             # TODO: Replace with API of video_reader.
             stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
-            flag, lines, img_api = detector.detect()
+            lines, img_clo = detector.detect()
 
-            if flag or (((i - start_frame) // exp_frame) % eq_int_fps == 0):
+            if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps == 0):
                 output_meteors(main_mc.update(i, lines=lines), progout,
                                debug_mode)
             if debug_mode:
-                if (cv2.waitKey(int(exp_time * 1000)) & 0xff == ord("q")):
+                if (cv2.waitKey(int(exp_time * 400)) & 0xff == ord("q")):
                     break
-                draw_img = main_mc.draw_on_img(img_api)
-                #draw_img = main_mc.draw_on_img(stack_manager.cur_frame)
+                # img_clo is used to get the image, 
+                # and is only executed when visualizing.
+                draw_img = main_mc.draw_on_img(img_clo())
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
-                cv2.imshow("DEBUG MODE", draw_img)
+                cv2.imshow("Debug Window (Press Q to exit)", draw_img)
 
     finally:
         video_reader.stop()
@@ -155,7 +158,7 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.2')
+    parser = argparse.ArgumentParser(description='Meteor Detector V1.3')
 
     parser.add_argument('target', help="input H264 video.")
     parser.add_argument('--cfg',

@@ -8,12 +8,23 @@ from .VideoLoader import ThreadVideoReader
 
 
 class Munch(object):
-        
+
     def __init__(self, idict) -> None:
         for (key, value) in idict.items():
             #if isinstance(value,dict):
             #    value = Munch(value)
             setattr(self, key, value)
+
+
+def sigma_clip_average(sequence, sigma=3.00):
+    mean, std = np.mean(sequence), np.std(sequence)
+    while True:
+        # update sequence
+        sequence = [x for x in sequence if abs(mean - x) < sigma * std]
+        updated_mean, updated_std = np.mean(sequence), np.std(sequence)
+        if updated_mean == mean:
+            return updated_mean
+        mean, std = updated_mean, updated_std
 
 
 def parse_resize_param(tgt_wh, raw_wh):
@@ -89,12 +100,12 @@ def stdout_backend(*args):
     sys.stdout.flush()
 
 
-def m3func(image_stack, skipping=1):
+def m3func(image_stack):
     """M3 for Max Minus Median.
     Args:
         image_stack (ndarray)
     """
-    sort_stack = np.sort(image_stack[::skipping], axis=0)
+    sort_stack = np.sort(image_stack, axis=0)
     return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
 
 
@@ -166,12 +177,12 @@ def rf_estimator(video, img_mask, resize_param):
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     if len(intervals) == 0:
         return 1
-    print(intervals)
-    est_frames = np.median(intervals)
+    # 非常经验的取值方法...
+    est_frames = np.round(min(np.median(intervals), sigma_clip_average(intervals)))
     return est_frames
 
 
-def init_exp_time(exp_time, video, mask, resize_param):
+def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -199,14 +210,25 @@ def init_exp_time(exp_time, video, mask, resize_param):
             return 1 / 4
         if exp_time == "auto":
             rf = rf_estimator(video, mask, resize_param)
-            return rf / fps
+            if rf / fps > upper_bound:
+                print(
+                    Warning(
+                        f"Warning: Unexpected exposuring time (too long):{rf/fps:.2f}s. Use {upper_bound:.2f}s instead."
+                    ))
+            return min(rf / fps, upper_bound)
         try:
             exp_time = float(exp_time)
         except ValueError as E:
             raise ValueError(
-                "Invalid exp_time string value: It should be selected from [float], [int], \
-                    \"real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
+                "Invalid exp_time string value: It should be selected from [float], [int], "
+                + "real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
     if isinstance(exp_time, (float, int)):
+        if exp_time * fps < 1:
+            print(
+                Warning(
+                    f"Warning: Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
+                ))
+            return 1 / fps
         return float(exp_time)
 
 
