@@ -129,8 +129,8 @@ class MeteorCollector(object):
         final_list = [json.dumps(x) for x in final_list]
         return final_list
 
-    def draw_on_img(self, img):
-        draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    def draw_on_img(self, draw_img):
+        #draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             draw_img = cv2.rectangle(draw_img, pt1, pt2,

@@ -62,10 +62,11 @@ class BaseDetector(object):
 
     def __init__(self, stack_maxsize, cfg, debug_mode=False):
         self.stack_maxsize = stack_maxsize
-        self.cfg_loader(cfg)
         self.debug_mode = debug_mode
         self.stack = []
-        pass
+        # load all cfg to self.attributes
+        for name, value in cfg.items():
+            setattr(self, name, value)
 
     def detect(self):
         pass
@@ -74,7 +75,7 @@ class BaseDetector(object):
         self.stack.append(new_frames)
         self.stack = self.stack[-self.stack_maxsize:]
 
-    def draw_light_on_bg(self, bg, light):
+    def draw_light_on_bg(self, bg, light, text=None):
         """ 简单实现的闭包式的绘图API，用于支持可视化响应等
 
         Args:
@@ -86,13 +87,15 @@ class BaseDetector(object):
             p = cv2.cvtColor(light, cv2.COLOR_GRAY2RGB)
             b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
             p[:, :, [0, 1]] = 0
-            return cv2.addWeighted(b, 1, p, 1, 1)
+            cb_img = cv2.addWeighted(b, 1, p, 1, 1)
+            if text:
+                h, w, _ = cb_img.shape
+                cb_img = cv2.putText(cb_img, text, (0, 25),
+                                     cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0),
+                                     2)
+            return cb_img
 
         return core_drawer
-
-    def cfg_loader(self, cfg: dict):
-        for name, value in cfg.items():
-            setattr(self, name, value)
 
 
 class ClassicDetector(BaseDetector):
@@ -163,14 +166,15 @@ class M3Detector(BaseDetector):
         # mask
         super().__init__(*args, **kwargs)
         self.ref_img = np.zeros(self.img_shape, dtype=float)
+        self.mp, self.md = 0, 0
 
     def update(self, new_frames):
         # 更新背景估计参考
         # TODO: 之后考虑添加阈值估计参考（即方差）
         if len(self.stack) >= self.stack_maxsize:
-            #p = (self.stack - self.ref_img / len(self.stack))
+            p = (self.stack - self.ref_img / len(self.stack))
             # 方差估算可以左右SNR的参考依据。但总的来说低于单帧之间。
-            #print(np.mean(p),np.std(p))
+            self.md = np.std(p)
             self.ref_img -= self.stack[0]
         self.ref_img += new_frames
 
@@ -200,7 +204,9 @@ class M3Detector(BaseDetector):
                                  self.min_len, self.max_gap)
 
         linesp = [] if linesp is None else linesp[0]
-        return linesp, self.draw_light_on_bg(light_img, dst)
+        return linesp, self.draw_light_on_bg(light_img,
+                                             dst,
+                                             text=f"SNR:{self.md:.4f}")
 
     def draw_on(self, canvas):
         if self.debug_mode:

@@ -101,16 +101,16 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
- 2. 调整阈值与检测限
- 2. 优化vr逻辑
- 2. 完善日志系统
- 3. 改善对蝙蝠等情况的误检
- 4. 支持rtmp
- 5. 添加GUI
- 6. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？新Detector)
- 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 8. 自动启停
- 9. 时间水印
+ 2. 调整阈值与检测限，输出概率形式，再校验机制
+ 3. 优化速度计算逻辑，包括方向，平均速度等
+ 4. 完善日志系统
+ 5. 改善对蝙蝠/云等情况的误检(!!)
+ 6. 支持rtmp
+ 7. 添加GUI
+ 8. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？)
+ 9. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 10. 自动启停
+ 11. 时间水印
 
 ## Appendix
 
@@ -121,6 +121,8 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 [纸片儿](https://github.com/ArtisticZhao)
 
 [DustYe夜尘](https://space.bilibili.com/343640654)
+
+[RoyalK](https://weibo.com/u/2244860993)
 
 [MG_Raiden扬](https://weibo.com/811151123)
 
@@ -133,11 +135,11 @@ LittleQ
  1. Improving non-ASCII filename support for packaging version /改善了对非ASCII文字路径的支持
     By packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
 
- 2. 添加了分辨率的接口，支持多种分辨率输入设置，自适应适配竖屏视频
+ 2. 优化了分辨率的接口，支持多种分辨率输入格式，自适应适配竖屏视频
 
 ### Performance and Efficiency
 
- 1. With `MergeStacker`, MetDetPy now can detect meteors with a 20% time cost of video length on average (tested with an Intel i5-7500).
+ 1. With `MergeStacker`, MetDetPy now can detect meteors with a 25% time cost of video length on average (tested with an Intel i5-7500).
 
  2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
   
