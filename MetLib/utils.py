@@ -3,8 +3,11 @@ from functools import partial
 import warnings
 import cv2
 import numpy as np
-
+import datetime
+from math import floor
 from .VideoLoader import ThreadVideoReader
+
+eps = 1e-2
 
 
 class Munch(object):
@@ -16,14 +19,160 @@ class Munch(object):
             setattr(self, key, value)
 
 
-def sigma_clip_average(sequence, sigma=3.00):
+class EMA(object):
+
+    def __init__(self, n) -> None:
+        self.n = n
+        self.ema_pool = []
+
+    def update(self, num):
+        self.ema_pool.append(num)
+        self.ema_pool = self.ema_pool[-self.n:]
+
+    @property
+    def mean(self):
+        return np.mean(self.ema_pool) if len(self.ema_pool) > 0 else np.inf
+
+    @property
+    def std(self):
+        return np.std(self.ema_pool) if len(self.ema_pool) > 0 else np.inf
+
+
+class RefEMA(EMA):
+    """使用滑动窗口平均机制，用于维护参考背景图像和评估信噪比的模块。
+
+    Args:
+        EMA (_type_): _description_
+    """
+
+    def __init__(self, n, ref_mask, area=0) -> None:
+        super().__init__(n)
+        self.ref_img = np.zeros_like(ref_mask, dtype=float)
+        self.img_stack = []
+        self.std_interval = n // 2
+        self.timer = 0
+        self.noise = 0
+        if area == 0:
+            self.est_std = np.std
+            self.signal_ratio = ((ref_mask.shape[0] * ref_mask.shape[1]) /
+                                 np.sum(ref_mask))**(1 / 2)
+        else:
+            self.est_std, self.signal_ratio = self.select_subarea(ref_mask,
+                                                                  area=area)
+
+    def update(self, new_frame):
+        self.timer += 1
+        # 更新移动窗栈与均值背景参考图像（ref_img）
+        self.img_stack.append(new_frame)
+        if len(self.img_stack) >= self.n:
+            self.ref_img -= self.img_stack.pop(0)
+        self.ref_img += new_frame
+
+        # 每std_interval时间更新一次std
+        if self.timer % self.std_interval == 0:
+            noise = self.est_std(self.img_stack - self.bg_img)
+            self.noise = noise
+            if len(self.ema_pool) == self.n:
+                # 考虑到是平稳序列，引入一种滤波修正估算方差(截断大于三倍标准差的更新...)
+                # kinda trick
+                noise = self.mean + min(self.noise - self.mean, 2 * self.std)
+            super().update(noise)
+
+    def select_subarea(self, mask, area=0.1):
+        """用于选择一个尽量好的子区域评估STD。
+
+        Args:
+            mask (_type_): _description_
+            area (float, optional): _description_. Defaults to 0.1.
+
+        Returns:
+            _type_: _description_
+        """
+
+        h, w = mask.shape
+        sub_rate = area**(1 / 2)
+        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
+        x1, y1 = 0, (w - sub_w) // 2
+        area = (sub_h - 1) * (sub_w - 1)
+        light_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
+        while light_ratio < 1:
+            x1 += 10
+            new_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
+            if new_ratio < light_ratio or y1 + sub_w > w:
+                x1 -= 10
+                break
+            light_ratio = new_ratio
+        self.roi = (x1, y1, x1 + sub_h, y1 + sub_w)
+        return lambda imgs: np.std(imgs[:, x1:x1 + sub_h, y1:y1 + sub_w]
+                                   ), light_ratio
+
+    @property
+    def bg_img(self):
+        return self.ref_img / len(self.img_stack)
+
+    @property
+    def li_img(self):
+        return np.max(self.img_stack, axis=0)
+
+
+class StdMultiAreaEMA(EMA):
+    """用于评估STD的EMA，选取数个区域作为参考。每次取中值作为参考标准差。
+    是原型代码。
+    有点慢，不同区域可能也有不同（差异比较大）
+    Args:
+        EMA (_type_): _description_
+    """
+
+    def __init__(self, n, ref_mask, area=0.1, k=3) -> None:
+        super().__init__(n)
+        self.k = k
+        self.area = area
+        self.areas, self.area_ratios = self.select_topk_subarea(
+            ref_mask, self.area, self.k)
+
+    def update(self, diff_stack):
+        stds = np.zeros((self.k, ))
+        for i, ((l, r, t, b),
+                ratio) in enumerate(zip(self.areas, self.area_ratios)):
+            stds[i] = np.std(diff_stack[:, l:r, t:b]) / ratio
+        #print(stds)
+        return super().update(np.median(stds))
+
+    def select_topk_subarea(self, mask, area, topk=1):
+        h, w = mask.shape
+        sub_rate = area**(1 / 2)
+        slide_n = floor(1 / sub_rate)
+        best_cor = (slide_n - 1) / 2
+        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
+        dx, dy = int(h / slide_n), int(w / slide_n)
+        score_mat = np.zeros((slide_n, slide_n))
+        cor_mat = np.zeros((slide_n, slide_n))
+        for i in range(slide_n):
+            for j in range(slide_n):
+                # 得分由两个部分组成，区域有效面积和靠近中心的程度。
+                # 相同得分的情况下，优先选择靠近中心的区域。
+                area_mask = mask[i * dx:i * dx + sub_h, j * dy:j * dy + sub_w]
+                cor_mat[i, j] = -(abs(i - best_cor) + abs(j - best_cor))
+                score_mat[i, j] = np.sum(area_mask)
+        top_pos = np.argpartition((score_mat + cor_mat).reshape(-1),
+                                  -topk)[-topk:]
+        top_x, top_y = top_pos // slide_n, top_pos % slide_n
+        area_list = [(x * dx, x * dx + sub_h, y * dy, y * dy + sub_w)
+                     for (x, y) in zip(top_x, top_y)]
+        mask_list = [
+            score_mat[x, y] / (sub_h * sub_w) for (x, y) in zip(top_x, top_y)
+        ]
+        return area_list, mask_list
+
+
+def sigma_clip(sequence, sigma=3.00):
     mean, std = np.mean(sequence), np.std(sequence)
     while True:
         # update sequence
-        sequence = [x for x in sequence if abs(mean - x) < sigma * std]
+        sequence = sequence[np.abs(mean - sequence) < sigma * std]
         updated_mean, updated_std = np.mean(sequence), np.std(sequence)
         if updated_mean == mean:
-            return updated_mean
+            return sequence
         mean, std = updated_mean, updated_std
 
 
@@ -178,7 +327,8 @@ def rf_estimator(video, img_mask, resize_param):
     if len(intervals) == 0:
         return 1
     # 非常经验的取值方法...
-    est_frames = np.round(min(np.median(intervals), sigma_clip_average(intervals)))
+    est_frames = np.round(
+        min(np.median(intervals), np.mean(sigma_clip(intervals))))
     return est_frames
 
 
@@ -231,6 +381,10 @@ def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
             return 1 / fps
         return float(exp_time)
 
+def frame2ts(frame, fps):
+        return datetime.datetime.strftime(
+            datetime.datetime.utcfromtimestamp(frame / fps),
+            "%H:%M:%S.%f")[:-3]
 
 def test_tf_estimator(test_video, test_mask, resize_param):
     video, img_mask = load_video_and_mask(test_video, test_mask, resize_param)

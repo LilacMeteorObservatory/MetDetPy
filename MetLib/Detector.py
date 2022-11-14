@@ -1,21 +1,35 @@
 import cv2
 import numpy as np
 
-from .utils import m3func
+from .utils import m3func, RefEMA
 
 pi = np.pi / 180.0
 
+# version I
+sensi_func = {
+    "low": lambda x: 1.5 * x**2 + 4.2,
+    "normal": lambda x: 1.2 * x**2 + 3.6,
+    "high": lambda x:  0.9 * x**2 + 3,
+}
 
-def init_detector(name, detect_cfg, debug_mode, fps):
+absolute_sensitivity_mapping = {
+    "high": 3,
+    "normal": 5,
+    "low": 7,
+    "very_low": 10
+}
+
+
+def init_detector(name, detect_cfg, fps):
     if name == "ClassicDetector":
-        return ClassicDetector(-1, detect_cfg, debug_mode=debug_mode)
+        return ClassicDetector(-1, detect_cfg)
 
     elif name == "M3Detector":
         # Odd Length for M3Detector
         window_size = max(int(detect_cfg["window_sec"] * fps), 2)
         if window_size % 2 == 0:
             window_size += 1
-        return M3Detector(window_size, detect_cfg, debug_mode=debug_mode)
+        return M3Detector(window_size, detect_cfg)
 
 
 def DrawHist(src, mask, hist_num=256, threshold=0):
@@ -52,7 +66,6 @@ class BaseDetector(object):
     Args:
             stack_size (_type_): 检测器的窗口大小
             cfg (_type_): 参数配置。
-            debug_mode (bool, optional): 是否启用调试模式。调试模式将打印更多检测细节. Defaults to False.
     
 
     self.stack用于放置检测窗口的帧图像。
@@ -60,23 +73,25 @@ class BaseDetector(object):
 
     """
 
-    def __init__(self, stack_maxsize, cfg, debug_mode=False):
+    def __init__(self, stack_maxsize, cfg):
         self.stack_maxsize = stack_maxsize
-        self.debug_mode = debug_mode
         self.stack = []
         # load all cfg to self.attributes
         for name, value in cfg.items():
             setattr(self, name, value)
 
+        # default version does not support ada_threshold
+        self.bi_threshold = self.bi_cfg["init_value"]
+
     def detect(self):
         pass
 
-    def update(self, new_frames):
-        self.stack.append(new_frames)
+    def update(self, new_frame):
+        self.stack.append(new_frame)
         self.stack = self.stack[-self.stack_maxsize:]
 
     def draw_light_on_bg(self, bg, light, text=None):
-        """ 简单实现的闭包式的绘图API，用于支持可视化响应等
+        """ 简单实现的闭包式的绘图API，用于支持可视化
 
         Args:
             bg (np.array): 背景图像
@@ -86,13 +101,23 @@ class BaseDetector(object):
         def core_drawer():
             p = cv2.cvtColor(light, cv2.COLOR_GRAY2RGB)
             b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
-            p[:, :, [0, 1]] = 0
-            cb_img = cv2.addWeighted(b, 1, p, 1, 1)
-            if text:
-                h, w, _ = cb_img.shape
-                cb_img = cv2.putText(cb_img, text, (0, 25),
-                                     cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0),
-                                     2)
+            p[:, :, 0] = 0
+            cb_img = cv2.addWeighted(b, 1, p, 0.5, 1)
+            if getattr(self, "ref_ema", None):
+                if getattr(self.ref_ema, "roi", None):
+                    x1, y1, x2, y2 = self.ref_ema.roi
+                    cb_img = cv2.rectangle(cb_img, (y1, x1), (y2, x2),
+                                           color=(128, 64, 128),
+                                           thickness=2)
+                cb_img = cv2.putText(
+                    cb_img,
+                    f"STD:{self.ref_ema.mean:.4f}; (Real noise: {self.ref_ema.noise:.4f})",
+                    (10, 20), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 1)
+                cb_img = cv2.putText(cb_img,
+                                     f"Bi_Threshold: {self.bi_threshold:.2f}",
+                                     (10, 40), cv2.FONT_HERSHEY_COMPLEX, 0.5,
+                                     (0, 255, 0), 1)
+
             return cb_img
 
         return core_drawer
@@ -153,7 +178,6 @@ class M3Detector(BaseDetector):
         stack (_type_): _description_
         threshold (_type_): _description_
         drawing (_type_): _description_
-        debug_mode (bool, optional): _description_. Defaults to False.
 
     Returns:
         _type_: _description_
@@ -161,38 +185,34 @@ class M3Detector(BaseDetector):
 
     def __init__(self, *args, **kwargs):
         # 必须包含的参数
-        # bi_threshold line_threshold self.max_gap img_shape
-        # 需要可视化时包含的参数
-        # mask
+        # bi_threshold line_threshold self.max_gap mask
         super().__init__(*args, **kwargs)
-        self.ref_img = np.zeros(self.img_shape, dtype=float)
-        self.mp, self.md = 0, 0
 
-    def update(self, new_frames):
-        # 更新背景估计参考
-        # TODO: 之后考虑添加阈值估计参考（即方差）
-        if len(self.stack) >= self.stack_maxsize:
-            p = (self.stack - self.ref_img / len(self.stack))
-            # 方差估算可以左右SNR的参考依据。但总的来说低于单帧之间。
-            self.md = np.std(p)
-            self.ref_img -= self.stack[0]
-        self.ref_img += new_frames
+        self.area = 0
+        # 加载自适应阈值的配置参数
+        if self.adaptive_bi_thre:
+            self.sensitivity = self.bi_cfg["sensitivity"]
+            self.std2thre = sensi_func[self.sensitivity]
+            self.bi_threshold = absolute_sensitivity_mapping[self.sensitivity]
+            self.area = self.bi_cfg["area"]
+        # 使用RefEMA作为滑窗数值管理器
+        self.ref_ema = RefEMA(n=self.stack_maxsize,
+                              ref_mask=self.img_mask,
+                              area=self.area)
 
-        super().update(new_frames)
+    def update(self, new_frame):
+        self.ref_ema.update(new_frame)
+        if self.adaptive_bi_thre and (self.ref_ema.mean != np.inf):
+            self.bi_threshold = self.std2thre(self.ref_ema.mean)
 
     def detect(self) -> tuple:
-        light_img = np.max(self.stack, axis=0)
-        diff_img = (light_img -
-                    (self.ref_img / len(self.stack))).astype(dtype=np.uint8)
+        light_img = self.ref_ema.li_img
+        diff_img = (light_img - self.ref_ema.bg_img).astype(dtype=np.uint8)
 
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
         dst = cv2.medianBlur(dst, 3)
-        # TODO: 这一套对噪点大的不太适用。。。
-        #dst = cv2.morphologyEx(
-        #    dst, cv2.MORPH_OPEN,
-        #    cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
         dst = cv2.morphologyEx(
             dst, cv2.MORPH_CLOSE,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
@@ -204,22 +224,7 @@ class M3Detector(BaseDetector):
                                  self.min_len, self.max_gap)
 
         linesp = [] if linesp is None else linesp[0]
-        return linesp, self.draw_light_on_bg(light_img,
-                                             dst,
-                                             text=f"SNR:{self.md:.4f}")
-
-    def draw_on(self, canvas):
-        if self.debug_mode:
-            diff_img = cv2.cvtColor(np.array(diff_img, np.uint8),
-                                    cv2.COLOR_GRAY2BGR)
-            drawing = np.repeat(np.expand_dims(drawing, axis=-1), 3, axis=-1)
-            y, x = self.visual_param
-            canvas = np.zeros((x * 2, y * 2, 3), dtype=np.uint8)
-            canvas[:x, :y] = cv2.resize(drawing, (y, x))
-            canvas[:x, y:] = cv2.resize(diff_img, (y, x))
-            canvas[x:, :y] = cv2.cvtColor(
-                cv2.resize(
-                    DrawHist(diff_img, self.mask, threshold=self.bi_threshold),
-                    (y, x)), cv2.COLOR_GRAY2BGR)
-            canvas[x:, y:] = cv2.resize(drawing, (y, x))
-            drawing = canvas
+        return linesp, self.draw_light_on_bg(
+            light_img,
+            dst,
+        )

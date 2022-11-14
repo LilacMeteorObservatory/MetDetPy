@@ -4,6 +4,8 @@ import json
 import cv2
 import numpy as np
 
+from .utils import frame2ts
+
 pt_len_4 = lambda pts: (pts[3] - pts[1])**2 + (pts[2] - pts[0])**2
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 color_map = [[0, 0, 255], [0, 255, 0]]
@@ -129,8 +131,13 @@ class MeteorCollector(object):
         final_list = [json.dumps(x) for x in final_list]
         return final_list
 
-    def draw_on_img(self, draw_img):
-        #draw_img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    def draw_on_img(self, draw_img, frame_num):
+        # timestamp
+        h, w, _ = draw_img.shape
+        max_len = max(h,w)
+        draw_img = cv2.putText(draw_img, frame2ts(frame_num,self.fps), (int(w*0.01) , int(h*0.98)),
+                               cv2.FONT_HERSHEY_COMPLEX, max_len/1920, (255, 255, 255),
+                               1)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             draw_img = cv2.rectangle(draw_img, pt1, pt2,
@@ -170,8 +177,8 @@ class MeteorSeries(object):
                     end_time=self.frame2ts(self.end_frame),
                     last_activate_time=self.frame2ts(self.last_activate_frame),
                     duration=self.duration,
-                    speed=self.speed,
-                    dist=self.dist,
+                    speed=np.round(self.speed, 3),
+                    dist=np.round(self.dist, 3),
                     pt1=self.range[0],
                     pt2=self.range[1])
 
@@ -198,9 +205,7 @@ class MeteorSeries(object):
         return self.dist / (self.end_frame - self.start_frame + 1e-6)
 
     def frame2ts(self, frame):
-        return datetime.datetime.strftime(
-            datetime.datetime.utcfromtimestamp(frame / self.fps),
-            "%H:%M:%S.%f")
+        return frame2ts(frame, self.fps)
 
     def box2coord(cls, box):
         return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) / 2,

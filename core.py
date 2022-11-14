@@ -88,8 +88,8 @@ def detect_video(video_name,
     stack_manager = init_stacker(cfg.stacker, cfg.stacker_cfg, exp_frame)
 
     # Init detector
-    cfg.detect_cfg.update(img_shape=mask.shape)
-    detector = init_detector(cfg.detector, cfg.detect_cfg, debug_mode, eq_fps)
+    cfg.detect_cfg.update(img_mask=mask)
+    detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
 
     # Init meteor collector
     # TODO: To be renewed
@@ -134,17 +134,18 @@ def detect_video(video_name,
             stack_manager.update(video_reader, detector)
 
             #TODO: Mask, visual
-            lines, img_clo = detector.detect()
+            lines, img_visu = detector.detect()
 
-            if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps == 0):
+            if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
+                              == 0):
                 output_meteors(main_mc.update(i, lines=lines), progout,
                                debug_mode)
             if debug_mode:
                 if (cv2.waitKey(int(exp_time * 400)) & 0xff == ord("q")):
                     break
-                # img_clo is used to get the image, 
+                # img_visu is used to get the image,
                 # and is only executed when visualizing.
-                draw_img = main_mc.draw_on_img(img_clo())
+                draw_img = main_mc.draw_on_img(img_visu(), frame_num=i)
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("Debug Window (Press Q to exit)", draw_img)
 
@@ -166,6 +167,11 @@ if __name__ == "__main__":
                         help="Config file.",
                         default="./config.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
+
+    parser.add_argument('--sensitivity',
+                        help="The sensitivity of detection.",
+                        type=str,
+                        default=None)
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
                         type=int,
@@ -179,11 +185,11 @@ if __name__ == "__main__":
         help=
         "The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
         type=str,
-        default="as_cfg")
+        default=None)
     parser.add_argument('--resize',
                         help="Running-time resolution",
                         type=str,
-                        default="as_cfg")
+                        default=None)
     parser.add_argument(
         '--mode',
         choices=['backend', 'frontend'],
@@ -196,6 +202,13 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('--adaptive-thre',
+                       action="store_true",
+                       help="Apply adaptive binary threshold.")
+    group.add_argument('--no-adaptive-thre',
+                       action="store_true",
+                       help="Forbid adaptive binary threshold.")
 
     args = parser.parse_args()
 
@@ -203,6 +216,9 @@ if __name__ == "__main__":
     cfg_filename = args.cfg
     mask_name = args.mask
     debug_mode = args.debug
+    sensitivity = args.sensitivity
+    assign_ada, adaptive = (args.adaptive_thre ^ args.no_adaptive_thre), (
+        args.adaptive_thre and (not args.no_adaptive_thre))
     work_mode = args.mode
     start_time = args.start_time
     end_time = args.end_time
@@ -211,10 +227,14 @@ if __name__ == "__main__":
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = Munch(json.load(f))
     # replace config value
-    if exp_time != "as_cfg":
+    if exp_time:
         cfg.exp_time = exp_time
-    if resize_param != "as_cfg":
+    if resize_param:
         cfg.resize_param = resize_param
+    if assign_ada:
+        cfg.detect_cfg["adaptive_bi_thre"] = adaptive
+    if sensitivity:
+        cfg.detect_cfg["bi_cfg"]["sensitivity"] = sensitivity
 
     detect_video(video_name,
                  mask_name,
