@@ -2,7 +2,7 @@
 
 Other Language Version: [[中文版]](./docs/readme-cn.md)
 
-MetDetPy is a python script project that can detect meteors from video files. MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector).
+MetDetPy is a python-based video meteor detector that can detect meteors from video files. MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector).
 
 * We reproduce their work and implement more detectors (like M3Detector (where M3 for maximum minus median)). These detectors can help realize highly sensitive meteor detection.
 
@@ -101,20 +101,23 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
- 2. 调整阈值与检测限，输出概率形式，再校验机制
- 3. 优化速度计算逻辑，包括方向，平均速度等
- 4. 完善日志系统
- 5. 改善对蝙蝠/云等情况的误检(!!)
- 6. 支持rtmp
- 7. 添加GUI
- 8. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？)
- 9. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 10. 自动启停
- 11. 时间水印
+    1. 找到合适的超参数： max_gap
+    2. 调整阈值与检测限，输出概率形式，再校验机制
+    3. 优化速度计算逻辑，包括方向，平均速度等
+ 2. 改善对蝙蝠/云等情况的误检(!!)
+ 3. 完善日志系统
+ 4. 支持rtmp
+ 5. 添加GUI
+ 6. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？)
+ 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 8. 自动启停
+ 9. 时间水印
 
 ## Appendix
 
 ### Special Thanks
+
+[uzanka](https://github.com/uzanka)
 
 [奔跑的龟斯](https://weibo.com/u/1184392917)
 
@@ -132,14 +135,17 @@ LittleQ
 
 ### Done
 
- 1. Improving non-ASCII filename support for packaging version /改善了对非ASCII文字路径的支持
-    By packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
+✅ Improved non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持: by packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
 
- 2. 优化了分辨率的接口，支持多种分辨率输入格式，自适应适配竖屏视频
+✅ Resolution-related APIs have been improved to support videos with different aspect ratios / 优化了分辨率相关接口以支持不同长宽比的视频
+
+✅ Implemented an adaptive binary threshold mechanism. We explored simple empirical relations between std and the binary threshold. (⚠️This may not be appropriate for all video patterns. If you encounter any issues, please feel free to modify the function or help me improve it:) / 实现根据方差计算的自适应二值化阈值
+
+✅ Sensitivity configuration is supported now: you can modify "sensitivity" under "bi_cfg" in config.json or passing arguments "--sensitivity {option}" to the program. / 增加灵敏度设置
 
 ### Performance and Efficiency
 
- 1. With `MergeStacker`, MetDetPy now can detect meteors with a 25% time cost of video length on average (tested with an Intel i5-7500).
+ 1. With `MergeStacker`, MetDetPy now can detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500).
 
  2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
   
