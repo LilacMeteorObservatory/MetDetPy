@@ -9,7 +9,7 @@ pi = np.pi / 180.0
 sensi_func = {
     "low": lambda x: 1.5 * x**2 + 4.2,
     "normal": lambda x: 1.2 * x**2 + 3.6,
-    "high": lambda x:  0.9 * x**2 + 3,
+    "high": lambda x: 0.9 * x**2 + 3,
 }
 
 absolute_sensitivity_mapping = {
@@ -220,8 +220,12 @@ class M3Detector(BaseDetector):
             dst,
             cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         )
-        linesp = cv2.HoughLinesP(dst, 0.8, pi, self.hough_threshold,
-                                 self.min_len, self.max_gap)
+        linesp = cv2.HoughLinesP(dst,
+                                 rho=0.8,
+                                 theta=pi,
+                                 threshold=self.hough_threshold,
+                                 minLineLength=self.min_len,
+                                 maxLineGap=self.max_gap)
 
         linesp = [] if linesp is None else linesp[0]
         return linesp, self.draw_light_on_bg(

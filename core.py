@@ -98,9 +98,12 @@ def detect_video(video_name,
     meteor_cfg = dict(min_len=meteor_cfg.min_len,
                       max_interval=meteor_cfg.max_interval * fps,
                       det_thre=0.5,
-                      time_range=(meteor_cfg.time_range[0] * fps,
-                                  meteor_cfg.time_range[1] * fps),
+                      time_range=[
+                          meteor_cfg.time_range[0] * fps,
+                          meteor_cfg.time_range[1] * fps
+                      ],
                       speed_range=meteor_cfg.speed_range,
+                      drct_range=meteor_cfg.drct_range,
                       thre2=meteor_cfg.thre2 * exp_frame)
     main_mc = MeteorCollector(**meteor_cfg, eframe=exp_frame, fps=fps)
 
@@ -168,10 +171,6 @@ if __name__ == "__main__":
                         default="./config.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
 
-    parser.add_argument('--sensitivity',
-                        help="The sensitivity of detection.",
-                        type=str,
-                        default=None)
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
                         type=int,
@@ -202,13 +201,21 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--adaptive-thre',
-                       action="store_true",
-                       help="Apply adaptive binary threshold.")
-    group.add_argument('--no-adaptive-thre',
-                       action="store_true",
-                       help="Forbid adaptive binary threshold.")
+    parser.add_argument('--adaptive-thre',
+                        default=None,
+                        type=str,
+                        help="Apply adaptive binary threshold.")
+
+    group_bi = parser.add_mutually_exclusive_group(required=False)
+    group_bi.add_argument('--bi-thre',
+                          type=int,
+                          default=None,
+                          help="Apply adaptive binary threshold.")
+
+    group_bi.add_argument('--sensitivity',
+                          type=str,
+                          default=None,
+                          help="The sensitivity of detection.")
 
     args = parser.parse_args()
 
@@ -217,8 +224,8 @@ if __name__ == "__main__":
     mask_name = args.mask
     debug_mode = args.debug
     sensitivity = args.sensitivity
-    assign_ada, adaptive = (args.adaptive_thre ^ args.no_adaptive_thre), (
-        args.adaptive_thre and (not args.no_adaptive_thre))
+    bi_thre = args.bi_thre
+    adaptive = args.adaptive_thre
     work_mode = args.mode
     start_time = args.start_time
     end_time = args.end_time
@@ -231,10 +238,16 @@ if __name__ == "__main__":
         cfg.exp_time = exp_time
     if resize_param:
         cfg.resize_param = resize_param
-    if assign_ada:
+    if adaptive:
+        assert adaptive in ["on", "off"
+                            ], "adaptive_thre should be set \"on\" or \"off\"."
+        adaptive = {"on": True, "off": False}[adaptive]
         cfg.detect_cfg["adaptive_bi_thre"] = adaptive
+
     if sensitivity:
         cfg.detect_cfg["bi_cfg"]["sensitivity"] = sensitivity
+    if bi_thre:
+        cfg.detect_cfg["bi_cfg"]["init_value"] = bi_thre
 
     detect_video(video_name,
                  mask_name,

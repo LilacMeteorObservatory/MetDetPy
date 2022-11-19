@@ -14,9 +14,9 @@
             "sensitivity": "normal",
             "area": 0.1
         },
-        "hough_threshold": 10,
-        "min_len": 10,
-        "max_gap": 10
+        "hough_threshold": 5,
+        "min_len": 5,
+        "max_gap": 20
     },
     "meteor_cfg": {
         "min_len": 10,
@@ -29,11 +29,8 @@
             1.2,
             12
         ],
-        "drct_range": [
-            0,
-            0.17
-        ],
         "pos_threshold": 0.5,
+        "refresh_time": 20,
         "thre2": 512
     }
 }

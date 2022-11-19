@@ -381,10 +381,11 @@ def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
             return 1 / fps
         return float(exp_time)
 
+
 def frame2ts(frame, fps):
-        return datetime.datetime.strftime(
-            datetime.datetime.utcfromtimestamp(frame / fps),
-            "%H:%M:%S.%f")[:-3]
+    return datetime.datetime.strftime(
+        datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
+
 
 def test_tf_estimator(test_video, test_mask, resize_param):
     video, img_mask = load_video_and_mask(test_video, test_mask, resize_param)
@@ -392,6 +393,51 @@ def test_tf_estimator(test_video, test_mask, resize_param):
     print(
         "The given video is assumed to have a exposure time of %.2f s each frame."
         % (assume_rf / video.get(cv2.CAP_PROP_FPS)))
+
+
+def color_interpolater(color_list):
+    # 用于创建跨越多种颜色的插值条
+    # 返回一个函数，该函数可以接受[0,1]并返回对应颜色
+    nums = len(color_list)
+    color_list = list(map(np.array, color_list))
+    gap = 1 / (nums - 1)
+    inte_func = []
+    for i in range(nums - 1):
+        inte_func.append(lambda x, i: np.array(
+            (1 - x) * color_list[i] + x * color_list[i + 1], dtype=np.uint8))
+
+    def color_interpolate_func(x):
+        i = max(int((x - eps) / gap), 0)
+        dx = x / gap - i
+        return list(map(int, inte_func[i](dx, i)))
+
+    return color_interpolate_func
+
+
+def least_square_fit(pts):
+    """fit pts to the linear func Ax+By+C=0
+
+    Args:
+        pts (_type_): _description_
+
+    Returns:
+        tuple: parameters (A,B,C)
+        float: average loss
+    """
+    pts = np.array(pts)
+    avg_xy = np.mean(pts, axis=0)
+    dpts = pts - avg_xy
+    dxx, dyy = np.sum(dpts**2, axis=0)
+    dxy = np.sum(dpts[:, 0] * dpts[:, 1])
+    v, m = np.linalg.eig([[dxx, dxy], [dxy, dyy]])
+    A, B = m[np.argmin(v)]
+    # fixed 
+    # TODO: this works fine now. but why??
+    B = -B
+
+    C = -np.sum(np.array([A, B]) * avg_xy)
+    loss = np.mean(np.abs(np.einsum("a,ba->b", np.array([A, B]), pts) + C))
+    return (A, B, C), loss
 
 
 #####################################################
