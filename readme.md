@@ -102,16 +102,16 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
     1. 找到合适的超参数： max_gap
-    2. 调整阈值与检测限，输出概率形式，再校验机制
+    2. 再校验机制
     3. 优化速度计算逻辑，包括方向，平均速度等
+    4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
  3. 完善日志系统
  4. 支持rtmp
  5. 添加GUI
- 6. 为不同信噪比/焦距的图像设置合适的超参数组合？(优先？)
- 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 8. 自动启停
- 9. 时间水印
+ 6. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 7. 自动启停
+ 8. 时间水印
 
 ## Appendix
 
@@ -142,6 +142,8 @@ LittleQ
 ✅ Implemented an adaptive binary threshold mechanism. We explored simple empirical relations between std and the binary threshold. (⚠️This may not be appropriate for all video patterns. If you encounter any issues, please feel free to modify the function or help me improve it:) / 实现根据方差计算的自适应二值化阈值
 
 ✅ Sensitivity configuration is supported now: you can modify "sensitivity" under "bi_cfg" in config.json or passing arguments "--sensitivity {option}" to the program. / 增加灵敏度设置
+
+✅ Smoothing probabilities to [0,1] instead of {0,1}. Meteor judging now is by a series of factors so it could be more accurate (perhaps...). / 输出调整为概率形式
 
 ### Performance and Efficiency
 
