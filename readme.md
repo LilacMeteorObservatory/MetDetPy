@@ -2,13 +2,17 @@
 
 Other Language Version: [[中文版]](./docs/readme-cn.md)
 
-MetDetPy is a python-based video meteor detector that can detect meteors from video files. MetDetPy is enlightened by [MeteorDetector](https://github.com/uzanka/MeteorDetector).
+MetDetPy is a python-based video meteor detector that can detect meteors from video files.
 
-* We reproduce their work and implement more detectors (like M3Detector (where M3 for maximum minus median)). These detectors can help realize highly sensitive meteor detection.
+* Basically, MetDetPy is enlightened by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is reproduced in python3.
 
-* We also implement a meteor detection result manager (MeteorLib) to help filter and integrate detection response, which is helpful to exclude false positive samples.
+* Based on their work, we implement an M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
 
-* An evaluation code is under development.
+* We design an adaptive threshold algorithm that can select binary threshold dynamically according to the signal-to-noise ratio of the video. (Experimental feature)
+
+* We also implement a meteor detection result manager (called MeteorLib) to help integrate predictions and exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
+
+* An evaluation tool is under development.
 
 ## Release Version
 
@@ -42,21 +46,40 @@ pip install -r requirements.txt
 ### Run Directly
 
 ```sh
-python core.py  [--cfg CFG] [--mask MASK] 
-                [--mode {backend,frontend}] 
-                [--start-time START_TIME] [--end-time END_TIME]
-                [--debug-mode] 
-                target
+python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
+               [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
+               [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
 ```
 
-#### Configs
+#### Main Arguments
 
-* target: 待检测视频。目前主要支持H264编码视频。
-* --cfg: 指定配置文件。默认情况下使用同目录下的config.json文件。
-* --mask：指定掩模（遮罩）图像。使用黑色（任何颜色）涂抹不需要检测的区域即可。不强制要求尺寸与原图相同。默认不使用。
-* --mode：指定以前端方式运行（即命令行直接启动）或作为后端被调用。两种情况下的输出流会存在一定差异。默认为前端模式。
-* --start-time：指定从选定的时间开始分析。单位为ms。不指定将从头开始分析。
-* --end-time：指定分析到从选定的时间。单位为ms。不指定将分析到视频结尾。
+* target: meteor video filename. Support common video encoding (since it uses OpenCV to decode video).
+
+* --cfg: configuration file. Use "config.json" under the same path default.
+
+* --mask: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+
+* --start-time: the start time of detecting (in ms). The default is 0.
+
+* --end-time: the end time of detecting (in ms). The default is the end of the video.
+
+* --mode: the running mode. Its argument should be selected from {backend, frontend}. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
+
+* --debug: when launching MetDetPy with --debug, there will be a debug window showing videos and detected meteors.
+
+#### Cover arguments
+
+The following arguments has default value in config files. Their detail explanation can be seen in [configuration documents](./docs/config-doc.md).
+
+* --resize: the frame image size used during the detection.
+
+* --exp-time: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
+
+* --adaptive-thre: whether apply adaptive binary threshold in the detector. Select from {on, off}.
+
+* --bi-thre: the binary threshold used in the detector. When adaptive binary threshold is applied, this option is invalidate. Do not set --sensitivity with this at the same time.
+
+* --sensitivity: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
 
 #### Example
 
@@ -64,15 +87,11 @@ python core.py  [--cfg CFG] [--mask MASK]
 python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 ```
 
-#### Customize Configuration
+### Customize Configuration
 
-Basically all configurations adopt key-value pairs in the configuration file. If not specified by "--cfg" through command lines, the "config.json" under the same directory will be adopted as default.
+Unlike video-related arguments, most detect-related important arguments are predefined and stored in the configuration file. In most cases, predefined arguments works fine. However, sometimes it is possible to finetune these arguments to get better results. If you want to get the illustration of the configuration file, see [configuration documents](./docs/config-doc.md) for more information.
 
-Although, resized resolution "resize_param" and exposure time "exp_time" can be set in command lines, there are more to do
-
-See [documents of configurations](./docs/config-doc.md) for more information.
-
-### Evaulate A Series Of Video
+### Evaulate
 
 To evaluate this program on a series of videos, you can simply run `evaluate.py` :
 
@@ -84,9 +103,20 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 
 ```json
 {
-    "true_positive":[[video1,mask1],[video2,mask2],...,[video_n,mask_n]],
-    "true_negative":[[video1,mask1],[video2,mask2],...,[video_n,mask_n]],
-    "false_positive":[[video1,mask1],[video2,mask2],...,[video_n,mask_n]]
+    "video": "path/to/the/video.mp4",
+    "mask": "path/to/the/mask.jpg",
+    "gt": [{
+        "start_time": "HH:MM:SS.XX0000",
+        "end_time": "HH:MM:SS.XX0000",
+        "pt1": [
+            260,
+            225
+        ],
+        "pt2": [
+            154,
+            242
+        ]
+    }]
 }
 ```
 
@@ -96,7 +126,7 @@ If a video has no corresponding mask, simply use `""` .
 
 In order to successfully freeze MetDetPy programs into stand-alone executables, we suggest using `pyinstaller>=5.0`. You should have `Python>=3.7` installed to avoid compatibility issues. Besides, the package `opencv-python<=4.5.3.56` is required to avoid recursion errors. (not fixed yet, 2022.08.08)
 
-When everything is ready, run `pyinstaller core.spec --clean` to package the code. The target executable will be generated in "./dist/" directory.
+When everything is ready, run `pyinstaller core.spec --clean` to package the code. The target executable will be generated in  [dist](./dist/)  directory.
 
 ## Todo List
 
@@ -112,6 +142,12 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
  6. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
  7. 自动启停
  8. 时间水印
+
+## Performance and Efficiency
+
+ 1. With `MergeStacker`, MetDetPy now can detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500).
+
+ 2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
 
 ## Appendix
 
@@ -133,9 +169,9 @@ When everything is ready, run `pyinstaller core.spec --clean` to package the cod
 
 LittleQ
 
-### Done
+### Update Log
 
-✅ Improved non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持: by packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
+#### Version 1.2
 
 ✅ Resolution-related APIs have been improved to support videos with different aspect ratios / 优化了分辨率相关接口以支持不同长宽比的视频
 
@@ -145,9 +181,10 @@ LittleQ
 
 ✅ Smoothing probabilities to [0,1] instead of {0,1}. Meteor judging now is by a series of factors so it could be more accurate (perhaps...). / 输出调整为概率形式
 
-### Performance and Efficiency
+#### Version 1.1.1
 
- 1. With `MergeStacker`, MetDetPy now can detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500).
+✅ Improved non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持: by packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
 
- 2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
-  
+#### Version 1.1
+
+✅ Add "Backend" mode to support MeteorMaster. / 增加了后端模式
