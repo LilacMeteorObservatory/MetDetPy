@@ -105,7 +105,7 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 {
     "video": "path/to/the/video.mp4",
     "mask": "path/to/the/mask.jpg",
-    "gt": [{
+    "meteors": [{
         "start_time": "HH:MM:SS.XX0000",
         "end_time": "HH:MM:SS.XX0000",
         "pt1": [

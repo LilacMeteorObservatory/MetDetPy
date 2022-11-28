@@ -65,6 +65,7 @@ class MeteorCollector(object):
                          create_prob_func((-np.nan, -np.nan)), np.nan, np.nan)
         ]
         self.waiting_meteor = []
+        self.ended_meteor=[]
         self.cur_frame = 0
         self.thre2 = thre2
         self.speed_range = speed_range
@@ -100,8 +101,10 @@ class MeteorCollector(object):
         # 维护
         for ms in drop_list:
             self.active_meteor.remove(ms)
+            self.ended_meteor.append(ms.property_json)
         for ms in temp_waiting_meteor:
             self.active_meteor.remove(ms)
+            self.ended_meteor.append(ms.property_json)
         drop_list = [
             json.dumps(init_output_dict(ms, ms.property_json))
             for ms in drop_list

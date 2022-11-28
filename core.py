@@ -66,8 +66,8 @@ def detect_video(video_name,
             *load_video_and_mask(video_name, mask_name, resize_param),
             resize_param,
             upper_bound=0.25)
-        exp_frame, eq_fps, eq_int_fps = round(
-            exp_time * fps), 1 / exp_time, floor(1 / exp_time)
+        exp_frame, eq_fps, eq_int_fps = int(round(
+            exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
     progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
             (exp_time, (1000 * exp_frame * eq_int_fps / fps)))
     # 根据指定头尾跳转指针与结束帧
@@ -159,6 +159,8 @@ def detect_video(video_name,
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
         progout("Time cost: %.4ss." % (time.time() - t0))
+    
+    return resize_param,main_mc.ended_meteor
 
 
 if __name__ == "__main__":
@@ -180,16 +182,6 @@ if __name__ == "__main__":
                         type=int,
                         default=None)
     parser.add_argument(
-        '--exp-time',
-        help=
-        "The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
-        type=str,
-        default=None)
-    parser.add_argument('--resize',
-                        help="Running-time resolution",
-                        type=str,
-                        default=None)
-    parser.add_argument(
         '--mode',
         choices=['backend', 'frontend'],
         default='frontend',
@@ -201,6 +193,17 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
+    
+    parser.add_argument('--resize',
+                        help="Running-time resolution",
+                        type=str,
+                        default=None)
+    parser.add_argument(
+        '--exp-time',
+        help=
+        "The exposure time (s) of the video. \"auto\", \"real-time\",\"slow\" are also supported.",
+        type=str,
+        default=None)
     parser.add_argument('--adaptive-thre',
                         default=None,
                         type=str,
