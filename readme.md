@@ -16,12 +16,14 @@ MetDetPy is a python-based video meteor detector that can detect meteors from vi
 
 ## Release Version
 
-MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get MeteorMaster(Windows release) version from:
+We provide release versions of MetDetPy for common platforms (including Windows, macOS and Linux). Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
+
+Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get MeteorMaster(Windows release) version from:
 
 * [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
-We are planning to provide release versions of MetDetPy for other platforms (like macOS and Linux). Before which you can build it with `pyinstaller` (see [Package python codes to executables](#package-python-codes-to-executables)).
+
 
 ## Requirements
 
@@ -32,7 +34,7 @@ We are planning to provide release versions of MetDetPy for other platforms (lik
 ### Packages
 
 * numpy>=1.15.0
-* opencv_python>=4.0.0
+* opencv_python>=4.7.0
 * tqdm>=4.0.0
 
 You can install these packages using:
@@ -124,24 +126,34 @@ If a video has no corresponding mask, simply use `""` .
 
 ## Package python codes to executables
 
-In order to successfully freeze MetDetPy programs into stand-alone executables, we suggest using `pyinstaller>=5.0`. You should have `Python>=3.7` installed to avoid compatibility issues. Besides, the package `opencv-python<=4.5.3.56` is required to avoid recursion errors. (not fixed yet, 2022.08.08)
+We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. When using it, make sure that `pyinstaller` or `nuitka` is installed through `pip`. Also, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
 
-When everything is ready, run `pyinstaller core.spec --clean` to package the code. The target executable will be generated in  [dist](./dist/)  directory.
+When everything is ready, run `python make_package.py` to package the code. By default `pyinstaller` is used as the preferred packaging tool, and you can add `--tool nuitka` to using `nuitka` to compile the code. Also, when using `nuitka` and your compiler is mingw64, add `--mingw64` to use the mingw64 compiler.
+
+The target executable file and its zip package version will be generated in  [dist](./dist/)  directory.
+
+Notice:
+1.  It is suggested to use `Python>=3.7` to avoid compatibility issues.
+2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
     1. 找到合适的超参数： max_gap
-    2. 再校验机制
+    2. 优化再校验机制
     3. 优化速度计算逻辑，包括方向，平均速度等
     4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
  3. 完善日志系统
- 4. 支持rtmp
- 5. 添加GUI
- 6. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 7. 自动启停
- 8. 时间水印
+ 4. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 5. 自动启停
+ 6. 时间水印
+
+
+P.S: 目前结合MeteorMaster已支持以下功能，它们在MetDetPy的开发中优先级已下调：
+
+ 1. 完善的GUI
+ 2. 支持rtmp/rtsp/http流直播
 
 ## Performance and Efficiency
 

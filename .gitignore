@@ -1,7 +1,4 @@
-*.exe
-test_video.json
 __pycache__/
-build/
 dist/
 toolkit/
 test/test*.json

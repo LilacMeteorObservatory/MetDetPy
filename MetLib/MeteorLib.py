@@ -65,7 +65,7 @@ class MeteorCollector(object):
                          create_prob_func((-np.nan, -np.nan)), np.nan, np.nan)
         ]
         self.waiting_meteor = []
-        self.ended_meteor=[]
+        self.ended_meteor = []
         self.cur_frame = 0
         self.thre2 = thre2
         self.speed_range = speed_range
@@ -140,7 +140,7 @@ class MeteorCollector(object):
                 continue
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
-                MeteorSeries(self.cur_frame - 2 * self.eframe,
+                MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
                              self.cur_frame,
                              line,
                              time_func=self.time_prob_func,
@@ -228,16 +228,17 @@ class MeteorSeries(object):
 
     @property
     def property_json(self) -> dict:
-        return dict(start_time=self.frame2ts(self.start_frame),
-                    end_time=self.frame2ts(self.end_frame),
-                    last_activate_time=self.frame2ts(self.last_activate_frame),
-                    duration=self.duration,
-                    speed=np.round(self.speed, 3),
-                    dist=np.round(self.dist, 3),
-                    pt1=self.range[0],
-                    pt2=self.range[1],
-                    #drct_loss=self.drst_std,
-                    score=self.prob_meteor())
+        return dict(
+            start_time=self.frame2ts(self.start_frame),
+            end_time=self.frame2ts(self.end_frame),
+            last_activate_time=self.frame2ts(self.last_activate_frame),
+            duration=self.duration,
+            speed=np.round(self.speed, 3),
+            dist=np.round(self.dist, 3),
+            pt1=self.range[0],
+            pt2=self.range[1],
+            #drct_loss=self.drst_std,
+            score=self.prob_meteor())
 
     @property
     def drst_std(self):

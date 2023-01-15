@@ -11,7 +11,6 @@ eps = 1e-2
 
 
 class Munch(object):
-
     def __init__(self, idict) -> None:
         for (key, value) in idict.items():
             #if isinstance(value,dict):
@@ -20,7 +19,6 @@ class Munch(object):
 
 
 class EMA(object):
-
     def __init__(self, n) -> None:
         self.n = n
         self.ema_pool = []
@@ -44,7 +42,6 @@ class RefEMA(EMA):
     Args:
         EMA (_type_): _description_
     """
-
     def __init__(self, n, ref_mask, area=0) -> None:
         super().__init__(n)
         self.ref_img = np.zeros_like(ref_mask, dtype=float)
@@ -122,7 +119,6 @@ class StdMultiAreaEMA(EMA):
     Args:
         EMA (_type_): _description_
     """
-
     def __init__(self, n, ref_mask, area=0.1, k=3) -> None:
         super().__init__(n)
         self.k = k
@@ -169,7 +165,7 @@ def sigma_clip(sequence, sigma=3.00):
     mean, std = np.mean(sequence), np.std(sequence)
     while True:
         # update sequence
-        sequence = sequence[np.abs(mean - sequence) < sigma * std]
+        sequence = sequence[np.abs(mean - sequence) <= sigma * std]
         updated_mean, updated_std = np.mean(sequence), np.std(sequence)
         if updated_mean == mean:
             return sequence
@@ -277,9 +273,14 @@ def _rf_est_kernel(video,
             partial(preprocessing, mask=img_mask, resize_param=resize_param))
         reg = resize_param[0] * resize_param[1]
         video_loader.start()
-        f_sum = np.zeros((n_frames, ), dtype=np.float)
+        f_sum = np.zeros((n_frames, ), dtype=float)
         for i in range(n_frames):
-            f_sum[i] = np.sum(video_loader.pop(1)[0] / reg)
+            if not video_loader.stopped:
+                frame = video_loader.pop(1)[0]
+                f_sum[i] = np.sum(frame / reg)
+            else:
+                f_sum = f_sum[:i]
+                break
         # mean filter with windows_size=3
         #f_sum = np.array([(
         #    f_sum[max(0, i - 1)] + f_sum[i] + f_sum[min(len(f_sum) - 1, i + 1)]
@@ -321,7 +322,7 @@ def rf_estimator(video, img_mask, resize_param):
         intervals_1 = _rf_est_kernel(video, 100, img_mask, 0, resize_param)
         intervals_2 = _rf_est_kernel(video, 100, img_mask,
                                      (total_frame - 100) // 2, resize_param)
-        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 110,
+        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 120,
                                      resize_param)
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     if len(intervals) == 0:
@@ -431,7 +432,7 @@ def least_square_fit(pts):
     dxy = np.sum(dpts[:, 0] * dpts[:, 1])
     v, m = np.linalg.eig([[dxx, dxy], [dxy, dyy]])
     A, B = m[np.argmin(v)]
-    # fixed 
+    # fixed
     # TODO: this works fine now. but why??
     B = -B
 
