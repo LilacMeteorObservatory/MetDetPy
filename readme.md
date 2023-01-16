@@ -133,27 +133,31 @@ When everything is ready, run `python make_package.py` to package the code. By d
 The target executable file and its zip package version will be generated in  [dist](./dist/)  directory.
 
 Notice:
-1.  It is suggested to use `Python>=3.7` to avoid compatibility issues.
+1. It is suggested to use `Python>=3.7` to avoid compatibility issues.
 2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
     1. 找到合适的超参数： max_gap
-    2. 优化再校验机制
+    2. 设计再校验机制：利用叠图结果做重校准
     3. 优化速度计算逻辑，包括方向，平均速度等
     4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
  3. 完善日志系统
  4. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 5. 自动启停
- 6. 时间水印
+ 5. 快速叠图
+ 6. 评估系统
+ 7. 利用cython改善性能
 
 
-P.S: 目前结合MeteorMaster已支持以下功能，它们在MetDetPy的开发中优先级已下调：
+
+P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
 
  1. 完善的GUI
  2. 支持rtmp/rtsp/http流直播
+ 3. 时间水印（待开发）
+ 4. 自动启停（待开发）
 
 ## Performance and Efficiency
 
@@ -183,6 +187,17 @@ LittleQ
 
 ### Update Log
 
+#### Version 1.2.1
+
+✅ Bug Fixed:
+    Fix the exception output of the start time under some conditions / 修复了部分情况下起始时间异常的问题；
+    Fix the exception abort issue during the FPS estimation / 修复了帧率估算时异常结束的问题；
+    Fix the infinite loop issue during the FPS estimation / 修复了帧率估算时Sigma裁剪均值无法收敛的问题.
+
+✅ Update packaging script: add Nuitka option, update spec file of pyinstaller. / 更新打包脚本：增加Nuitka打包选项，更新pyinstaller使用的.spec文件。
+
+✅ Formally release packaging version for linux and macOS platforms. / 正式发布macOS和linux平台的打包版本。
+
 #### Version 1.2
 
 ✅ Resolution-related APIs have been improved to support videos with different aspect ratios / 优化了分辨率相关接口以支持不同长宽比的视频
@@ -200,3 +215,9 @@ LittleQ
 #### Version 1.1
 
 ✅ Add "Backend" mode to support MeteorMaster. / 增加了后端模式
+
+✅ Update output stream format. / 调整输出流格式
+
+#### Version 1.0
+
+Initial Version.

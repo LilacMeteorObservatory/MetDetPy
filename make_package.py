@@ -48,6 +48,7 @@ argparser.add_argument("--tool",
                        default="pyinstaller")
 argparser.add_argument(
     "--mingw64",
+    action="store_true",
     help=
     "Use mingw64 as compiler. This option only works for nuitka under Windows.",
     default=False)
@@ -58,7 +59,7 @@ argparser.add_argument(
 argparser.add_argument("--version",
                        type=str,
                        help="Software version.",
-                       default="1.3.1")
+                       default="1.2.1")
 
 args = argparser.parse_args()
 compile_tool = args.tool
@@ -70,14 +71,15 @@ exec_suffix = ""
 if (platform == "win"):
     exec_suffix = ".exe"
 
-
 t0 = time.time()
 
 if compile_tool == "nuitka":
 
     print("Use nuitka as package tools.")
 
-    compile_tool = ["python", "-m", "nuitka"]
+    # 检查python版本 必要时启用alias=python3
+    version = "3" if sys.version[0] == "3" else ""
+    compile_tool = [f"python{version}", "-m", "nuitka"]
     # 构建nuitka的选项列表
     # nuitka编译的结果产生在dist/[filename].dist路径下
     nuitka_cfg = {
@@ -110,6 +112,9 @@ if compile_tool == "nuitka":
         f"Compiled finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
     )
 
+    # 异常提前终止
+    if ret_code != 0: exit(-1)
+
     ## postprocessing
     # rename executable file and folder
     print("Renaming dist files...", end="")
@@ -130,12 +135,12 @@ if compile_tool == "nuitka":
 
 else:
     # 使用pyinstaller作为打包工具
-    print("Use nuitka as package tools.")
+    print("Use pyinstaller as package tools.")
     compile_tool = ['pyinstaller']
 
     # 使用主要配置文件core.spec 打包主要检测器core.py
     # pyinstaller打包后创建文件于dist/MetDetPy目录下
-    
+
     target = ['core.spec']
     ret_code, time_cost = run_cmd(compile_tool + target)
 
@@ -143,6 +148,9 @@ else:
         f"Package finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
     )
     
+    # 异常提前终止
+    if ret_code != 0: exit(-1)
+
     ## postprocessing
     # remove build folder
     print("Removing build files...", end="")
