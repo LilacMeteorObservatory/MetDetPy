@@ -41,6 +41,9 @@ def detect_video(video_name,
                  debug_mode,
                  work_mode="frontend",
                  time_range=(None, None)):
+    
+    t0 = time.time()
+    
     # load config from cfg json.
     resize_param = cfg.resize_param
     meteor_cfg = cfg.meteor_cfg
@@ -48,30 +51,13 @@ def detect_video(video_name,
     # set output mode
     progout = set_out_pipe(work_mode)
 
-    # load video
+    # load video, init video_reader
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     resize_param = list(reversed(mask.shape))
     progout("Apply running-time resolution = %s." % resize_param)
-    # Acquire exposure time and eqirvent FPS(eq_fps)
-    total_frame, fps = int(video.get(cv2.CAP_PROP_FRAME_COUNT)), video.get(
-        cv2.CAP_PROP_FPS)
-    if cfg.stacker == "SimpleStacker":
-        progout(
-            "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
-        exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
-    else:
-        progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
-        exp_time = init_exp_time(
-            cfg.exp_time,
-            *load_video_and_mask(video_name, mask_name, resize_param),
-            resize_param,
-            upper_bound=0.25)
-        exp_frame, eq_fps, eq_int_fps = int(round(
-            exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
-    progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
-            (exp_time, (1000 * exp_frame * eq_int_fps / fps)))
-    # 根据指定头尾跳转指针与结束帧
-    start_frame, end_frame = 0, total_frame
+    
+    # get accurate start_frame and end_frame according to the input arguments.
+    start_frame, end_frame = 0, video.num_frames
     start_time, end_time = time_range
     if start_time != None:
         start_frame = max(0, int(start_time / 1000 * fps))
@@ -79,10 +65,34 @@ def detect_video(video_name,
         end_frame = min(int(end_time / 1000 * fps), total_frame)
     if not 0 <= start_frame < end_frame:
         raise ValueError("Invalid start time or end time.")
-    # 起点跳转到指定帧
-    video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    
+    # Init videoReader
+
+    video_reader = ThreadVideoReader(video,
+                                     start_frame=start_frame,
+                                     iterations=end_frame - start_frame,
+                                     pre_func=partial(
+                                         preprocessing,
+                                         mask=mask,
+                                         resize_param=resize_param))
+    # Acquire exposure time and eqirvent FPS(eq_fps)
+    total_frame, fps = video.num_frames, video.fps
+    if cfg.stacker == "SimpleStacker":
+        progout(
+            "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
+        exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
+    else:
+        progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
+        exp_time = init_exp_time(cfg.exp_time, video_reader, upper_bound=0.25)
+        exp_frame, eq_fps, eq_int_fps = int(round(
+            exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
+    progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
+            (exp_time, (1000 * exp_frame * eq_int_fps / fps)))
     progout("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
             (end_frame - start_frame, fps, eq_fps))
+    progout(f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
+    # Reset video reader for main progress.
+    video_reader.reset(start_frame, end_frame - start_frame)
 
     # Init stacker_manager
     stack_manager = init_stacker(cfg.stacker, cfg.stacker_cfg, exp_frame)
@@ -106,14 +116,6 @@ def detect_video(video_name,
                       drct_range=meteor_cfg.drct_range,
                       thre2=meteor_cfg.thre2 * exp_frame)
     main_mc = MeteorCollector(**meteor_cfg, eframe=exp_frame, fps=fps)
-
-    # Init videoReader
-    video_reader = ThreadVideoReader(video,
-                                     iterations=end_frame - start_frame,
-                                     pre_func=partial(
-                                         preprocessing,
-                                         mask=mask,
-                                         resize_param=resize_param))
 
     # Init main iterator
     main_iterator = range(start_frame, end_frame, exp_frame)
@@ -159,8 +161,8 @@ def detect_video(video_name,
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
         progout("Time cost: %.4ss." % (time.time() - t0))
-    
-    return resize_param,main_mc.ended_meteor
+
+    return resize_param, main_mc.ended_meteor
 
 
 if __name__ == "__main__":
@@ -193,7 +195,7 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
-    
+
     parser.add_argument('--resize',
                         help="Running-time resolution",
                         type=str,

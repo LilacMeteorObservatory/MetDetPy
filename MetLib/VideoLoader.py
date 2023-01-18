@@ -31,7 +31,12 @@ class BaseVideoReader(object):
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
 
-    def __init__(self, video, iterations, pre_func, max_poolsize=30):
+    def __init__(self,
+                 video,
+                 start_frame,
+                 iterations,
+                 pre_func,
+                 max_poolsize=30):
         """    This class is used to load the video from the file.
         Args:
             video (Any): The video object that supports .read() method to load the next frame. 
@@ -45,6 +50,7 @@ class BaseVideoReader(object):
         self.video = video
         self.pre_func = pre_func
         self.iterations = iterations
+        self.start_frame = start_frame
         self.max_poolsize = max_poolsize
         self.status = True
         self.stopped = False
@@ -52,6 +58,18 @@ class BaseVideoReader(object):
 
     def start(self):
         self.cur_iter = self.iterations
+        self.video.set_to(self.start_frame)
+
+    def reset(self, start_frame=None, iterations=None):
+        """重置并允许VideoLoader读取另一个片段。
+        Args:
+            frame (_type_): _description_
+        """
+        if iterations != None:
+            self.iterations = iterations
+        if start_frame != None:
+            self.start_frame = start_frame
+        self.stopped = False
 
     def pop(self, nums):
         self.frame_pool = []
@@ -98,8 +116,14 @@ class ThreadVideoReader(BaseVideoReader):
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
 
-    def __init__(self, video, iterations, pre_func, max_poolsize=30) -> None:
-        super().__init__(video, iterations, pre_func, max_poolsize)
+    def __init__(self,
+                 video,
+                 start_frame,
+                 iterations,
+                 pre_func,
+                 max_poolsize=30) -> None:
+        super().__init__(video, start_frame, iterations, pre_func,
+                         max_poolsize)
         self.wait_interval = 0.02
         self.lock = threading.Lock()
 
@@ -111,9 +135,18 @@ class ThreadVideoReader(BaseVideoReader):
         self.frame_pool = []
         self.stopped = False
         self.status = True
+        self.video.set_to(self.start_frame)
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.start()
         return self
+
+    def reset(self, start_frame=None, iterations=None):
+        if isinstance(start_frame, int) and start_frame >= 0:
+            self.start_frame = start_frame
+            self.video.set_to(start_frame)
+        if iterations != None:
+            self.iterations = iterations
+        self.stopped = False
 
     def is_popable(self, num):
         """是否能够提供num个帧。

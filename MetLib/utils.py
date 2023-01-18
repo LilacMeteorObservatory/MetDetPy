@@ -6,11 +6,13 @@ import numpy as np
 import datetime
 from math import floor
 from .VideoLoader import ThreadVideoReader
+from .VideoWarpper import OpenCVVideoWarpper
 
 eps = 1e-2
 
 
 class Munch(object):
+
     def __init__(self, idict) -> None:
         for (key, value) in idict.items():
             #if isinstance(value,dict):
@@ -19,6 +21,7 @@ class Munch(object):
 
 
 class EMA(object):
+
     def __init__(self, n) -> None:
         self.n = n
         self.ema_pool = []
@@ -42,6 +45,7 @@ class RefEMA(EMA):
     Args:
         EMA (_type_): _description_
     """
+
     def __init__(self, n, ref_mask, area=0) -> None:
         super().__init__(n)
         self.ref_img = np.zeros_like(ref_mask, dtype=float)
@@ -119,6 +123,7 @@ class StdMultiAreaEMA(EMA):
     Args:
         EMA (_type_): _description_
     """
+
     def __init__(self, n, ref_mask, area=0.1, k=3) -> None:
         super().__init__(n)
         self.k = k
@@ -205,16 +210,19 @@ def parse_resize_param(tgt_wh, raw_wh):
 
 
 def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
-    video = cv2.VideoCapture(video_name)
-    if (video is None) or (not video.isOpened()):
-        raise FileNotFoundError(
-            "The file \"%s\" cannot be opened as a supported video format." %
-            video_name)
-    raw_wh = (int(video.get(cv2.CAP_PROP_FRAME_WIDTH)),
-              int(video.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    resize_param = parse_resize_param(resize_param, raw_wh)
-    return video, load_mask(mask_name, resize_param) if mask_name else np.ones(
-        (resize_param[1], resize_param[0]), dtype=np.uint8)
+    # OpenCVVideoWarpper is the default video capture source.
+    # If you want to use your own way to load video, define your VideoWarpper
+    # in MetLib/VideoWarpper.py and replace all OpenCVVideoWarpper in your code.
+    video = OpenCVVideoWarpper(video_name)
+    # Calculate real resize parameters.
+    resize_param = parse_resize_param(resize_param, video.size)
+    mask = None
+    if mask_name:
+        mask = load_mask(mask_name, resize_param)
+    else:
+        # If no mask_name is provided, use a all-pass mask.
+        mask = np.ones((resize_param[1], resize_param[0]), dtype=np.uint8)
+    return video, mask
 
 
 def load_mask(filename, resize_param):
@@ -261,23 +269,14 @@ def mix_max_median_stacker(image_stack, threshold=80):
     return img_max
 
 
-def _rf_est_kernel(video,
-                   n_frames,
-                   img_mask,
-                   start_frame=0,
-                   resize_param=None):
+def _rf_est_kernel(video_loader, n_frames):
     try:
-        video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        video_loader = ThreadVideoReader(
-            video, n_frames,
-            partial(preprocessing, mask=img_mask, resize_param=resize_param))
-        reg = resize_param[0] * resize_param[1]
         video_loader.start()
         f_sum = np.zeros((n_frames, ), dtype=float)
         for i in range(n_frames):
             if not video_loader.stopped:
                 frame = video_loader.pop(1)[0]
-                f_sum[i] = np.sum(frame / reg)
+                f_sum[i] = np.sum(frame)
             else:
                 f_sum = f_sum[:i]
                 break
@@ -299,7 +298,7 @@ def _rf_est_kernel(video,
     return rmax_pos[1:] - rmax_pos[:-1]
 
 
-def rf_estimator(video, img_mask, resize_param):
+def rf_estimator(video_loader):
     """用于为给定的视频估算实际的曝光时间。
 
     部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
@@ -310,20 +309,24 @@ def rf_estimator(video, img_mask, resize_param):
         video (cv2.VideoCapture): 给定视频片段。
         mask (ndarray): the mask for the video.
     """
-    total_frame = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-
+    total_frame = video_loader.iterations
+    start_frame = video_loader.start_frame
     if total_frame < 300:
         # 若不超过300帧 则进行全局估算
-        intervals = _rf_est_kernel(video, total_frame, img_mask, 0,
-                                   resize_param)
+        intervals = _rf_est_kernel(video_loader, total_frame)
     else:
         # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
-        # TODO: 规避bug的设计 不太美观。
-        intervals_1 = _rf_est_kernel(video, 100, img_mask, 0, resize_param)
-        intervals_2 = _rf_est_kernel(video, 100, img_mask,
-                                     (total_frame - 100) // 2, resize_param)
-        intervals_3 = _rf_est_kernel(video, 100, img_mask, total_frame - 120,
-                                     resize_param)
+        video_loader.reset(iterations=100)
+        intervals_1 = _rf_est_kernel(video_loader, 100)
+
+        video_loader.reset(start_frame=start_frame + (total_frame - 100) // 2,
+                           iterations=100)
+        intervals_2 = _rf_est_kernel(video_loader, 100)
+
+        video_loader.reset(start_frame=start_frame + total_frame - 100,
+                           iterations=100)
+        intervals_3 = _rf_est_kernel(video_loader, 100)
+
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
     if len(intervals) == 0:
         return 1
@@ -333,7 +336,7 @@ def rf_estimator(video, img_mask, resize_param):
     return est_frames
 
 
-def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
+def init_exp_time(exp_time, video_loader, upper_bound=0.25):
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -349,7 +352,7 @@ def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
         exp_time: the exposure time in float.
     """
     # TODO: Rewrite this annotation.
-    fps = video.get(cv2.CAP_PROP_FPS)
+    fps = video_loader.video.fps
     assert isinstance(
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
@@ -360,7 +363,7 @@ def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
             # TODO: Any better idea?
             return 1 / 4
         if exp_time == "auto":
-            rf = rf_estimator(video, mask, resize_param)
+            rf = rf_estimator(video_loader)
             if rf / fps > upper_bound:
                 print(
                     Warning(
@@ -386,14 +389,6 @@ def init_exp_time(exp_time, video, mask, resize_param, upper_bound=0.25):
 def frame2ts(frame, fps):
     return datetime.datetime.strftime(
         datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
-
-
-def test_tf_estimator(test_video, test_mask, resize_param):
-    video, img_mask = load_video_and_mask(test_video, test_mask, resize_param)
-    assume_rf = rf_estimator(video, img_mask)
-    print(
-        "The given video is assumed to have a exposure time of %.2f s each frame."
-        % (assume_rf / video.get(cv2.CAP_PROP_FPS)))
 
 
 def color_interpolater(color_list):

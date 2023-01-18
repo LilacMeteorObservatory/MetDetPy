@@ -29,7 +29,7 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 
 ### Enviroments
 
-* Python>=3.6
+* Python>=3.7
 
 ### Packages
 
@@ -133,7 +133,7 @@ When everything is ready, run `python make_package.py` to package the code. By d
 The target executable file and its zip package version will be generated in  [dist](./dist/)  directory.
 
 Notice:
-1. It is suggested to use `Python>=3.7` to avoid compatibility issues.
+1. It is suggested to use `Python>=3.7`, `pyinstaller>=5.0` and `nuitka>=1.3.0` to avoid compatibility issues.
 2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
 ## Todo List
@@ -149,6 +149,7 @@ Notice:
  5. 快速叠图
  6. 评估系统
  7. 利用cython改善性能
+ 8. 添加天区解析功能，为支持快速叠图，组网提供基础支持
 
 
 

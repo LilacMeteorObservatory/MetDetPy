@@ -243,9 +243,11 @@ class MeteorSeries(object):
     @property
     def drst_std(self):
         drct_copy = np.array(self.drct_list.copy())
-        std1 = np.std(drct_copy)
+        std1 = np.std(np.sort(drct_copy)
+                      [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
         drct_copy[drct_copy > np.pi / 2] -= np.pi
-        std2 = np.std(drct_copy)
+        std2 = np.std(np.sort(drct_copy)
+                      [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
         return min(std1, std2)
 
     @property
