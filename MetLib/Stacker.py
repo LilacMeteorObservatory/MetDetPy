@@ -1,67 +1,26 @@
 from functools import partial
 
 import numpy as np
-
+from .VideoLoader import ThreadVideoReader 
 from .utils import m3func, mix_max_median_stacker
 
-available_func = dict(max=partial(np.max, axis=0), m3func=m3func, mix=mix_max_median_stacker)
+identity = lambda x:x
+
+class ImgStacker(object):
+    def __init__(self) -> None:
+        pass
+
+# Q2：有关pop的代码能否优化（注意关注stacker等涉及到与VideoLoader交互的模块）
 
 
-def init_stacker(name, cfg, exp_frame):
-    if name == "SimpleStacker":
-        return SimpleStacker()
-    elif name == "MergeStacker":
-        pfunc = cfg["pfunc"]
-        if not pfunc in available_func:
-            raise NameError(
-                "Unsupported preprocessing function name: %s; Only %s are supported now."
-                % (pfunc, available_func))
-        func = available_func[pfunc]
-
-        return MergeStacker(func, window_size=exp_frame)
-    else:
-        raise NameError("Undefined stacker name: %s" % (name))
-
-
-class BaseStacker(object):
-    def __init__(self, window_size=1):
-        self.window_size = window_size
-
-    def update(self):
-        raise NotImplementedError(
-            "This Method Is Not Implemented In This Base Class.")
-
-
-class SimpleStacker(BaseStacker):
-    def __init__(self, *args, **kwargs):
-        # force window_size=1
-        super().__init__(window_size=1)
-
-    def update(self, video_reader, detector):
-        """原始的栈更新方法: 从video_stack直接加载帧放入检测窗口内。 
-
-        Args:
-            video_stack (_type_): _description_
-            detector (_type_): _description_
-        """
-        self.cur_frame = video_reader.pop(self.window_size)[0]
-        detector.update(self.cur_frame)
-
-
-class MergeStacker(BaseStacker):
-    def __init__(self, func, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.func = func
-
-    def update(self, video_reader, detector):
-        """实验性的栈更新方法: 从video_stack加载若干帧，通过合并算法计算为一帧后放入检测窗口内
-
-        Args:
-            video_stack (_type_): _description_
-            detector (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        self.cur_frame = self.func(video_reader.pop(self.window_size))
-        detector.update(self.cur_frame)
+def max_img_stacker(video, start_frame, end_frame, pre_func=identity):
+    iterations = end_frame - start_frame + 1
+    video_reader = ThreadVideoReader(video, iterations, pre_func)
+    video_reader.start()
+    # Load first frame as the base frame.
+    base_frame = video_reader.pop()
+    for i in range(iterations - 1):
+        new_frame = video_reader.pop()
+        # stack: create
+        base_frame = np.max([base_frame,new_frame], axis=0)
+    return base_frame

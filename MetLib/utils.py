@@ -5,10 +5,11 @@ import cv2
 import numpy as np
 import datetime
 from math import floor
-from .VideoLoader import ThreadVideoReader
 from .VideoWarpper import OpenCVVideoWarpper
 
 eps = 1e-2
+
+img_max = partial(np.max, axis=0)
 
 
 class Munch(object):
@@ -275,7 +276,7 @@ def _rf_est_kernel(video_loader, n_frames):
         f_sum = np.zeros((n_frames, ), dtype=float)
         for i in range(n_frames):
             if not video_loader.stopped:
-                frame = video_loader.pop(1)[0]
+                frame = video_loader.pop()
                 f_sum[i] = np.sum(frame)
             else:
                 f_sum = f_sum[:i]

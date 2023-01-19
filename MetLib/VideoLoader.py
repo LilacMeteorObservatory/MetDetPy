@@ -1,5 +1,8 @@
 import threading
 import time
+from .utils import m3func, mix_max_median_stacker, img_max
+
+available_func = dict(max=img_max, m3func=m3func, mix=mix_max_median_stacker)
 
 
 class BaseVideoReader(object):
@@ -36,6 +39,8 @@ class BaseVideoReader(object):
                  start_frame,
                  iterations,
                  pre_func,
+                 exp_frame,
+                 merge_func,
                  max_poolsize=30):
         """    This class is used to load the video from the file.
         Args:
@@ -54,13 +59,20 @@ class BaseVideoReader(object):
         self.max_poolsize = max_poolsize
         self.status = True
         self.stopped = False
+        self.exp_frame = exp_frame
         self.frame_pool = []
+
+        if not merge_func in available_func:
+            raise NameError(
+                f"Unsupported preprocessing merge function name: {merge_func}."
+            )
+        self.merge_func = available_func[merge_func]
 
     def start(self):
         self.cur_iter = self.iterations
         self.video.set_to(self.start_frame)
 
-    def reset(self, start_frame=None, iterations=None):
+    def reset(self, start_frame=None, iterations=None, exp_frame=None):
         """重置并允许VideoLoader读取另一个片段。
         Args:
             frame (_type_): _description_
@@ -69,21 +81,25 @@ class BaseVideoReader(object):
             self.iterations = iterations
         if start_frame != None:
             self.start_frame = start_frame
+        if exp_frame != None:
+            self.exp_frame = exp_frame
         self.stopped = False
 
-    def pop(self, nums):
+    def pop(self):
         self.frame_pool = []
-        for _ in range(nums):
+        for _ in range(self.exp_frame):
             status, frame = self.video.read()
             if status:
                 self.frame_pool.append(self.pre_func(frame))
             else:
                 self.stop()
                 break
-        self.cur_iter -= nums
+        self.cur_iter -= self.exp_frame
         if self.cur_iter <= 0: self.stop()
 
-        return self.frame_pool
+        if self.exp_frame == 1:
+            return self.frame_pool[0]
+        return self.merge_func(self.frame_pool)
 
     def stop(self):
         self.stopped = True
@@ -121,9 +137,11 @@ class ThreadVideoReader(BaseVideoReader):
                  start_frame,
                  iterations,
                  pre_func,
+                 exp_frame,
+                 merge_func,
                  max_poolsize=30) -> None:
-        super().__init__(video, start_frame, iterations, pre_func,
-                         max_poolsize)
+        super().__init__(video, start_frame, iterations, pre_func, exp_frame,
+                         merge_func, max_poolsize)
         self.wait_interval = 0.02
         self.lock = threading.Lock()
 
@@ -140,13 +158,11 @@ class ThreadVideoReader(BaseVideoReader):
         self.thread.start()
         return self
 
-    def reset(self, start_frame=None, iterations=None):
+    def reset(self, start_frame=None, iterations=None, exp_frame=None):
         if isinstance(start_frame, int) and start_frame >= 0:
             self.start_frame = start_frame
             self.video.set_to(start_frame)
-        if iterations != None:
-            self.iterations = iterations
-        self.stopped = False
+        super().reset(iterations=iterations, exp_frame=exp_frame)
 
     def is_popable(self, num):
         """是否能够提供num个帧。
@@ -164,14 +180,17 @@ class ThreadVideoReader(BaseVideoReader):
             return False
         return True
 
-    def pop(self, num):
-        while (not self.is_popable(num)):
+    def pop(self):
+        while (not self.is_popable(self.exp_frame)):
             time.sleep(self.wait_interval)
         self.lock.acquire()
-        ret = self.frame_pool[:num]
-        self.frame_pool = self.frame_pool[num:]
+        ret = self.frame_pool[:self.exp_frame]
+        self.frame_pool = self.frame_pool[self.exp_frame:]
         self.lock.release()
-        return ret
+
+        if self.exp_frame == 1:
+            return ret[0]
+        return self.merge_func(ret)
 
     def load_a_frame(self):
         """Load a frame from the video object.

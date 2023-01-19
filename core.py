@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import tqdm
 
-from MetLib import init_detector, init_stacker
+from MetLib import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
                           preprocessing, set_out_pipe)
@@ -74,7 +74,9 @@ def detect_video(video_name,
                                      pre_func=partial(
                                          preprocessing,
                                          mask=mask,
-                                         resize_param=resize_param))
+                                         resize_param=resize_param),
+                                     exp_frame=1,
+                                     merge_func=cfg.stacker_cfg["pfunc"])
     # Acquire exposure time and eqirvent FPS(eq_fps)
     total_frame, fps = video.num_frames, video.fps
     if cfg.stacker == "SimpleStacker":
@@ -92,10 +94,7 @@ def detect_video(video_name,
             (end_frame - start_frame, fps, eq_fps))
     progout(f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
     # Reset video reader for main progress.
-    video_reader.reset(start_frame, end_frame - start_frame)
-
-    # Init stacker_manager
-    stack_manager = init_stacker(cfg.stacker, cfg.stacker_cfg, exp_frame)
+    video_reader.reset(start_frame = start_frame, iterations = end_frame - start_frame, exp_frame=exp_frame)
 
     # Init detector
     cfg.detect_cfg.update(img_mask=mask)
@@ -134,9 +133,8 @@ def detect_video(video_name,
 
             if video_reader.stopped and video_reader.is_empty:
                 break
-
-            # TODO: Replace with API of video_reader.
-            stack_manager.update(video_reader, detector)
+            
+            detector.update(video_reader.pop())
 
             #TODO: Mask, visual
             lines, img_visu = detector.detect()
