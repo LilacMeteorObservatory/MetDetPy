@@ -49,14 +49,15 @@ class RefEMA(EMA):
 
     def __init__(self, n, ref_mask, area=0) -> None:
         super().__init__(n)
+        h, w = ref_mask.shape
         self.ref_img = np.zeros_like(ref_mask, dtype=float)
-        self.img_stack = []
-        self.std_interval = n // 2
+        self.img_stack = np.zeros((n,h,w),dtype=np.uint8)
+        self.std_interval = 2*n
         self.timer = 0
         self.noise = 0
         if area == 0:
             self.est_std = np.std
-            self.signal_ratio = ((ref_mask.shape[0] * ref_mask.shape[1]) /
+            self.signal_ratio = ((h*w) /
                                  np.sum(ref_mask))**(1 / 2)
         else:
             self.est_std, self.signal_ratio = self.select_subarea(ref_mask,
@@ -65,14 +66,23 @@ class RefEMA(EMA):
     def update(self, new_frame):
         self.timer += 1
         # 更新移动窗栈与均值背景参考图像（ref_img）
-        self.img_stack.append(new_frame)
-        if len(self.img_stack) >= self.n:
-            self.ref_img -= self.img_stack.pop(0)
-        self.ref_img += new_frame
+        #self.img_stack.append(new_frame)
+        #if len(self.img_stack) >= self.n:
+        #    self.ref_img -= self.img_stack.pop(0)
+        #self.ref_img += new_frame
+        #print(np.mean(self.ref_img))
+        
+        # 更新移动窗栈与均值背景参考图像（ref_img）
+        rep_id = (self.timer - 1) % self.n
+        if self.timer>self.n:
+            self.ref_img -= self.img_stack[rep_id]
+        # update new frame to the place.
+        self.img_stack[rep_id] = new_frame
+        self.ref_img += self.img_stack[rep_id]
 
         # 每std_interval时间更新一次std
         if self.timer % self.std_interval == 0:
-            noise = self.est_std(self.img_stack - self.bg_img)
+            noise = self.est_std(self.img_stack[:self.length] - self.bg_img)
             self.noise = noise
             if len(self.ema_pool) == self.n:
                 # 考虑到是平稳序列，引入一种滤波修正估算方差(截断大于三倍标准差的更新...)
@@ -110,8 +120,12 @@ class RefEMA(EMA):
 
     @property
     def bg_img(self):
-        return self.ref_img / len(self.img_stack)
+        return self.ref_img / self.length
 
+    @property
+    def length(self):
+        return min(self.n, self.timer)
+    
     @property
     def li_img(self):
         return np.max(self.img_stack, axis=0)
@@ -224,6 +238,29 @@ def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
         # If no mask_name is provided, use a all-pass mask.
         mask = np.ones((resize_param[1], resize_param[0]), dtype=np.uint8)
     return video, mask
+
+
+def save_img(img, filename):
+    if filename.upper().endswith("PNG"):
+        ext = ".png"
+        params = [int(cv2.IMWRITE_PNG_COMPRESSION), 0]
+    elif filename.upper().endswith("JPG") or filename.upper().endswith("JPEG"):
+        ext = ".jpg"
+        params = [int(cv2.IMWRITE_JPEG_QUALITY), 95]
+    else:
+        suffix = filename.split(".")[-1]
+        raise NameError(
+            f"Unsupported suffix \"{suffix}\";\Only .png and .jpeg/.jpg are supported."
+        )
+    status, buf = cv2.imencode(ext, img, params)
+    if status:
+        with open(
+                filename,
+                mode='wb',
+        ) as f:
+            f.write(buf)
+    else:
+        raise Exception("imencode failed.")
 
 
 def load_mask(filename, resize_param):

@@ -53,7 +53,8 @@ class MeteorCollector(object):
     """
 
     def __init__(self, min_len, max_interval, det_thre, time_range,
-                 speed_range, thre2, eframe, drct_range, fps) -> None:
+                 speed_range, thre2, eframe, drct_range, fps,
+                 rescale_ratio) -> None:
         self.min_len = min_len
         self.max_interval = max_interval
         self.det_thre = det_thre
@@ -62,7 +63,8 @@ class MeteorCollector(object):
                          create_prob_func((-np.nan, -np.nan)),
                          create_prob_func((-np.nan, -np.nan)),
                          create_prob_func((-np.nan, -np.nan)),
-                         create_prob_func((-np.nan, -np.nan)), np.nan, np.nan)
+                         create_prob_func((-np.nan, -np.nan)), np.nan, np.nan,
+                         rescale_ratio)
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -71,6 +73,7 @@ class MeteorCollector(object):
         self.speed_range = speed_range
         self.eframe = eframe
         self.fps = fps
+        self.rescale_ratio = rescale_ratio
         # 调整time的验证下界
         time_range[0] = max(time_range[0], int(4 * self.eframe + 2))
         self.time_prob_func = create_prob_func(time_range)
@@ -148,7 +151,8 @@ class MeteorCollector(object):
                              len_func=self.len_prob_func,
                              drct_func=self.drct_prob_func,
                              max_acceptable_dist=self.thre2,
-                             fps=self.fps))
+                             fps=self.fps,
+                             rescale_ratio=self.rescale_ratio))
         return met_list, drop_list
 
     def jsonize_waiting_meteor(self):
@@ -206,7 +210,7 @@ class MeteorSeries(object):
     """
 
     def __init__(self, start_frame, cur_frame, init_box, time_func, speed_func,
-                 len_func, drct_func, max_acceptable_dist, fps):
+                 len_func, drct_func, max_acceptable_dist, fps, rescale_ratio):
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(self.box2coord(init_box))
@@ -220,6 +224,7 @@ class MeteorSeries(object):
         self.drct_func = drct_func
         self.len_func = len_func
         self.fps = fps
+        self.rescale_ratio = rescale_ratio
 
     def __repr__(self) -> str:
         return "Duration %s frames; (Dist=%s); speed=%.2f px(s)/frame; \"%s - %s : %s - %s\"" % (
@@ -235,8 +240,13 @@ class MeteorSeries(object):
             duration=self.duration,
             speed=np.round(self.speed, 3),
             dist=np.round(self.dist, 3),
-            pt1=self.range[0],
-            pt2=self.range[1],
+            # 感觉这一坨写的依托答辩...[捂脸]以后想想怎么处理
+            pt1=[
+                int(x * y) for x, y in zip(self.range[0], self.rescale_ratio)
+            ],
+            pt2=[
+                int(x * y) for x, y in zip(self.range[1], self.rescale_ratio)
+            ],
             #drct_loss=self.drst_std,
             score=self.prob_meteor())
 

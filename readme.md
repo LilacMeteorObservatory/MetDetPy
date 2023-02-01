@@ -4,9 +4,9 @@ Other Language Version: [[中文版]](./docs/readme-cn.md)
 
 MetDetPy is a python-based video meteor detector that can detect meteors from video files.
 
-* Basically, MetDetPy is enlightened by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is reproduced in python3.
+* Basically, MetDetPy is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is reproduced in python3.
 
-* Based on their work, we implement an M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
+* Based on their work, we implement the M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
 
 * We design an adaptive threshold algorithm that can select binary threshold dynamically according to the signal-to-noise ratio of the video. (Experimental feature)
 
@@ -16,9 +16,9 @@ MetDetPy is a python-based video meteor detector that can detect meteors from vi
 
 ## Release Version
 
-We provide release versions of MetDetPy for common platforms (including Windows, macOS and Linux). Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
+You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version are already packed and can run on common platforms (including Windows, macOS and Linux) respectively. Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
 
-Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get MeteorMaster(Windows release) version from:
+Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get the latest MeteorMaster (Windows release version only now) from:
 
 * [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
@@ -126,15 +126,33 @@ If a video has no corresponding mask, simply use `""` .
 
 ## Package python codes to executables
 
-We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. When using it, make sure that `pyinstaller` or `nuitka` is installed through `pip`. Also, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
+We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports to use `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
 
-When everything is ready, run `python make_package.py` to package the code. By default `pyinstaller` is used as the preferred packaging tool, and you can add `--tool nuitka` to using `nuitka` to compile the code. Also, when using `nuitka` and your compiler is mingw64, add `--mingw64` to use the mingw64 compiler.
+When using it, make sure that either `pyinstaller` or `nuitka` is installed. Also, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
 
-The target executable file and its zip package version will be generated in  [dist](./dist/)  directory.
+Its usage is as follows:
+
+```sh
+python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
+     [--apply-upx] [--apply-zip] [--version VERSION]
+```
+
+* --tool: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
+
+* --mingw64: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
+
+* --apply-upx: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
+
+* --apply-zip: generate zip package when compiling/packaging is finished.
+
+* --version: MetDetPy version tag. Used for naming zip package.
+
+The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
 Notice:
-1. It is suggested to use `Python>=3.7`, `pyinstaller>=5.0` and `nuitka>=1.3.0` to avoid compatibility issues.
-2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
+1. It is suggested to use `Python>=3.7`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
+2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30%). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
+3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
 ## Todo List
 

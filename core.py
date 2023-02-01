@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import tqdm
 
-from MetLib import init_detector
+from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
                           preprocessing, set_out_pipe)
@@ -27,9 +27,17 @@ from MetLib.VideoLoader import ThreadVideoReader
 
 
 def output_meteors(update_info, stream, debug_mode):
+
     met_lst, drop_lst = update_info
     for met in met_lst:
         stream("Meteor:", met)
+        # It's strange that sometimes flush still not well-performed.
+        # A temp solution is to sleep a little bit...
+        # What the fxxk
+        # Maybe Async will improve this?
+        # TODO: introduce async to videoloader and output.
+        if len(met_lst) > 1:
+            time.sleep(0.1)
     if debug_mode:
         for met in drop_lst:
             stream("Dropped: ", met)
@@ -41,9 +49,9 @@ def detect_video(video_name,
                  debug_mode,
                  work_mode="frontend",
                  time_range=(None, None)):
-    
+
     t0 = time.time()
-    
+
     # load config from cfg json.
     resize_param = cfg.resize_param
     meteor_cfg = cfg.meteor_cfg
@@ -55,8 +63,9 @@ def detect_video(video_name,
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     resize_param = list(reversed(mask.shape))
     progout("Apply running-time resolution = %s." % resize_param)
-    
+
     # get accurate start_frame and end_frame according to the input arguments.
+    total_frame, fps = video.num_frames, video.fps
     start_frame, end_frame = 0, video.num_frames
     start_time, end_time = time_range
     if start_time != None:
@@ -65,7 +74,7 @@ def detect_video(video_name,
         end_frame = min(int(end_time / 1000 * fps), total_frame)
     if not 0 <= start_frame < end_frame:
         raise ValueError("Invalid start time or end time.")
-    
+
     # Init videoReader
 
     video_reader = ThreadVideoReader(video,
@@ -78,7 +87,6 @@ def detect_video(video_name,
                                      exp_frame=1,
                                      merge_func=cfg.stacker_cfg["pfunc"])
     # Acquire exposure time and eqirvent FPS(eq_fps)
-    total_frame, fps = video.num_frames, video.fps
     if cfg.stacker == "SimpleStacker":
         progout(
             "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
@@ -94,11 +102,16 @@ def detect_video(video_name,
             (end_frame - start_frame, fps, eq_fps))
     progout(f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
     # Reset video reader for main progress.
-    video_reader.reset(start_frame = start_frame, iterations = end_frame - start_frame, exp_frame=exp_frame)
+    video_reader.reset(start_frame=start_frame,
+                       iterations=end_frame - start_frame,
+                       exp_frame=exp_frame)
 
     # Init detector
     cfg.detect_cfg.update(img_mask=mask)
     detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
+
+    # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
+    rescale_ratio = [x / y for x, y in zip(video.size, resize_param)]
 
     # Init meteor collector
     # TODO: To be renewed
@@ -114,7 +127,10 @@ def detect_video(video_name,
                       speed_range=meteor_cfg.speed_range,
                       drct_range=meteor_cfg.drct_range,
                       thre2=meteor_cfg.thre2 * exp_frame)
-    main_mc = MeteorCollector(**meteor_cfg, eframe=exp_frame, fps=fps)
+    main_mc = MeteorCollector(**meteor_cfg,
+                              eframe=exp_frame,
+                              fps=fps,
+                              rescale_ratio=rescale_ratio)
 
     # Init main iterator
     main_iterator = range(start_frame, end_frame, exp_frame)
@@ -133,7 +149,7 @@ def detect_video(video_name,
 
             if video_reader.stopped and video_reader.is_empty:
                 break
-            
+
             detector.update(video_reader.pop())
 
             #TODO: Mask, visual
@@ -160,7 +176,7 @@ def detect_video(video_name,
         progout('Video EOF detected.')
         progout("Time cost: %.4ss." % (time.time() - t0))
 
-    return resize_param, main_mc.ended_meteor
+    return main_mc.ended_meteor
 
 
 if __name__ == "__main__":

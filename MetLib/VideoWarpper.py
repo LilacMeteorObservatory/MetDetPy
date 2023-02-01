@@ -63,8 +63,8 @@ class OpenCVVideoWarpper(object):
 
     @property
     def size(self):
-        return (int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        return [int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT))]
 
     def read(self):
         return self.video.read()

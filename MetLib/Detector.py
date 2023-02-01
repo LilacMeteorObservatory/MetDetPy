@@ -183,6 +183,8 @@ class M3Detector(BaseDetector):
         _type_: _description_
     """
 
+    cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+
     def __init__(self, *args, **kwargs):
         # 必须包含的参数
         # bi_threshold line_threshold self.max_gap mask
@@ -213,13 +215,8 @@ class M3Detector(BaseDetector):
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
         dst = cv2.medianBlur(dst, 3)
-        dst = cv2.morphologyEx(
-            dst, cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-        dst = cv2.dilate(
-            dst,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-        )
+        dst = cv2.morphologyEx(dst, cv2.MORPH_CLOSE, self.cv_op)
+        dst = cv2.dilate(dst, self.cv_op)
         linesp = cv2.HoughLinesP(dst,
                                  rho=0.8,
                                  theta=pi,

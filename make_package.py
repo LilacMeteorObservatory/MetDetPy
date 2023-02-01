@@ -1,14 +1,19 @@
 # 简易的打包工具
 # 用于将本项目封装为一个（数个）可执行文件。
-# 支持nuitka和pyinstaller两种打包方式。新版本的pyinstaller与nuitka
+# 支持nuitka和pyinstaller两种打包方式。推荐使用新版本的pyinstaller与nuitka
 
-import subprocess
 import argparse
-import time
-import sys
-import shutil
-import zipfile
+import os
 import pathlib
+import shutil
+import subprocess
+import sys
+import functools
+import time
+import zipfile
+
+# alias
+join_path = os.path.join
 
 
 def run_cmd(command):
@@ -16,6 +21,51 @@ def run_cmd(command):
     ret = subprocess.run(command)
     t_end = time.time()
     return ret.returncode, t_end - t_start
+
+
+def nuitka_compile(header, options, target):
+    """使用nuitka编译打包的API
+
+    Args:
+        header (str): 启动的指令，如python -m nuitka 或 nuitka （取决于平台）。
+        option_list (dict): 编译选项列表。
+        tgt (str): 待编译目标。
+    """
+    options_list = [
+        key if value == True else f'{key}={value}'
+        for key, value in options.items() if value
+    ]
+
+    merged = header + options_list + [
+        target,
+    ]
+
+    ret_code, time_cost = run_cmd(merged)
+    print(
+        f"Compiled {target} finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
+    )
+
+    # 异常提前终止
+    if ret_code != 0:
+        print(
+            f"Fatal compile error occured when compiling {target}. Compile terminated."
+        )
+        exit(-1)
+
+
+def pyinstaller_compile(header="pyinstaller", spec=None):
+    ret_code, time_cost = run_cmd(f"{header} {spec}")
+
+    print(
+        f"Package finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
+    )
+
+    # 异常提前终止
+    if ret_code != 0:
+        print(
+            f"Fatal compile error occured when compiling {spec}. Compile terminated."
+        )
+        exit(-1)
 
 
 def file_to_zip(path_original, z):
@@ -44,8 +94,8 @@ argparser.add_argument("--tool",
                        "-T",
                        help="Use nuitka or pyinstaller",
                        choices=['nuitka', 'pyinstaller'],
-                       type=str,
-                       default="pyinstaller")
+                       default="pyinstaller",
+                       type=str)
 argparser.add_argument(
     "--mingw64",
     action="store_true",
@@ -53,17 +103,25 @@ argparser.add_argument(
     "Use mingw64 as compiler. This option only works for nuitka under Windows.",
     default=False)
 argparser.add_argument(
-    "--onefile",
-    help="Package python codes to one file. Not working currently.",
-    default=False)
+    "--apply-upx",
+    action="store_true",
+    help="Apply UPX to squeeze the size of executable program.",
+)
+argparser.add_argument(
+    "--apply-zip",
+    action="store_true",
+    help="Generate .zip files after packaging.",
+)
 argparser.add_argument("--version",
                        type=str,
                        help="Software version.",
-                       default="1.2.1")
+                       default="1.2.2")
 
 args = argparser.parse_args()
 compile_tool = args.tool
-version = args.version
+release_version = args.version
+apply_upx = args.apply_upx
+apply_zip = args.apply_zip
 
 # 根据平台决定确定编译/打包后的程序后缀
 platform = platform_mapping[sys.platform]
@@ -71,100 +129,130 @@ exec_suffix = ""
 if (platform == "win"):
     exec_suffix = ".exe"
 
+# 设置工作路径，避免出现相对路径引用错误
+work_path = os.path.dirname(os.path.abspath(__file__))
+compile_path = join_path(work_path, "dist")
+
 t0 = time.time()
 
 if compile_tool == "nuitka":
-
     print("Use nuitka as package tools.")
 
-    # 检查python版本 必要时启用alias=python3
-    version = "3" if sys.version[0] == "3" else ""
+    # 检查python版本 必要时启用alias python3
+    version = "3" if (sys.version[0] == "3" and platform != "win") else ""
     compile_tool = [f"python{version}", "-m", "nuitka"]
-    # 构建nuitka的选项列表
-    # nuitka编译的结果产生在dist/[filename].dist路径下
-    nuitka_cfg = {
-        "--standalone": True,
-        "--show-memory": True,
-        "--show-progress": True,
-        "--nofollow-imports": True,
-        "--remove-output": True,
-        "--follow-import-to": "MetLib",
-        "--output-dir": "dist",
-    }
 
-    # 根据编译平台选择是否启用mingw64
+    # 将header作为偏函数打包，简化后续传参
+    nuitka_compile = functools.partial(nuitka_compile, compile_tool)
+
+    # 构建共用的打包选项，根据编译平台选择是否启用mingw64
+    nuitka_base = {
+        "--no-pyi-file": True,
+        "--show-progress": True,
+        "--remove-output": True,
+    }
     if (platform == "win") and args.tool == "nuitka" and args.mingw64:
         print("Apply mingw64 as compiler.")
-        nuitka_cfg["--mingw64"] = True
+        nuitka_base["--mingw64"] = True
 
-    # 编译主要检测器core.py
-    target = ["core.py"]
+    # upx启用时，利用which获取upx路径
+    if apply_upx:
+        upx_cmd = subprocess.run(["which", "upx"])
+        if upx_cmd.returncode == 0:
+            nuitka_base["--plugin-enable"] = "upx"
+            nuitka_base["--upx-binary"] = upx_cmd.stdout
 
-    options = [
-        key if value == True else f'{key}={value}'
-        for key, value in nuitka_cfg.items() if value
+    # 打包编译MetLib库为pyd文件
+    metlib_cfg = {
+        "--module": True,
+        "--output-dir": join_path(compile_path, "MetLib")
+    }
+    metlib_cfg.update(nuitka_base)
+
+    metlib_path = join_path(work_path, "MetLib")
+    metlib_filelist = [
+        join_path(metlib_path, x) for x in os.listdir(metlib_path)
+        if x.endswith(".py")
     ]
 
-    merged = compile_tool + options + target
-    ret_code, time_cost = run_cmd(merged)
+    for filename in metlib_filelist:
+        if filename.endswith("__init__.py"): continue
+        nuitka_compile(options=metlib_cfg, target=filename)
 
-    print(
-        f"Compiled finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
-    )
+    # nuitka编译的结果产生在dist/core.dist路径下
+    core_cfg = {
+        "--standalone": True,
+        "--nofollow-import-to": "MetLib",
+        "--output-dir": compile_path,
+    }
 
-    # 异常提前终止
-    if ret_code != 0: exit(-1)
+    core_cfg.update(nuitka_base)
+
+    # 编译主要检测器core.py
+    nuitka_compile(core_cfg, target=join_path(work_path, "core.py"))
+
+    # 编译视频叠加工具ClipToolkit.py
+    # ClipToolkit无需编译依赖，因此不使用standalone(?)
+    stack_cfg = {
+        "--nofollow-imports": True,
+        "--output-dir": join_path(compile_path, "core.dist")
+    }
+    stack_cfg.update(nuitka_base)
+
+    # 编译视频叠加工具ClipToolkit.py
+    nuitka_compile(stack_cfg, target=join_path(work_path, "ClipToolkit.py"))
 
     ## postprocessing
+    # remove duplicate launcher for ClipToolkit
+    # .cmd is for WIN, others are to be determinated.
+    # TODO: TO BE DONE.
+    print("Remove duplicate launcher...", end="", flush=True)
+    if platform == "win":
+        os.remove(join_path(compile_path, "core.dist", "ClipToolkit.cmd"))
+    print("Done.")
     # rename executable file and folder
-    print("Renaming dist files...", end="")
-    shutil.move(f"./dist/core.dist/core{exec_suffix}",
-                f"./dist/core.dist/MetDetPy{exec_suffix}")
-    shutil.move("./dist/core.dist", "./dist/MetDetPy")
-    print("Done.")
-    # copy configuration file
-    print("Copy config json file...", end="")
-    shutil.copy("./config.json", "./dist/MetDetPy/")
-    print("Done.")
-    # package codes with zip(by default).
-    zip_fname = f"dist/MetDetPy_{platform}_{version}.zip"
-    print(f"Zipping files to {zip_fname} ...", end="")
-    with zipfile.ZipFile(zip_fname, mode='w') as zipfile_op:
-        file_to_zip("dist/MetDetPy", zipfile_op)
+    shutil.move(join_path(compile_path, "MetLib"),
+                join_path(compile_path, "core.dist", "MetLib"))
+    print("Renaming executable files...", end="", flush=True)
+    shutil.move(join_path(compile_path, "core.dist", f"core{exec_suffix}"),
+                join_path(compile_path, "core.dist", f"MetDetPy{exec_suffix}"))
+    shutil.move(join_path(compile_path, "core.dist"),
+                join_path(compile_path, "MetDetPy"))
     print("Done.")
 
 else:
     # 使用pyinstaller作为打包工具
     print("Use pyinstaller as package tools.")
-    compile_tool = ['pyinstaller']
 
     # 使用主要配置文件core.spec 打包主要检测器core.py
     # pyinstaller打包后创建文件于dist/MetDetPy目录下
 
-    target = ['core.spec']
-    ret_code, time_cost = run_cmd(compile_tool + target)
-
-    print(
-        f"Package finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
-    )
-    
-    # 异常提前终止
-    if ret_code != 0: exit(-1)
+    pyinstaller_compile(spec='core.spec')
+    pyinstaller_compile(spec='ClipToolkit.spec')
 
     ## postprocessing
     # remove build folder
-    print("Removing build files...", end="")
+    print("Removing build files...", end="", flush=True)
     shutil.rmtree(f"./build")
     print("Done.")
-    # copy configuration file
-    print("Copy config json file...", end="")
-    shutil.copy("./config.json", "./dist/MetDetPy/")
+    print("Merging dist files...", end="", flush=True)
+    shutil.move(join_path(compile_path, "ClipToolkit", "ClipToolkit.exe"),
+                join_path(compile_path, "MetDetPy"))
+    shutil.rmtree(join_path(compile_path, "ClipToolkit"))
     print("Done.")
-    # package codes with zip(by default).
-    zip_fname = f"dist/MetDetPy_{platform}_{version}.zip"
-    print(f"Zipping files to {zip_fname} ...", end="")
+
+# shared postprocessing
+# copy configuration file
+print("Copy config json file...", end="", flush=True)
+shutil.copy("./config.json", "./dist/MetDetPy/")
+print("Done.")
+# package codes with zip(if applied).
+if apply_zip:
+    zip_fname = join_path(compile_path,
+                          f"MetDetPy_{platform}_{release_version}.zip")
+    print(f"Zipping files to {zip_fname} ...", end="", flush=True)
     with zipfile.ZipFile(zip_fname, mode='w') as zipfile_op:
-        file_to_zip("dist/MetDetPy", zipfile_op)
+        file_to_zip(join_path(compile_path, "MetDetPy", zipfile_op))
     print("Done.")
 
 print(f"Package script finished. Total time cost {(time.time()-t0):.2f}s.")
