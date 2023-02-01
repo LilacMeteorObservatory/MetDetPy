@@ -252,7 +252,7 @@ if apply_zip:
                           f"MetDetPy_{platform}_{release_version}.zip")
     print(f"Zipping files to {zip_fname} ...", end="", flush=True)
     with zipfile.ZipFile(zip_fname, mode='w') as zipfile_op:
-        file_to_zip(join_path(compile_path, "MetDetPy", zipfile_op))
+        file_to_zip(join_path(compile_path, "MetDetPy"),zipfile_op)
     print("Done.")
 
 print(f"Package script finished. Total time cost {(time.time()-t0):.2f}s.")

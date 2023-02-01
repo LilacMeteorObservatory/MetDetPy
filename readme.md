@@ -45,7 +45,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Run Directly
+### Run MetDetPy
 
 ```sh
 python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
@@ -93,7 +93,7 @@ python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 
 Unlike video-related arguments, most detect-related important arguments are predefined and stored in the configuration file. In most cases, predefined arguments works fine. However, sometimes it is possible to finetune these arguments to get better results. If you want to get the illustration of the configuration file, see [configuration documents](./docs/config-doc.md) for more information.
 
-### Evaulate
+### Run Evaulation
 
 To evaluate this program on a series of videos, you can simply run `evaluate.py` :
 
@@ -123,6 +123,25 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 ```
 
 If a video has no corresponding mask, simply use `""` .
+
+### Other Tools
+
+#### ClipToolkit
+
+ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
+
+ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
+
+```py
+ClipToolkit.py [-h] [--mode {image,video}] [--suffix SUFFIX]
+ [--save-path SAVE_PATH] target json
+```
+
+* target: the target video.
+* json: a JSON-format string or the path to a JSON file where start-time and end-time are listed.
+* --mode: convert clip(s) to images or videos. Should be selected from {image, video}.
+* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode.
+* --save-path: the path where image(s)/video(s) are placed.
 
 ## Package python codes to executables
 
@@ -206,9 +225,17 @@ LittleQ
 
 ### Update Log
 
+#### Version 1.2.2
+
+✅ [ClipToolkit.py](ClipToolkit.py) is available now. This script can be used to create several video clips or stacked images at once. See [Usage of ClipToolkit](#ClipToolkit) for details.
+
+✅ Update packaging script: modify the compile option to accelerate compiling speed(nuitka only); support using UPX to compress the size of executables;  support package multiple executables once. /更新打包脚本：修改编译选项以加速编译（Nuitka）；支持UPX压缩选项减小可执行文件大小；支持同时打包多个程序。
+
+✅ Bug fixed and code optimization.
+
 #### Version 1.2.1
 
-✅ Bug Fixed:
+✅ Bug fixed:
     Fix the exception output of the start time under some conditions / 修复了部分情况下起始时间异常的问题；
     Fix the exception abort issue during the FPS estimation / 修复了帧率估算时异常结束的问题；
     Fix the infinite loop issue during the FPS estimation / 修复了帧率估算时Sigma裁剪均值无法收敛的问题.
