@@ -7,6 +7,7 @@ from .VideoLoader import ThreadVideoReader
 
 identity = lambda x: x
 
+
 def dt2ts(dt: datetime) -> float:
     """
     Transfer a datetime.datetime object to float.
@@ -24,6 +25,36 @@ def dt2ts(dt: datetime) -> float:
         float: time (in second).
     """
     return dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
+
+
+def all_stacker(video, start_frame, end_frame):
+    """Load all frames to a mat(list, actually).
+
+    Args:
+        video (_type_): _description_
+        start_frame (_type_): _description_
+        end_frame (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    iterations = end_frame - start_frame + 1
+    mat = []
+    video_reader = ThreadVideoReader(video,
+                                     start_frame,
+                                     iterations,
+                                     pre_func=identity,
+                                     exp_frame=1,
+                                     merge_func="max")
+    try:
+        video_reader.start()
+        for i in range(iterations):
+            mat.append(video_reader.pop())
+    finally:
+        video_reader.stop()
+    
+    return mat
+
 
 def max_stacker(video, start_frame, end_frame, pre_func=identity):
     iterations = end_frame - start_frame + 1
@@ -44,6 +75,7 @@ def max_stacker(video, start_frame, end_frame, pre_func=identity):
         return base_frame
     finally:
         video_reader.stop()
+
 
 def time2frame(time: str, fps: float) -> int:
     """Transfer a utc time string into the frame num.

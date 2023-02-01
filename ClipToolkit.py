@@ -1,41 +1,78 @@
 import argparse
+import json
 import os
 
-from MetLib.Stacker import max_stacker, time2frame
-from MetLib.utils import Munch, save_img
+from MetLib.Stacker import max_stacker, all_stacker, time2frame
+from MetLib.utils import save_img, save_video
 from MetLib.VideoWarpper import OpenCVVideoWarpper
+
+
+def stack_and_save_img(video, start_time, end_time, path):
+    results = max_stacker(video, time2frame(start_time, video.fps),
+                          time2frame(end_time, video.fps))
+    save_img(results, path)
+
+
+def clip_and_save_video(video, start_time, end_time, path):
+    video_series = all_stacker(video, time2frame(start_time, video.fps),
+                               time2frame(end_time, video.fps))
+    save_video(video, video_series, path)
+
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("target", type=str, help="the target video.")
-argparser.add_argument("--start-time",
+argparser.add_argument(
+    "json",
+    type=str,
+    default=None,
+    help=
+    "a json-format string or the path to a json file where start-time and end-time are listed."
+)
+argparser.add_argument("--mode",
+                       choices=['image', 'video'],
+                       default='image',
                        type=str,
-                       help="the start time of the clip.")
-argparser.add_argument("--end-time",
+                       help="convert clip to video or image.")
+argparser.add_argument("--suffix",
                        type=str,
-                       help="the end time of the clip.")
+                       help="the suffix of the output. \
+                           By default, it is \"jpg\" for img mode and \"avi\" for video mode.",
+                       default=None)
 argparser.add_argument("--save-path",
                        type=str,
-                       help="the path where the image is placed. \
-            If the filename is not included, it will be automatically named.",
-                       default=None)
+                       help="the path where image(s)/video(s) are placed. Only\
+                           path should be provided: they will be automatically named.",
+                       default=os.getcwd())
+
+mode2func = {"image": stack_and_save_img, "video": clip_and_save_video}
 
 args = argparser.parse_args()
-video_name, t1, t2, img_path = args.target, args.start_time, args.end_time, args.save_path
-
-if (img_path == None) or os.path.isdir(img_path):
-    img_path_only, img_name = os.getcwd() if img_path == None else img_path, ""
-else:
-    img_path_only, img_name = os.path.split(img_path)
-
-if img_name == "":
-    _, video_name_nopath = os.path.split(video_name)
-    video_name_pure = ".".join(video_name_nopath.split(".")[:-1])
-    img_name = f"{video_name_pure}_{t1}-{t2}.jpg"
-    img_name = img_name.replace(":", "_")
-    img_path = os.path.join(img_path_only, img_name)
-
+video_name, json_str, mode, suffix, save_path = args.target, args.json, args.mode, args.suffix, args.save_path
 video = OpenCVVideoWarpper(video_name)
 fps = video.fps
-results = max_stacker(video, time2frame(t1, fps), time2frame(t2, fps))
 
-save_img(results, img_path)
+# parse json argument
+data = None
+if os.path.isfile(json_str):
+    with open(json_str, mode='r', encoding='utf-8') as f:
+        data = json.load(f)
+else:
+    data = json.loads(json_str)
+
+# get video name
+_, video_name_nopath = os.path.split(video_name)
+video_name_pure = ".".join(video_name_nopath.split(".")[:-1])
+# get correct suffix
+if suffix is None:
+    if mode == "image": suffix = "jpg"
+    if mode == "video": suffix = "avi"
+main_func = mode2func[mode]
+
+for time_pair in data:
+    start_time, end_time = time_pair
+
+    tgt_name = f"{video_name_pure}_{start_time}-{end_time}.{suffix}"
+    tgt_name = tgt_name.replace(":", "_")
+    full_path = os.path.join(save_path, tgt_name)
+
+    main_func(video, start_time, end_time, full_path)

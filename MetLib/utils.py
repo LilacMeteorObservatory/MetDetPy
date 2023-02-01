@@ -262,6 +262,13 @@ def save_img(img, filename):
     else:
         raise Exception("imencode failed.")
 
+def save_video(video,video_series,video_path):
+    try:
+        cv_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"MJPG"),video.fps,video.size)
+        for clip in video_series:
+            p = cv_writer.write(clip)
+    finally:
+        cv_writer.release()
 
 def load_mask(filename, resize_param):
     mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
