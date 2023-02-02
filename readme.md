@@ -124,11 +124,9 @@ where `test_video.json` places a series of videos and masks (if provided). It sh
 
 If a video has no corresponding mask, simply use `""` .
 
-### Other Tools
+### Usage of Other Tools
 
 #### ClipToolkit
-
-ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
 
 ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
 
@@ -223,15 +221,21 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 LittleQ
 
+韩雅南
+
+来自偶然
+
 ### Update Log
 
-#### Version 1.2.2
+#### Version 1.3.0
 
 ✅ [ClipToolkit.py](ClipToolkit.py) is available now. This script can be used to create several video clips or stacked images at once. See [Usage of ClipToolkit](#ClipToolkit) for details.
 
 ✅ Update packaging script: modify the compile option to accelerate compiling speed(nuitka only); support using UPX to compress the size of executables;  support package multiple executables once. /更新打包脚本：修改编译选项以加速编译（Nuitka）；支持UPX压缩选项减小可执行文件大小；支持同时打包多个程序。
 
 ✅ Bug fixed and code optimization.
+
+⚠️ Since this version, the coordinnate of meteors are  changed to ...
 
 #### Version 1.2.1
 

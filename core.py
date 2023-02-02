@@ -32,15 +32,17 @@ def output_meteors(update_info, stream, debug_mode):
     for met in met_lst:
         stream("Meteor:", met)
         # It's strange that sometimes flush still not well-performed.
-        # A temp solution is to sleep a little bit...
-        # What the fxxk
-        # Maybe Async will improve this?
-        # TODO: introduce async to videoloader and output.
+        # TODO: In the next stable version, we'll try to introduce async to videoloader and output.
+        # This should be moved modified. So ugly!
         if len(met_lst) > 1:
             time.sleep(0.1)
     if debug_mode:
+        if len(met_lst) > 0:
+            time.sleep(0.1)
         for met in drop_lst:
             stream("Dropped: ", met)
+            if len(met_lst) > 1:
+                time.sleep(0.1)
 
 
 def detect_video(video_name,
@@ -62,7 +64,7 @@ def detect_video(video_name,
     # load video, init video_reader
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     resize_param = list(reversed(mask.shape))
-    progout("Apply running-time resolution = %s." % resize_param)
+    progout(f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}.")
 
     # get accurate start_frame and end_frame according to the input arguments.
     total_frame, fps = video.num_frames, video.fps
@@ -110,9 +112,6 @@ def detect_video(video_name,
     cfg.detect_cfg.update(img_mask=mask)
     detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
 
-    # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
-    rescale_ratio = [x / y for x, y in zip(video.size, resize_param)]
-
     # Init meteor collector
     # TODO: To be renewed
     # TODO: Update My Munch
@@ -130,7 +129,8 @@ def detect_video(video_name,
     main_mc = MeteorCollector(**meteor_cfg,
                               eframe=exp_frame,
                               fps=fps,
-                              rescale_ratio=rescale_ratio)
+                              runtime_size=resize_param,
+                              raw_size=video.size)
 
     # Init main iterator
     main_iterator = range(start_frame, end_frame, exp_frame)
@@ -180,7 +180,7 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.3')
+    parser = argparse.ArgumentParser(description='Meteor Detector V1.2.1')
 
     parser.add_argument('target', help="input H264 video.")
     parser.add_argument('--cfg',

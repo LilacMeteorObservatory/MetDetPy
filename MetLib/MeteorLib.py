@@ -13,11 +13,16 @@ color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
 
 
-def init_output_dict(ms, ms_json):
-    return dict(start_time=ms_json['start_time'],
-                end_time=ms_json['last_activate_time'],
-                end_frame=ms.last_activate_frame,
-                target=[ms_json])
+def scale_to(pt, rescale):
+    return [int(x * y) for x, y in zip(pt, rescale)]
+
+
+def init_output_dict(attributes, size):
+    return dict(start_time=attributes['start_time'],
+                end_time=attributes['last_activate_time'],
+                end_frame=attributes['last_activate_frame'],
+                video_size=size,
+                target=[attributes])
 
 
 def create_prob_func(range):
@@ -53,8 +58,8 @@ class MeteorCollector(object):
     """
 
     def __init__(self, min_len, max_interval, det_thre, time_range,
-                 speed_range, thre2, eframe, drct_range, fps,
-                 rescale_ratio) -> None:
+                 speed_range, thre2, eframe, drct_range, fps, runtime_size,
+                 raw_size) -> None:
         self.min_len = min_len
         self.max_interval = max_interval
         self.det_thre = det_thre
@@ -63,8 +68,7 @@ class MeteorCollector(object):
                          create_prob_func((-np.nan, -np.nan)),
                          create_prob_func((-np.nan, -np.nan)),
                          create_prob_func((-np.nan, -np.nan)),
-                         create_prob_func((-np.nan, -np.nan)), np.nan, np.nan,
-                         rescale_ratio)
+                         create_prob_func((-np.nan, -np.nan)), np.nan, np.nan)
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -73,7 +77,9 @@ class MeteorCollector(object):
         self.speed_range = speed_range
         self.eframe = eframe
         self.fps = fps
-        self.rescale_ratio = rescale_ratio
+        self.raw_size = raw_size
+        # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
+        self.rescale_ratio = [x / y for x, y in zip(raw_size, runtime_size)]
         # 调整time的验证下界
         time_range[0] = max(time_range[0], int(4 * self.eframe + 2))
         self.time_prob_func = create_prob_func(time_range)
@@ -104,15 +110,18 @@ class MeteorCollector(object):
         # 维护
         for ms in drop_list:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(ms.property_json)
+            self.ended_meteor.append(ms.attributes)
         for ms in temp_waiting_meteor:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(ms.property_json)
-        drop_list = [
-            json.dumps(init_output_dict(ms, ms.property_json))
+            self.ended_meteor.append(ms.attributes)
+
+        # drop的部分不进行合并，直接构建序列化
+        drop_list = self.list2json([
+            init_output_dict(ms.attributes, size=self.raw_size)
             for ms in drop_list
-        ]
+        ])
         self.waiting_meteor.extend(temp_waiting_meteor)
+
         # 整合待导出序列：如果没有活跃的潜在流星，则导出
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
@@ -151,30 +160,44 @@ class MeteorCollector(object):
                              len_func=self.len_prob_func,
                              drct_func=self.drct_prob_func,
                              max_acceptable_dist=self.thre2,
-                             fps=self.fps,
-                             rescale_ratio=self.rescale_ratio))
+                             fps=self.fps))
         return met_list, drop_list
 
-    def jsonize_waiting_meteor(self):
+    def list2json(self, meteor_list):
+        """将流星列表转化为JSON-string列表.
 
+        Args:
+            meteor_list (_type_): _description_
+        """
+        # 转换尺寸，将输出的所有尺寸放缩回真实位置
+        for line in meteor_list:
+            for meteor in line["target"]:
+                meteor["pt1"] = scale_to(meteor["pt1"], self.rescale_ratio)
+                meteor["pt2"] = scale_to(meteor["pt2"], self.rescale_ratio)
+        return [json.dumps(x) for x in meteor_list]
+
+    def jsonize_waiting_meteor(self):
         output_dict = dict()
         final_list = []
         for ms in self.waiting_meteor:
-            ms_json = ms.property_json
+            ms_attrbutes = ms.attributes
             if len(output_dict) == 0:
-                output_dict = init_output_dict(ms, ms_json)
+                output_dict = init_output_dict(ms_attrbutes,
+                                               size=self.raw_size)
                 continue
             if ms.start_frame < output_dict['end_frame'] + self.max_interval:
-                output_dict.update(end_time=ms_json['end_time'],
+                output_dict.update(end_time=ms_attrbutes['end_time'],
                                    end_frame=ms.end_frame)
-                output_dict["target"].append(ms_json)
+                output_dict["target"].append(ms_attrbutes)
             else:
                 final_list.append(output_dict)
-                output_dict = init_output_dict(ms, ms_json)
+                output_dict = init_output_dict(ms_attrbutes,
+                                               size=self.raw_size)
         if len(output_dict) != 0:
             final_list.append(output_dict)
-        final_list = [json.dumps(x) for x in final_list]
-        return final_list
+
+        # 整理完列表后对其进行坐标修正和序列化
+        return self.list2json(final_list)
 
     def draw_on_img(self, draw_img, frame_num):
         # add timestamp
@@ -210,7 +233,7 @@ class MeteorSeries(object):
     """
 
     def __init__(self, start_frame, cur_frame, init_box, time_func, speed_func,
-                 len_func, drct_func, max_acceptable_dist, fps, rescale_ratio):
+                 len_func, drct_func, max_acceptable_dist, fps):
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(self.box2coord(init_box))
@@ -224,7 +247,6 @@ class MeteorSeries(object):
         self.drct_func = drct_func
         self.len_func = len_func
         self.fps = fps
-        self.rescale_ratio = rescale_ratio
 
     def __repr__(self) -> str:
         return "Duration %s frames; (Dist=%s); speed=%.2f px(s)/frame; \"%s - %s : %s - %s\"" % (
@@ -232,21 +254,17 @@ class MeteorSeries(object):
             self.last_activate_frame, self.range[0], self.range[1])
 
     @property
-    def property_json(self) -> dict:
+    def attributes(self) -> dict:
         return dict(
             start_time=self.frame2ts(self.start_frame),
             end_time=self.frame2ts(self.end_frame),
+            last_activate_frame=self.last_activate_frame,
             last_activate_time=self.frame2ts(self.last_activate_frame),
             duration=self.duration,
             speed=np.round(self.speed, 3),
             dist=np.round(self.dist, 3),
-            # 感觉这一坨写的依托答辩...[捂脸]以后想想怎么处理
-            pt1=[
-                int(x * y) for x, y in zip(self.range[0], self.rescale_ratio)
-            ],
-            pt2=[
-                int(x * y) for x, y in zip(self.range[1], self.rescale_ratio)
-            ],
+            pt1=self.range[0],
+            pt2=self.range[1],
             #drct_loss=self.drst_std,
             score=self.prob_meteor())
 
