@@ -148,7 +148,6 @@ if compile_tool == "nuitka":
     # 构建共用的打包选项，根据编译平台选择是否启用mingw64
     nuitka_base = {
         "--no-pyi-file": True,
-        "--show-progress": True,
         "--remove-output": True,
     }
     if (platform == "win") and args.tool == "nuitka" and args.mingw64:
@@ -163,26 +162,23 @@ if compile_tool == "nuitka":
             nuitka_base["--upx-binary"] = upx_cmd.stdout
 
     # 打包编译MetLib库为pyd文件
-    metlib_cfg = {
-        "--module": True,
-        "--output-dir": join_path(compile_path, "MetLib")
-    }
-    metlib_cfg.update(nuitka_base)
-
-    metlib_path = join_path(work_path, "MetLib")
-    metlib_filelist = [
-        join_path(metlib_path, x) for x in os.listdir(metlib_path)
-        if x.endswith(".py")
-    ]
-
-    for filename in metlib_filelist:
-        if filename.endswith("__init__.py"): continue
-        nuitka_compile(options=metlib_cfg, target=filename)
+    #metlib_cfg = {
+    #    "--module": True,
+    #    "--output-dir": join_path(compile_path, "MetLib")
+    #}
+    #metlib_cfg.update(nuitka_base)
+    #metlib_path = join_path(work_path, "MetLib")
+    #metlib_filelist = [
+    #    join_path(metlib_path, x) for x in os.listdir(metlib_path)
+    #    if x.endswith(".py")
+    #]
+    #for filename in metlib_filelist:
+    #    if filename.endswith("__init__.py"): continue
+    #    nuitka_compile(options=metlib_cfg, target=filename)
 
     # nuitka编译的结果产生在dist/core.dist路径下
     core_cfg = {
         "--standalone": True,
-        "--nofollow-import-to": "MetLib",
         "--output-dir": compile_path,
     }
 
@@ -192,10 +188,11 @@ if compile_tool == "nuitka":
     nuitka_compile(core_cfg, target=join_path(work_path, "core.py"))
 
     # 编译视频叠加工具ClipToolkit.py
-    # ClipToolkit无需编译依赖，因此不使用standalone(?)
+    # 不能不编译MetLib相关文件，否则会出现非常奇怪的报错（找不到np，但直接调用MetLib所有函数都没问题）
+    # 由于该问题暂时没法解决，必须全部编译。
     stack_cfg = {
-        "--nofollow-imports": True,
-        "--output-dir": join_path(compile_path, "core.dist")
+        "--standalone": True,
+        "--output-dir": compile_path
     }
     stack_cfg.update(nuitka_base)
 
@@ -203,16 +200,15 @@ if compile_tool == "nuitka":
     nuitka_compile(stack_cfg, target=join_path(work_path, "ClipToolkit.py"))
 
     ## postprocessing
-    # remove duplicate launcher for ClipToolkit
-    # .cmd is for WIN, others are to be determinated.
-    # TODO: TO BE DONE.
-    print("Remove duplicate launcher...", end="", flush=True)
-    if platform == "win":
-        os.remove(join_path(compile_path, "core.dist", "ClipToolkit.cmd"))
+    # remove duplicate files of ClipToolkit
+    print("Merging...", end="", flush=True)
+    shutil.move(join_path(compile_path, "ClipToolkit.dist", f"ClipToolkit{exec_suffix}"),
+                join_path(compile_path, "core.dist"))
+    shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
     print("Done.")
     # rename executable file and folder
-    shutil.move(join_path(compile_path, "MetLib"),
-                join_path(compile_path, "core.dist", "MetLib"))
+    #shutil.move(join_path(compile_path, "MetLib"),
+    #            join_path(compile_path, "core.dist", "MetLib"))
     print("Renaming executable files...", end="", flush=True)
     shutil.move(join_path(compile_path, "core.dist", f"core{exec_suffix}"),
                 join_path(compile_path, "core.dist", f"MetDetPy{exec_suffix}"))
@@ -252,7 +248,7 @@ if apply_zip:
                           f"MetDetPy_{platform}_{release_version}.zip")
     print(f"Zipping files to {zip_fname} ...", end="", flush=True)
     with zipfile.ZipFile(zip_fname, mode='w') as zipfile_op:
-        file_to_zip(join_path(compile_path, "MetDetPy"),zipfile_op)
+        file_to_zip(join_path(compile_path, "MetDetPy"), zipfile_op)
     print("Done.")
 
 print(f"Package script finished. Total time cost {(time.time()-t0):.2f}s.")

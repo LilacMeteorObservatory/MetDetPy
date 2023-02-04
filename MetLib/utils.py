@@ -1,10 +1,12 @@
+import datetime
 import sys
-from functools import partial
 import warnings
+from functools import partial
+from math import floor
+
 import cv2
 import numpy as np
-import datetime
-from math import floor
+
 from .VideoWarpper import OpenCVVideoWarpper
 
 eps = 1e-2
@@ -51,14 +53,13 @@ class RefEMA(EMA):
         super().__init__(n)
         h, w = ref_mask.shape
         self.ref_img = np.zeros_like(ref_mask, dtype=float)
-        self.img_stack = np.zeros((n,h,w),dtype=np.uint8)
-        self.std_interval = 2*n
+        self.img_stack = np.zeros((n, h, w), dtype=np.uint8)
+        self.std_interval = 2 * n
         self.timer = 0
         self.noise = 0
         if area == 0:
             self.est_std = np.std
-            self.signal_ratio = ((h*w) /
-                                 np.sum(ref_mask))**(1 / 2)
+            self.signal_ratio = ((h * w) / np.sum(ref_mask))**(1 / 2)
         else:
             self.est_std, self.signal_ratio = self.select_subarea(ref_mask,
                                                                   area=area)
@@ -71,10 +72,10 @@ class RefEMA(EMA):
         #    self.ref_img -= self.img_stack.pop(0)
         #self.ref_img += new_frame
         #print(np.mean(self.ref_img))
-        
+
         # 更新移动窗栈与均值背景参考图像（ref_img）
         rep_id = (self.timer - 1) % self.n
-        if self.timer>self.n:
+        if self.timer > self.n:
             self.ref_img -= self.img_stack[rep_id]
         # update new frame to the place.
         self.img_stack[rep_id] = new_frame
@@ -125,7 +126,7 @@ class RefEMA(EMA):
     @property
     def length(self):
         return min(self.n, self.timer)
-    
+
     @property
     def li_img(self):
         return np.max(self.img_stack, axis=0)
@@ -240,13 +241,13 @@ def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
     return video, mask
 
 
-def save_img(img, filename):
+def save_img(img, filename, quality, compressing):
     if filename.upper().endswith("PNG"):
         ext = ".png"
-        params = [int(cv2.IMWRITE_PNG_COMPRESSION), 0]
+        params = [int(cv2.IMWRITE_PNG_COMPRESSION), compressing]
     elif filename.upper().endswith("JPG") or filename.upper().endswith("JPEG"):
         ext = ".jpg"
-        params = [int(cv2.IMWRITE_JPEG_QUALITY), 95]
+        params = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
     else:
         suffix = filename.split(".")[-1]
         raise NameError(
@@ -262,13 +263,17 @@ def save_img(img, filename):
     else:
         raise Exception("imencode failed.")
 
-def save_video(video,video_series,video_path):
+
+def save_video(video, video_series, video_path):
     try:
-        cv_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"MJPG"),video.fps,video.size)
+        cv_writer = cv2.VideoWriter(video_path,
+                                    cv2.VideoWriter_fourcc(*"MJPG"), video.fps,
+                                    video.size)
         for clip in video_series:
             p = cv_writer.write(clip)
     finally:
         cv_writer.release()
+
 
 def load_mask(filename, resize_param):
     mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8),

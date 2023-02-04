@@ -1,7 +1,6 @@
 from datetime import datetime
 
 import numpy as np
-import tqdm
 
 from .VideoLoader import ThreadVideoReader
 
