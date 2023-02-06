@@ -224,6 +224,17 @@ class MeteorCollector(object):
 
         return draw_img
 
+    def clear(self):
+        """将当前时间更新至无穷久以后，清空列表。
+        应当在结束时仅调用一次。
+
+        Raises:
+            StopIteration: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        return self.update(np.inf, [])
 
 class MeteorSeries(object):
     """用于整合检测结果，排异和给出置信度的流星序列。

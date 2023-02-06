@@ -66,6 +66,13 @@ argparser.add_argument(
         By default, it is 3.  This option only works for \"image\" mode.",
     default=3)
 
+argparser.add_argument(
+    "--resize",
+    type=str,
+    help=
+    "resize img/video to the given solution. (support img only now)",
+    default=None)
+
 mode2func = {"image": stack_and_save_img, "video": clip_and_save_video}
 
 args = argparser.parse_args()

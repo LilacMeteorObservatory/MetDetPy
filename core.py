@@ -6,7 +6,6 @@ from functools import partial
 from math import floor
 
 import cv2
-import numpy as np
 import tqdm
 
 from MetLib.Detector import init_detector
@@ -170,7 +169,7 @@ def detect_video(video_name,
 
     finally:
         video_reader.stop()
-        output_meteors(main_mc.update(np.inf, []), progout, debug_mode)
+        output_meteors(main_mc.clear(), progout, debug_mode)
         video.release()
         cv2.destroyAllWindows()
         progout('Video EOF detected.')
@@ -180,7 +179,7 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.2.1')
+    parser = argparse.ArgumentParser(description='Meteor Detector V1.3.0')
 
     parser.add_argument('target', help="input H264 video.")
     parser.add_argument('--cfg',
@@ -229,7 +228,7 @@ if __name__ == "__main__":
     group_bi.add_argument('--bi-thre',
                           type=int,
                           default=None,
-                          help="Apply adaptive binary threshold.")
+                          help="Constant binary threshold value.")
 
     group_bi.add_argument('--sensitivity',
                           type=str,

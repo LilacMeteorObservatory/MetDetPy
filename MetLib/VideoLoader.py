@@ -1,6 +1,7 @@
 import threading
 import time
-from .utils import m3func, mix_max_median_stacker, img_max
+
+from .utils import img_max, m3func, mix_max_median_stacker
 
 available_func = dict(max=img_max, m3func=m3func, mix=mix_max_median_stacker)
 
