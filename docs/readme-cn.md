@@ -2,9 +2,9 @@
 
 其他语言版本：[[Eng]](../readme.md)
 
-MetDetPy 是一个基于 python 的视频流星检测项目，可用于从视频中检测流星。
+MetDetPy 是一个基于 python 开发的视频流星检测项目，可用于从直录视频中检测流星。
 
-* MetDetPy受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发，并使用Python3复现了该工作。
+* MetDetPy受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。本项目中也复现了该工作。
 
 * 开发了M3检测器，适用于单帧曝光时间在1/120s-1/4s的流星直录视频。其通过在更宽的时间窗口中有效率的计算差值帧以改善检测性能。
 
@@ -16,23 +16,24 @@ MetDetPy 是一个基于 python 的视频流星检测项目，可用于从视频
 
 ## 发行版
 
-MetDetPy 从 MeteorMaster 的 1.2.0 版本开始作为其后端。MeteorMaster的Windows发行版可以从如下源获取:
+你可以从[Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases)处获取最新的MetDetPy发行版。发行版将MetDetPy进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `pyinstaller` 或 `nuitka` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
 
-* [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
-* [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
+此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的视频流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。Meteor Master的最新版本可以从如下源获取:
 
-目前 MetDetPy 没有直接的发行版，但这已在将来的计划中。在那之前，你可以使用`pyinstaller`构建MetDetPy的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序)).
+* [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster)
+* [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
+
 
 ## 运行需求
 
 ### 环境
 
-* Python>=3.6
+* Python>=3.7
 
 ### 模块
 
 * numpy>=1.15.0
-* opencv_python>=4.0.0
+* opencv_python>=4.7.0
 * tqdm>=4.0.0
 
 可以通过如下指令安装模块：
@@ -91,7 +92,7 @@ python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 
 大多数与检测相关的重要参数都预先定义并储存在配置文件中。大多数情况下，这些预设值都能够较好的工作，但有时对参数微调可以取得更好的结果。如果想要获取配置文件的说明，可以参考[配置文件文档](./config-doc.md)获取更多信息。
 
-### 评估
+### 评估（即将上线）
 
 若需要评估MetDetPy在某个视频上的检测性能，可以运行 `evaluate.py` :
 
@@ -122,26 +123,102 @@ python evaluate.py --videos test_video.json
 
 若没有对应的mask，可以用 `""` 表示。
 
+### 其他工具的使用
+
+#### ClipToolkit
+
+ClipToolkit可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。其用法如下：
+
+```sh
+python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] target json
+```
+
+* target: 目标视频文件。
+* --mode: convert clip(s) to images or videos. Should be selected from {image, video}.
+* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode.
+* --save-path: the path where image(s)/video(s) are placed.
+
+* json: JSON格式的字符串或者JSON文件的路径。该JSON应当包含起始时间，结束时间和文件名（可选）信息。
+    具体来说，这个 JSON 应该是一个数组，其中每个元素都应该至少包含一个`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间。 `"filename"` 是一个可选键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）`"filename"` 优先于 `--mode` 和 ` --suffix` 选项，但如果未指定，此剪辑将根据命令选项自动转换和命名。
+    我们提供 [clip_test.json](./test/clip_test.json) 作为用例及测试用 JSON。
+
+* --mode：将剪辑转换为图像或视频。 应从 {image, video} 中选择。 此选项将由 json 中的特定文件名覆盖。
+
+* --suffix：输出的后缀。 默认情况下，图像模式为“jpg”，视频模式为“avi”。 此选项将由 JSON 中的特定文件名覆盖。
+
+* --save-path：放置图像/视频的路径。 当 JSON 中只包含一个片段时，您可以在 --save-path 中包含文件名以简化您的 JSON。
+
+* --resize：将图像/视频调整为给定的分辨率。
+
+* --png-compressing: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
+
+* --jpg-quality: 生成的jpg图像的质量。 其值应为$Z \in [0,100]$； 默认情况下取值为95。
+
+一个典型的使用例如下:
+
+```sh
+python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540 --save-path ./test
+```
+
+注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，你应该注意命令行中双引号的转义。
+
 ## 打包Python代码为可执行程序
 
-为了能够成功冻结MetDetPy为独立的可执行程序，我们推荐使用`pyinstaller>=5.0`。为避免兼容性问题，最好使用 `Python>=3.7`。此外，为了避免递归错误，最好使用 `opencv-python<=4.5.3.56`。
+我们提供了 [make_package.py](make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具支持使用 `pyinstaller` 或 `nuitka` 来打包/编译。
+
+当使用该脚本时，请确保至少安装了`pyinstaller` 或 `nuitka` 中的任意一个工具。此外，在使用 `nuitka` 作为编译工具时，请确保在您的设备上有至少一个C/C++编译器可用。
+
+该工具的用法如下：
+
+```sh
+python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
+     [--apply-upx] [--apply-zip] [--version VERSION]
+```
+
+* --tool: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
+
+* --mingw64: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
+
+* --apply-upx: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
+
+* --apply-zip: generate zip package when compiling/packaging is finished.
+
+* --version: MetDetPy version tag. Used for naming zip package.
+
 
 就绪之后，运行 `pyinstaller core.spec --clean` 以打包代码。目标可执行程序会生成在 [dist](./dist/) 目录下。
+
+注意：
+
+1. 建议使用 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。
+
+2. 根据在 MetDetPy 上的测试，`pyinstaller` 打包更快，能生成更小的可执行文件（小于Nuitka约30%）。然而，其可执行程序在启动会花更多时间。相对的，`nuitka`花费更多时间在编译期，并生成相对更大的可执行文件（即使使用UPX压缩），但其启动快于Pyinstaller版本约50%。除去启动时间，两种可执行文件运行速度基本相同。因此，可根据实际需求选择合适的打包工具。
+
+3. 由于Python的特性，上述两种工具均无法跨平台打包生成可执行文件。
 
 ## Todo List
 
  1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
     1. 找到合适的超参数： max_gap
-    2. 再校验机制
+    2. 设计再校验机制：利用叠图结果做重校准
     3. 优化速度计算逻辑，包括方向，平均速度等
     4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
  3. 完善日志系统
- 4. 支持rtmp
- 5. 添加GUI
- 6. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 7. 自动启停
- 8. 时间水印
+ 4. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 5. 快速叠图
+ 6. 评估系统
+ 7. 利用cython改善性能
+ 8. 添加天区解析功能，为支持快速叠图，组网提供基础支持
+
+
+
+P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
+
+ 1. 完善的GUI
+ 2. 支持rtmp/rtsp/http流直播
+ 3. 时间水印（待开发）
+ 4. 自动启停
 
 ### 性能和效率
 
@@ -153,38 +230,28 @@ python evaluate.py --videos test_video.json
 
 ### 特别鸣谢
 
-[uzanka](https://github.com/uzanka)
+uzanka [[Github]](https://github.com/uzanka)
 
-[奔跑的龟斯](https://weibo.com/u/1184392917)
+奔跑的龟斯 [[Personal Website]](https://photohelper.cn)[[Weibo]](https://weibo.com/u/1184392917)
 
-[纸片儿](https://github.com/ArtisticZhao)
+纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
-[DustYe夜尘](https://space.bilibili.com/343640654)
+DustYe夜尘[[Bilibili]](https://space.bilibili.com/343640654)
 
-[RoyalK](https://weibo.com/u/2244860993)
+RoyalK[[Weibo]](https://weibo.com/u/2244860993)[[Bilibili]](https://space.bilibili.com/259900185)
 
-[MG_Raiden扬](https://weibo.com/811151123)
+MG_Raiden扬[[Weibo]](https://weibo.com/811151123)[[Bilibili]](https://space.bilibili.com/11282636)
 
-[星北之羽](https://space.bilibili.com/366525868/)
+星北之羽[[Bilibili]](https://space.bilibili.com/366525868/)
 
 LittleQ
 
+韩雅南
+
+来自偶然
+
+ylp
+
 ### 更新日志
 
-#### Version 1.2
-
-✅ 优化了分辨率相关接口以支持不同长宽比的视频
-
-✅ 实现根据方差计算的自适应二值化阈值
-
-✅ 增加灵敏度设置
-
-✅ 输出调整为概率形式
-
-#### Version 1.1.1
-
-✅ 改善对非ASCII文字路径的支持
-
-#### Version 1.1
-
-✅ 增加了后端模式
+见 [更新日志](update-log.md)。

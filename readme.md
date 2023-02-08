@@ -4,23 +4,23 @@ Other Language Version: [[中文版]](./docs/readme-cn.md)
 
 MetDetPy is a python-based video meteor detector that can detect meteors from video files.
 
-* Basically, MetDetPy is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is reproduced in python3.
+* Basically, MetDetPy is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is also reproduced in python3.
 
-* Based on their work, we implement the M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
+* Based on their work, we further implement the M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
 
 * We design an adaptive threshold algorithm that can select binary threshold dynamically according to the signal-to-noise ratio of the video. (Experimental feature)
 
 * We also implement a meteor detection result manager (called MeteorLib) to help integrate predictions and exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
 
-* An evaluation tool is under development.
+* An evaluation tool is under development and coming soon.
 
 ## Release Version
 
 You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version are already packed and can run on common platforms (including Windows, macOS and Linux) respectively. Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
 
-Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. You can get the latest MeteorMaster (Windows release version only now) from:
+Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. Meteor Master is a video meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function,  automatic running, etc. You can get the latest Meteor Master (Windows release version only now) from:
 
-* [Photohelper.cn](https://www.photohelper.cn/MeteorMaster)
+* [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
 
@@ -93,7 +93,7 @@ python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 
 Unlike video-related arguments, most detect-related important arguments are predefined and stored in the configuration file. In most cases, predefined arguments works fine. However, sometimes it is possible to finetune these arguments to get better results. If you want to get the illustration of the configuration file, see [configuration documents](./docs/config-doc.md) for more information.
 
-### Run Evaulation
+### Run Evaulation (Coming soon)
 
 To evaluate this program on a series of videos, you can simply run `evaluate.py` :
 
@@ -130,22 +130,46 @@ If a video has no corresponding mask, simply use `""` .
 
 ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
 
-```py
-ClipToolkit.py [-h] [--mode {image,video}] [--suffix SUFFIX]
- [--save-path SAVE_PATH] target json
+```sh
+python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] target json
 ```
 
+positional arguments:
+
 * target: the target video.
-* json: a JSON-format string or the path to a JSON file where start-time and end-time are listed.
-* --mode: convert clip(s) to images or videos. Should be selected from {image, video}.
-* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode.
-* --save-path: the path where image(s)/video(s) are placed.
+
+* json: a JSON-format string or the path to a JSON file where start time, end-time and filename (optional) are listed. 
+
+    Specifically, this JSON should be an array of elements, where every element should include at least a `"time"` key. The value of the `"time"` key should be an array of two `"hh:mm:ss.ms"` format strings, which indicates the start time and the end time of the clip. `"filename"` is an optional key, in whose value you can specify the filename and suffix (i.e what the video clip should be converted to and named.) `"filename"` is more prior than `--mode` and `--suffix` options, but if not specified, this clip will be automatically converted and named according to the command options. 
+
+    We provide [clip_test.json](./test/clip_test.json) as a use case and test JSON.
+
+* --mode: convert clip(s) to images or videos. Should be selected from {image, video}. This option will be covered by a specific filename in json.
+
+* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode. This option will be covered by a specific filename in JSON.
+
+* --save-path: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in --save-path to simplify your JSON.
+
+* --resize:       resize image/video to the given resolution.
+
+* --png-compressing: the compressing rate of the generated png image. It should be int ranged $Z \in [0,9]$; By default, it is 3.
+
+* --jpg-quality: the quality of generated jpg image. It should be int ranged $Z \in [0,100]$; By default, it is 95.
+
+For example:
+
+```sh
+python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540
+```
+
+Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
+
 
 ## Package python codes to executables
 
 We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports to use `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
 
-When using it, make sure that either `pyinstaller` or `nuitka` is installed. Also, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
+When using it, make sure that either `pyinstaller` or `nuitka` is installed. Besides, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
 
 Its usage is as follows:
 
@@ -167,8 +191,8 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
 Notice:
-1. It is suggested to use `Python>=3.7`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
-2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30%). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
+1. It is suggested to use `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
+2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
 3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
 ## Todo List
@@ -193,7 +217,7 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
  1. 完善的GUI
  2. 支持rtmp/rtsp/http流直播
  3. 时间水印（待开发）
- 4. 自动启停（待开发）
+ 4. 自动启停
 
 ## Performance and Efficiency
 
@@ -205,19 +229,19 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 ### Special Thanks
 
-[uzanka](https://github.com/uzanka)
+uzanka [[Github]](https://github.com/uzanka)
 
-[奔跑的龟斯](https://weibo.com/u/1184392917)
+奔跑的龟斯 [[Personal Website]](https://photohelper.cn)[[Weibo]](https://weibo.com/u/1184392917)
 
-[纸片儿](https://github.com/ArtisticZhao)
+纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
-[DustYe夜尘](https://space.bilibili.com/343640654)
+DustYe夜尘[[Bilibili]](https://space.bilibili.com/343640654)
 
-[RoyalK](https://weibo.com/u/2244860993)
+RoyalK[[Weibo]](https://weibo.com/u/2244860993)[[Bilibili]](https://space.bilibili.com/259900185)
 
-[MG_Raiden扬](https://weibo.com/811151123)
+MG_Raiden扬[[Weibo]](https://weibo.com/811151123)[[Bilibili]](https://space.bilibili.com/11282636)
 
-[星北之羽](https://space.bilibili.com/366525868/)
+星北之羽[[Bilibili]](https://space.bilibili.com/366525868/)
 
 LittleQ
 
@@ -225,49 +249,8 @@ LittleQ
 
 来自偶然
 
+ylp
+
 ### Update Log
 
-#### Version 1.3.0
-
-✅ [ClipToolkit.py](ClipToolkit.py) is available now. This script can be used to create several video clips or stacked images at once. See [Usage of ClipToolkit](#ClipToolkit) for details.
-
-✅ Update packaging script: modify the compile option to accelerate compiling speed(nuitka only); support using UPX to compress the size of executables;  support package multiple executables once. /更新打包脚本：修改编译选项以加速编译（Nuitka）；支持UPX压缩选项减小可执行文件大小；支持同时打包多个程序。
-
-✅ Bug fixed and code optimization.
-
-⚠️ Since this version, the coordinnate of meteors are  changed to ...
-
-#### Version 1.2.1
-
-✅ Bug fixed:
-    Fix the exception output of the start time under some conditions / 修复了部分情况下起始时间异常的问题；
-    Fix the exception abort issue during the FPS estimation / 修复了帧率估算时异常结束的问题；
-    Fix the infinite loop issue during the FPS estimation / 修复了帧率估算时Sigma裁剪均值无法收敛的问题.
-
-✅ Update packaging script: add Nuitka option, update spec file of pyinstaller. / 更新打包脚本：增加Nuitka打包选项，更新pyinstaller使用的.spec文件。
-
-✅ Formally release packaging version for linux and macOS platforms. / 正式发布macOS和linux平台的打包版本。
-
-#### Version 1.2
-
-✅ Resolution-related APIs have been improved to support videos with different aspect ratios / 优化了分辨率相关接口以支持不同长宽比的视频
-
-✅ Implemented an adaptive binary threshold mechanism. We explored simple empirical relations between std and the binary threshold. (⚠️This may not be appropriate for all video patterns. If you encounter any issues, please feel free to modify the function or help me improve it:) / 实现根据方差计算的自适应二值化阈值
-
-✅ Sensitivity configuration is supported now: you can modify "sensitivity" under "bi_cfg" in config.json or passing arguments "--sensitivity {option}" to the program. / 增加灵敏度设置
-
-✅ Smoothing probabilities to [0,1] instead of {0,1}. Meteor judging now is by a series of factors so it could be more accurate (perhaps...). / 输出调整为概率形式
-
-#### Version 1.1.1
-
-✅ Improved non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持: by packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
-
-#### Version 1.1
-
-✅ Add "Backend" mode to support MeteorMaster. / 增加了后端模式
-
-✅ Update output stream format. / 调整输出流格式
-
-#### Version 1.0
-
-Initial Version.
+See [update-log](docs/update-log.md).
