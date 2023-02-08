@@ -10,17 +10,17 @@ support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
 
 
-def stack_and_save_img(video, start_time, end_time, path, quality,
-                       compressing):
+def stack_and_save_img(video, start_time, end_time, path, quality, compressing,
+                       resize):
     results = max_stacker(video, time2frame(start_time, video.fps),
-                          time2frame(end_time, video.fps))
+                          time2frame(end_time, video.fps), resize=resize)
     save_img(results, path, quality, compressing)
 
 
-def clip_and_save_video(video, start_time, end_time, path):
+def clip_and_save_video(video, start_time, end_time, path, resize):
     video_series = all_stacker(video, time2frame(start_time, video.fps),
-                               time2frame(end_time, video.fps))
-    save_video(video, video_series, path)
+                               time2frame(end_time, video.fps), resize=resize)
+    save_video(video_series, video.fps, path)
 
 
 argparser = argparse.ArgumentParser()
@@ -50,35 +50,42 @@ argparser.add_argument(
     type=str,
     help="the path where image(s)/video(s) are placed. When only ",
     default=os.getcwd())
-argparser.add_argument(
-    "--jpg-quality",
-    type=int,
-    help=
-    "the quality of generated jpg image. It should be int ranged Z \in [0,100];\
-        By default, it is 95.  This option only works for \"image\" mode.",
-    default=95)
-
-argparser.add_argument(
-    "--png-compressing",
-    type=int,
-    help=
-    "the compressing of generated png image. It should be int ranged Z \in [0,9];\
-        By default, it is 3.  This option only works for \"image\" mode.",
-    default=3)
 
 argparser.add_argument(
     "--resize",
     type=str,
-    help=
-    "resize img/video to the given solution. (support img only now)",
+    help="resize img/video to the given solution.",
     default=None)
+
+
+
+img_group_args = argparser.add_argument_group("optional image-related arguments")
+
+img_group_args.add_argument(
+    "--png-compressing",
+    type=int,
+    help=
+    "the compressing of generated png image. It should be int ranged Z \in [0,9];\
+        By default, it is 3.",
+    default=3)
+
+img_group_args.add_argument(
+    "--jpg-quality",
+    type=int,
+    help=
+    "the quality of generated jpg image. It should be int ranged Z \in [0,100];\
+        By default, it is 95.",
+    default=95)
 
 mode2func = {"image": stack_and_save_img, "video": clip_and_save_video}
 
 args = argparser.parse_args()
-video_name, json_str, mode, default_suffix, save_path,  = \
-    args.target, args.json, args.mode, args.suffix, args.save_path,
 
+# basic option
+video_name, json_str, mode, default_suffix, resize, save_path,  = \
+    args.target, args.json, args.mode, args.suffix, args.resize, args.save_path,
+
+# image option
 jpg_quality, png_compress = args.jpg_quality, args.png_compressing
 
 video = OpenCVVideoWarpper(video_name)
@@ -101,7 +108,10 @@ if default_suffix is None:
     if mode == "image": default_suffix = "jpg"
     if mode == "video": default_suffix = "avi"
 
-# convert image quality to correct
+# 解析resize为[长，宽]的二维数组
+resize_param = None
+if resize:
+    resize_param = list(map(int, resize.upper().split("X")))
 
 # 单一片段时，若保存路径中包含文件名，覆盖输出的文件名。
 if len(data) == 1 and (not os.path.isdir(save_path)):
@@ -133,6 +143,7 @@ for single_data in data:
                            end_time,
                            full_path,
                            quality=jpg_quality,
-                           compressing=png_compress)
+                           compressing=png_compress,
+                           resize=resize_param)
     else:
-        clip_and_save_video(video, start_time, end_time, full_path)
+        clip_and_save_video(video, start_time, end_time, full_path, resize=resize_param)

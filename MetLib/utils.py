@@ -264,11 +264,12 @@ def save_img(img, filename, quality, compressing):
         raise Exception("imencode failed.")
 
 
-def save_video(video, video_series, video_path):
+def save_video(video_series, fps, video_path):
     try:
+        real_size = list(reversed(video_series[0].shape[:2]))
         cv_writer = cv2.VideoWriter(video_path,
-                                    cv2.VideoWriter_fourcc(*"MJPG"), video.fps,
-                                    video.size)
+                                    cv2.VideoWriter_fourcc(*"MJPG"), fps,
+                                    real_size)
         for clip in video_series:
             p = cv_writer.write(clip)
     finally:

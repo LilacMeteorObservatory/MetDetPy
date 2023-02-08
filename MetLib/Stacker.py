@@ -1,5 +1,7 @@
 from datetime import datetime
+from functools import partial
 
+import cv2
 import numpy as np
 
 from .VideoLoader import ThreadVideoReader
@@ -26,7 +28,15 @@ def dt2ts(dt: datetime) -> float:
     return dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
 
 
-def all_stacker(video, start_frame, end_frame):
+def generate_resize_func(resize):
+    if resize:
+        return partial(cv2.resize,
+                       dsize=resize,
+                       interpolation=cv2.INTER_LANCZOS4)
+    return identity
+
+
+def all_stacker(video, start_frame, end_frame, resize):
     """Load all frames to a mat(list, actually).
 
     Args:
@@ -37,12 +47,13 @@ def all_stacker(video, start_frame, end_frame):
     Returns:
         _type_: _description_
     """
+    pre_func = generate_resize_func(resize)
     iterations = end_frame - start_frame + 1
     mat = []
     video_reader = ThreadVideoReader(video,
                                      start_frame,
                                      iterations,
-                                     pre_func=identity,
+                                     pre_func,
                                      exp_frame=1,
                                      merge_func="max")
     try:
@@ -51,11 +62,13 @@ def all_stacker(video, start_frame, end_frame):
             mat.append(video_reader.pop())
     finally:
         video_reader.stop()
-    
+
     return mat
 
 
-def max_stacker(video, start_frame, end_frame, pre_func=identity):
+def max_stacker(video, start_frame, end_frame, resize):
+
+    pre_func = generate_resize_func(resize)
     iterations = end_frame - start_frame + 1
     video_reader = ThreadVideoReader(video,
                                      start_frame,
