@@ -11,9 +11,9 @@ import tqdm
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
-                          preprocessing, set_out_pipe)
+                          preprocessing)
 from MetLib.VideoLoader import ThreadVideoReader
-
+from MetLib.MetLog import get_default_logger, set_default_logger
 ## baseline:
 ## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
 
@@ -25,23 +25,13 @@ from MetLib.VideoLoader import ThreadVideoReader
 # NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
 
-def output_meteors(update_info, stream, debug_mode):
-
+def output_meteors(update_info):
+    logger = get_default_logger()
     met_lst, drop_lst = update_info
     for met in met_lst:
-        stream("Meteor:", met)
-        # It's strange that sometimes flush still not well-performed.
-        # TODO: In the next stable version, we'll try to introduce async to videoloader and output.
-        # This should be moved modified. So ugly!
-        if len(met_lst) > 1:
-            time.sleep(0.1)
-    if debug_mode:
-        if len(met_lst) > 0:
-            time.sleep(0.1)
-        for met in drop_lst:
-            stream("Dropped: ", met)
-            if len(met_lst) > 1:
-                time.sleep(0.1)
+        logger.meteor(met)
+    for met in drop_lst:
+        logger.dropped(met)
 
 
 def detect_video(video_name,
@@ -58,12 +48,16 @@ def detect_video(video_name,
     meteor_cfg = cfg.meteor_cfg
 
     # set output mode
-    progout = set_out_pipe(work_mode)
+    set_default_logger(debug_mode, work_mode)
+    logger = get_default_logger()
+    logger.start()
 
     # load video, init video_reader
     video, mask = load_video_and_mask(video_name, mask_name, resize_param)
     resize_param = list(reversed(mask.shape))
-    progout(f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}.")
+    logger.info(
+        f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}."
+    )
 
     # get accurate start_frame and end_frame according to the input arguments.
     total_frame, fps = video.num_frames, video.fps
@@ -89,19 +83,22 @@ def detect_video(video_name,
                                      merge_func=cfg.stacker_cfg["pfunc"])
     # Acquire exposure time and eqirvent FPS(eq_fps)
     if cfg.stacker == "SimpleStacker":
-        progout(
+        logger.info(
             "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
         exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
     else:
-        progout("Parsing \"exp_time\"=%s" % (cfg.exp_time))
+        logger.info("Parsing \"exp_time\"=%s" % (cfg.exp_time))
         exp_time = init_exp_time(cfg.exp_time, video_reader, upper_bound=0.25)
         exp_frame, eq_fps, eq_int_fps = int(round(
             exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
-    progout("Apply exposure time of %.2fs. (MinTimeFlag = %d)" %
-            (exp_time, (1000 * exp_frame * eq_int_fps / fps)))
-    progout("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
-            (end_frame - start_frame, fps, eq_fps))
-    progout(f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
+    min_time_flag = 1000 * exp_frame * eq_int_fps / fps
+    logger.info(
+        f"Apply exposure time of {exp_time:.2f}s. (MinTimeFlag = {min_time_flag})"
+    )
+    logger.info("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
+                (end_frame - start_frame, fps, eq_fps))
+    logger.info(
+        f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
     # Reset video reader for main progress.
     video_reader.reset(start_frame=start_frame,
                        iterations=end_frame - start_frame,
@@ -141,10 +138,9 @@ def detect_video(video_name,
         video_reader.start()
         for i in main_iterator:
             # Logging for backend only.
-            # TODO: Use Logging module to replace progout
-            if work_mode == 'backend' and (((i - start_frame) // exp_frame) %
-                                           eq_int_fps == 0):
-                progout("Processing: %d" % (int(1000 * i / fps)))
+            if work_mode == 'backend' and (
+                (i - start_frame) // exp_frame) % eq_int_fps == 0:
+                logger.processing(int(1000 * i / fps))
 
             if video_reader.stopped and video_reader.is_empty:
                 break
@@ -156,8 +152,7 @@ def detect_video(video_name,
 
             if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
                               == 0):
-                output_meteors(main_mc.update(i, lines=lines), progout,
-                               debug_mode)
+                output_meteors(main_mc.update(i, lines=lines))
             if debug_mode:
                 if (cv2.waitKey(int(exp_time * 400)) & 0xff == ord("q")):
                     break
@@ -169,11 +164,12 @@ def detect_video(video_name,
 
     finally:
         video_reader.stop()
-        output_meteors(main_mc.clear(), progout, debug_mode)
+        output_meteors(main_mc.clear())
         video.release()
         cv2.destroyAllWindows()
-        progout('Video EOF detected.')
-        progout("Time cost: %.4ss." % (time.time() - t0))
+        logger.info('Video EOF detected.')
+        logger.info("Time cost: %.4ss." % (time.time() - t0))
+        logger.stop()
 
     return main_mc.ended_meteor
 

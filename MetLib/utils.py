@@ -292,18 +292,6 @@ def preprocessing(frame, mask=1, resize_param=(0, 0)):
     return frame * mask
 
 
-def set_out_pipe(workmode):
-    if workmode == "backend":
-        return stdout_backend
-    elif workmode == "frontend":
-        return print
-
-
-def stdout_backend(*args):
-    print(*args)
-    sys.stdout.flush()
-
-
 def m3func(image_stack):
     """M3 for Max Minus Median.
     Args:

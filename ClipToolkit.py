@@ -48,7 +48,8 @@ argparser.add_argument("--suffix",
 argparser.add_argument(
     "--save-path",
     type=str,
-    help="the path where image(s)/video(s) are placed. When only ",
+    help="the path where image(s)/video(s) are placed. When only one clip is provided,\
+        included filename will be used as filename.",
     default=os.getcwd())
 
 argparser.add_argument(
