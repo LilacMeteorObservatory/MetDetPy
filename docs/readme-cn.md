@@ -56,7 +56,7 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 * target: 待检测视频文件。支持常见的视频编码。
 
-* --cfg: 配置文件。默认情况下使用同目录下的config.json文件。
+* --cfg: 配置文件。默认情况下使用同目录下的[config.json](../config.json)文件。
 
 * --mask：指定掩模（遮罩）图像。可以使用任何非白色颜色的颜色在空白图像上覆盖不需要检测的区域来创建掩馍图像。不强制要求尺寸与原图相同。支持JPEG和PNG格式。
 
@@ -70,7 +70,7 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 #### 覆盖参数
 
-以下参数在不设置时使用配置文件中的默认值，如果设置则覆盖配置文件中的数值。有关这些参数的详细解释可以参考[配置文件文档](./config-doc.md)。
+以下参数在不设置时使用[配置文件](../config.json)中的默认值，如果设置则覆盖配置文件中的数值。有关这些参数的详细解释可以参考[配置文件文档](./config-doc.md)。
 
 * --resize: 检测时采用的帧图像尺寸。
 
@@ -140,7 +140,7 @@ python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE
 
 * json: JSON格式的字符串或者JSON文件的路径。该JSON应当包含起始时间，结束时间和文件名（可选）信息。
     具体来说，这个 JSON 应该是一个数组，其中每个元素都应该至少包含一个`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间。 `"filename"` 是一个可选键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）`"filename"` 优先于 `--mode` 和 ` --suffix` 选项，但如果未指定，此剪辑将根据命令选项自动转换和命名。
-    我们提供 [clip_test.json](./test/clip_test.json) 作为用例及测试用 JSON。
+    我们提供 [clip_test.json](../test/clip_test.json) 作为用例及测试用 JSON。
 
 * --mode：将剪辑转换为图像或视频。 应从 {image, video} 中选择。 此选项将由 json 中的特定文件名覆盖。
 
@@ -164,7 +164,7 @@ python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode imag
 
 ## 打包Python代码为可执行程序
 
-我们提供了 [make_package.py](make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具支持使用 `pyinstaller` 或 `nuitka` 来打包/编译。
+我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具支持使用 `pyinstaller` 或 `nuitka` 来打包/编译。
 
 当使用该脚本时，请确保至少安装了`pyinstaller` 或 `nuitka` 中的任意一个工具。此外，在使用 `nuitka` 作为编译工具时，请确保在您的设备上有至少一个C/C++编译器可用。
 
@@ -186,11 +186,11 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 * --version: MetDetPy version tag. Used for naming zip package.
 
 
-就绪之后，运行 `pyinstaller core.spec --clean` 以打包代码。目标可执行程序会生成在 [dist](./dist/) 目录下。
+就绪之后，运行 `pyinstaller core.spec --clean` 以打包代码。目标可执行程序会生成在 [dist](../dist/) 目录下。
 
 注意：
 
-1. 建议使用 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。
+1. 建议使用 `Python>=3.9`, 且安装 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。
 
 2. 根据在 MetDetPy 上的测试，`pyinstaller` 打包更快，能生成更小的可执行文件（小于Nuitka约30%）。然而，其可执行程序在启动会花更多时间。相对的，`nuitka`花费更多时间在编译期，并生成相对更大的可执行文件（即使使用UPX压缩），但其启动快于Pyinstaller版本约50%。除去启动时间，两种可执行文件运行速度基本相同。因此，可根据实际需求选择合适的打包工具。
 
@@ -204,12 +204,11 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
     3. 优化速度计算逻辑，包括方向，平均速度等
     4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
- 3. 完善日志系统
- 4. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 5. 快速叠图
- 6. 评估系统
- 7. 利用cython改善性能
- 8. 添加天区解析功能，为支持快速叠图，组网提供基础支持
+ 3. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 4. 快速叠图
+ 5. 评估系统
+ 6. 利用cython改善性能
+ 7. 添加天区解析功能，为支持快速叠图，组网提供基础支持
 
 
 

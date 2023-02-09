@@ -5,6 +5,8 @@
 
 ✅ [ClipToolkit.py](ClipToolkit.py) related API is redesigned and updated.
 
+✅ Introduce MultithreadMetLog module to manage output and logging.
+
 ## Version 1.2.2
 
 ✅ [ClipToolkit.py](ClipToolkit.py) is available now. This script can be used to create several video clips or stacked images at once. See [Usage of ClipToolkit](#ClipToolkit) for details.
@@ -13,7 +15,7 @@
 
 ✅ Bug fixed and code optimization.
 
-⚠️ Since this version, the coordinnate of meteors are  changed to ...
+⚠️ Since this version, the output location of meteors is changed from running resolution to raw resolution. To keep compatibility, video_size is provided in the output JSON.
 
 ## Version 1.2.1
 

@@ -18,7 +18,7 @@ MetDetPy is a python-based video meteor detector that can detect meteors from vi
 
 You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version are already packed and can run on common platforms (including Windows, macOS and Linux) respectively. Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
 
-Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. Meteor Master is a video meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function,  automatic running, etc. You can get the latest Meteor Master (Windows release version only now) from:
+Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. Meteor Master is a video meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function,  automatic running, etc. You can get the latest Meteor Master (Windows and macOS release version) from:
 
 * [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
@@ -57,11 +57,11 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 * target: meteor video filename. Support common video encoding (since it uses OpenCV to decode video).
 
-* --cfg: configuration file. Use "config.json" under the same path default.
+* --cfg: configuration file. Use [config.json](./config.json) under the same path default.
 
 * --mask: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* --start-time: the start time of detecting (in ms). The default is 0.
+* --start-time: the start time of detecting (in ms). The default is the start of the video (i.e, 0).
 
 * --end-time: the end time of detecting (in ms). The default is the end of the video.
 
@@ -71,7 +71,7 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 #### Cover arguments
 
-The following arguments has default value in config files. Their detail explanation can be seen in [configuration documents](./docs/config-doc.md).
+The following arguments has default value in [config files](./config.json). Their detail explanation can be seen in [configuration documents](./docs/config-doc.md).
 
 * --resize: the frame image size used during the detection.
 
@@ -150,7 +150,7 @@ positional arguments:
 
 * --save-path: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in --save-path to simplify your JSON.
 
-* --resize:       resize image/video to the given resolution.
+* --resize: resize image/video to the given resolution. It should be a string where two numbers are joined by `x`,like `960x540` or `1920x1080`.
 
 * --png-compressing: the compressing rate of the generated png image. It should be int ranged $Z \in [0,9]$; By default, it is 3.
 
@@ -191,7 +191,7 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
 Notice:
-1. It is suggested to use `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
+1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
 2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
 3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 
@@ -203,12 +203,11 @@ Notice:
     3. 优化速度计算逻辑，包括方向，平均速度等
     4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
  2. 改善对蝙蝠/云等情况的误检(!!)
- 3. 完善日志系统
- 4. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 5. 快速叠图
- 6. 评估系统
- 7. 利用cython改善性能
- 8. 添加天区解析功能，为支持快速叠图，组网提供基础支持
+ 3. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 4. 快速叠图
+ 5. 评估系统
+ 6. 利用cython改善性能
+ 7. 添加天区解析功能，为支持快速叠图，组网提供基础支持
 
 
 

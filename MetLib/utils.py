@@ -1,5 +1,4 @@
 import datetime
-import sys
 import warnings
 from functools import partial
 from math import floor
@@ -8,10 +7,13 @@ import cv2
 import numpy as np
 
 from .VideoWarpper import OpenCVVideoWarpper
+from .MetLog import get_default_logger
 
 eps = 1e-2
 
 img_max = partial(np.max, axis=0)
+
+logger = get_default_logger()
 
 
 class Munch(object):
@@ -21,6 +23,9 @@ class Munch(object):
             #if isinstance(value,dict):
             #    value = Munch(value)
             setattr(self, key, value)
+
+    def add(self, key, value) -> None:
+        setattr(self, key, value)
 
 
 class EMA(object):
@@ -71,7 +76,7 @@ class RefEMA(EMA):
         #if len(self.img_stack) >= self.n:
         #    self.ref_img -= self.img_stack.pop(0)
         #self.ref_img += new_frame
-        #print(np.mean(self.ref_img))
+        #logger(np.mean(self.ref_img))
 
         # 更新移动窗栈与均值背景参考图像（ref_img）
         rep_id = (self.timer - 1) % self.n
@@ -152,7 +157,7 @@ class StdMultiAreaEMA(EMA):
         for i, ((l, r, t, b),
                 ratio) in enumerate(zip(self.areas, self.area_ratios)):
             stds[i] = np.std(diff_stack[:, l:r, t:b]) / ratio
-        #print(stds)
+        #logger(stds)
         return super().update(np.median(stds))
 
     def select_topk_subarea(self, mask, area, topk=1):
@@ -375,7 +380,7 @@ def rf_estimator(video_loader):
     return est_frames
 
 
-def init_exp_time(exp_time, video_loader, upper_bound=0.25):
+def init_exp_time(exp_time, video_loader, upper_bound=0.1):
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -392,9 +397,15 @@ def init_exp_time(exp_time, video_loader, upper_bound=0.25):
     """
     # TODO: Rewrite this annotation.
     fps = video_loader.video.fps
+    logger.debug(f"Metainfo FPS = {fps:.2f}")
     assert isinstance(
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
+
+    if fps <= int(1/upper_bound):
+        logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
+        return 1 / fps
+
     if isinstance(exp_time, str):
         if exp_time == "real-time":
             return 1 / fps
@@ -403,11 +414,10 @@ def init_exp_time(exp_time, video_loader, upper_bound=0.25):
             return 1 / 4
         if exp_time == "auto":
             rf = rf_estimator(video_loader)
-            if rf / fps > upper_bound:
-                print(
-                    Warning(
-                        f"Warning: Unexpected exposuring time (too long):{rf/fps:.2f}s. Use {upper_bound:.2f}s instead."
-                    ))
+            if rf / fps >= upper_bound:
+                logger.warning(
+                    f"Unexpected exposuring time (too long):{rf/fps:.2f}s. Use {upper_bound:.2f}s instead."
+                )
             return min(rf / fps, upper_bound)
         try:
             exp_time = float(exp_time)
@@ -417,10 +427,9 @@ def init_exp_time(exp_time, video_loader, upper_bound=0.25):
                 + "real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
     if isinstance(exp_time, (float, int)):
         if exp_time * fps < 1:
-            print(
-                Warning(
-                    f"Warning: Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
-                ))
+            logger.warning(
+                f"Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
+            )
             return 1 / fps
         return float(exp_time)
 

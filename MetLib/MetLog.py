@@ -2,7 +2,6 @@
 """
 import time
 import threading
-import sys
 
 level_header = ("Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor")
 
@@ -68,14 +67,14 @@ class ThreadMetLog(BaseMetLog):
         self.lock = threading.Lock()
     @property
     def is_empty(self):
-        return self.log_pool == 0
+        return len(self.log_pool) == 0
 
     @property
     def is_stopped(self):
         return self.stopped
 
     def log_loop(self):
-        while (not self.stopped):
+        while not (self.stopped and self.is_empty):
             time.sleep(self.wait_interval)
             while len(self.log_pool) > 0:
                 self.lock.acquire()
@@ -96,6 +95,8 @@ class ThreadMetLog(BaseMetLog):
 
     def stop(self):
         self.stopped = True
+        while not self.is_empty:
+            pass
 
 
 
