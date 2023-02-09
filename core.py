@@ -4,6 +4,7 @@ import json
 import time
 from functools import partial
 from math import floor
+from textwrap import dedent
 
 import cv2
 import tqdm
@@ -41,98 +42,123 @@ def detect_video(video_name,
                  work_mode="frontend",
                  time_range=(None, None)):
 
-    t0 = time.time()
-
-    # load config from cfg json.
-    resize_param = cfg.resize_param
-    meteor_cfg = cfg.meteor_cfg
-
     # set output mode
     set_default_logger(debug_mode, work_mode)
     logger = get_default_logger()
     logger.start()
+    
+    try:
+        t0 = time.time()
 
-    # load video, init video_reader
-    video, mask = load_video_and_mask(video_name, mask_name, resize_param)
-    resize_param = list(reversed(mask.shape))
-    logger.info(
-        f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}."
-    )
+        # deprecated warning
+        if getattr(cfg, "exp_time", None) or getattr(cfg, "resize_param",
+                                                     None):
+            logger.warning(
+                """\"exp_time\" and \"resize_param\" will be moved to \"preprocessing\" in the future.
+            Config \"exp_time\", \"resize_param\" and \"merge_func\" in \"preprocessing\" instead."""
+            )
 
-    # get accurate start_frame and end_frame according to the input arguments.
-    total_frame, fps = video.num_frames, video.fps
-    start_frame, end_frame = 0, video.num_frames
-    start_time, end_time = time_range
-    if start_time != None:
-        start_frame = max(0, int(start_time / 1000 * fps))
-    if end_time != None:
-        end_frame = min(int(end_time / 1000 * fps), total_frame)
-    if not 0 <= start_frame < end_frame:
-        raise ValueError("Invalid start time or end time.")
+        if getattr(cfg, "stacker_cfg", None) or getattr(cfg, "stacker", None):
+            logger.warning(
+                """\"stacker\" and \"stacker_cfg\" will be deprecated in the future.
+            Use \"exp_time\"=\"auto\" and \"merge_func\" instead.""")
 
-    # Init videoReader
+        # parse preprocessing params
+        cfg.preprocessing = Munch(cfg.preprocessing)
+        resize_option = cfg.preprocessing.resize_param
+        exp_option = cfg.preprocessing.exp_time
+        merge_func = cfg.preprocessing.merge_func
 
-    video_reader = ThreadVideoReader(video,
-                                     start_frame=start_frame,
-                                     iterations=end_frame - start_frame,
-                                     pre_func=partial(
-                                         preprocessing,
-                                         mask=mask,
-                                         resize_param=resize_param),
-                                     exp_frame=1,
-                                     merge_func=cfg.stacker_cfg["pfunc"])
-    # Acquire exposure time and eqirvent FPS(eq_fps)
-    if cfg.stacker == "SimpleStacker":
+        # load video, init video_reader
+        video, mask = load_video_and_mask(video_name, mask_name, resize_option)
+        resize_param = list(reversed(mask.shape))
         logger.info(
-            "Ignore the option \"exp_time\" when appling \"SimpleStacker\".")
-        exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
-    else:
-        logger.info("Parsing \"exp_time\"=%s" % (cfg.exp_time))
-        exp_time = init_exp_time(cfg.exp_time, video_reader, upper_bound=0.25)
-        exp_frame, eq_fps, eq_int_fps = int(round(
-            exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
-    min_time_flag = 1000 * exp_frame * eq_int_fps / fps
-    logger.info(
-        f"Apply exposure time of {exp_time:.2f}s. (MinTimeFlag = {min_time_flag})"
-    )
-    logger.info("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
-                (end_frame - start_frame, fps, eq_fps))
-    logger.info(
-        f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
-    # Reset video reader for main progress.
-    video_reader.reset(start_frame=start_frame,
-                       iterations=end_frame - start_frame,
-                       exp_frame=exp_frame)
+            f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}."
+        )
 
-    # Init detector
-    cfg.detect_cfg.update(img_mask=mask)
-    detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
+        # get accurate start_frame and end_frame according to the input arguments.
+        total_frame, fps = video.num_frames, video.fps
+        start_frame, end_frame = 0, video.num_frames
+        start_time, end_time = time_range
+        if start_time != None:
+            start_frame = max(0, int(start_time / 1000 * fps))
+        if end_time != None:
+            end_frame = min(int(end_time / 1000 * fps), total_frame)
+        if not 0 <= start_frame < end_frame:
+            raise ValueError("Invalid start time or end time.")
 
-    # Init meteor collector
-    # TODO: To be renewed
-    # TODO: Update My Munch
-    meteor_cfg = Munch(meteor_cfg)
-    meteor_cfg = dict(min_len=meteor_cfg.min_len,
-                      max_interval=meteor_cfg.max_interval * fps,
-                      det_thre=0.5,
-                      time_range=[
-                          meteor_cfg.time_range[0] * fps,
-                          meteor_cfg.time_range[1] * fps
-                      ],
-                      speed_range=meteor_cfg.speed_range,
-                      drct_range=meteor_cfg.drct_range,
-                      thre2=meteor_cfg.thre2 * exp_frame)
-    main_mc = MeteorCollector(**meteor_cfg,
-                              eframe=exp_frame,
-                              fps=fps,
-                              runtime_size=resize_param,
-                              raw_size=video.size)
+        # Init videoReader
+        video_reader = ThreadVideoReader(video,
+                                         start_frame=start_frame,
+                                         iterations=end_frame - start_frame,
+                                         pre_func=partial(
+                                             preprocessing,
+                                             mask=mask,
+                                             resize_param=resize_param),
+                                         exp_frame=1,
+                                         merge_func=merge_func)
 
-    # Init main iterator
-    main_iterator = range(start_frame, end_frame, exp_frame)
-    if work_mode == 'frontend':
-        main_iterator = tqdm.tqdm(main_iterator, ncols=100)
+        # Acquire exposure time and eqirvent FPS(eq_fps)
+        # SimpleStacker is left only for compatibility.
+        if getattr(cfg, "stacker", None) == "SimpleStacker":
+            logger.warning(
+                "Ignore the option \"exp_time\" when appling \"SimpleStacker\"."
+            )
+            exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
+        else:
+            logger.info("Parsing \"exp_time\"=%s" % (exp_option))
+            exp_time = init_exp_time(exp_option,
+                                     video_reader,
+                                     upper_bound=0.25)
+            exp_frame, eq_fps, eq_int_fps = int(round(
+                exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
+            
+        min_time_flag = 1000 * exp_frame * eq_int_fps / fps
+        logger.info(
+            f"Apply exposure time of {exp_time:.2f}s. (MinTimeFlag = {min_time_flag})"
+        )
+        logger.info("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
+                    (end_frame - start_frame, fps, eq_fps))
+        logger.info(
+            f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
+        # Reset video reader for main progress.
+        video_reader.reset(start_frame=start_frame,
+                           iterations=end_frame - start_frame,
+                           exp_frame=exp_frame)
 
+        # Init detector
+        cfg.detect_cfg.update(img_mask=mask)
+        detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
+
+        # Init meteor collector
+        # TODO: To be renewed
+        # TODO: Update My Munch
+        meteor_cfg = Munch(cfg.meteor_cfg)
+        meteor_cfg = dict(min_len=meteor_cfg.min_len,
+                          max_interval=meteor_cfg.max_interval * fps,
+                          det_thre=0.5,
+                          time_range=[
+                              meteor_cfg.time_range[0] * fps,
+                              meteor_cfg.time_range[1] * fps
+                          ],
+                          speed_range=meteor_cfg.speed_range,
+                          drct_range=meteor_cfg.drct_range,
+                          thre2=meteor_cfg.thre2 * exp_frame)
+        main_mc = MeteorCollector(**meteor_cfg,
+                                  eframe=exp_frame,
+                                  fps=fps,
+                                  runtime_size=resize_param,
+                                  raw_size=video.size)
+
+        # Init main iterator
+        main_iterator = range(start_frame, end_frame, exp_frame)
+        if work_mode == 'frontend':
+            main_iterator = tqdm.tqdm(main_iterator, ncols=100)
+    except Exception as e:
+        logger.error(
+            'Fatal error occured when initializing. MetDetPy will exit.')
+        logger.stop()
+        raise e
     try:
         t0 = time.time()
         video_reader.start()
@@ -247,11 +273,23 @@ if __name__ == "__main__":
     resize_param = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = Munch(json.load(f))
+
+    # convert old-style config to new format by adding preprocessing automatically.
+    if getattr(cfg, "preprocessing", None) == None:
+        cfg.add(
+            "preprocessing",
+            dict(
+                exp_time=cfg.exp_time,
+                resize_param=cfg.resize_param,
+                merge_func=getattr(cfg, "stacker_cfg",
+                                   dict()).get("pfunc", None),
+            ))
+
     # replace config value
     if exp_time:
-        cfg.exp_time = exp_time
+        cfg.preprocessing.exp_time = exp_time
     if resize_param:
-        cfg.resize_param = resize_param
+        cfg.preprocessing.resize_param = resize_param
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."

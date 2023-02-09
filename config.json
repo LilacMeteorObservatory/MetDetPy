@@ -1,9 +1,10 @@
 {
     "resize_param": 960,
     "exp_time": "auto",
+    "merge_func": "max",
     "stacker": "MergeStacker",
     "stacker_cfg": {
-        "pfunc": "max"
+        "pfunc": "m3func"
     },
     "detector": "M3Detector",
     "detect_cfg": {

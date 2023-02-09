@@ -1,6 +1,12 @@
 
 # Update Log
 
+## Version 1.2.4
+
+✅ Some API of [config.json](../config.json) is merged or deprecated. To keep compatibility, old API is reserved until `v2.0.0`.
+
+✅ Fix bugs about MultithreadMetLog.
+
 ## Version 1.2.3
 
 ✅ [ClipToolkit.py](ClipToolkit.py) related API is redesigned and updated.
