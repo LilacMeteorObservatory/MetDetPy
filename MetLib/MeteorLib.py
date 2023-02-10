@@ -1,10 +1,9 @@
-import datetime
 import json
 
 import cv2
 import numpy as np
 
-from .utils import frame2ts, color_interpolater, least_square_fit
+from .utils import frame2ts, color_interpolater
 
 drct = lambda pts: np.arccos((pts[3] - pts[1]) /
                              (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))

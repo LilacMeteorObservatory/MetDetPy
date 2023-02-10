@@ -4,7 +4,6 @@ import json
 import time
 from functools import partial
 from math import floor
-from textwrap import dedent
 
 import cv2
 import tqdm
@@ -201,7 +200,7 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.3.0')
+    parser = argparse.ArgumentParser(description='Meteor Detector V1.2.4')
 
     parser.add_argument('target', help="input H264 video.")
     parser.add_argument('--cfg',
@@ -287,9 +286,9 @@ if __name__ == "__main__":
 
     # replace config value
     if exp_time:
-        cfg.preprocessing.exp_time = exp_time
+        cfg.preprocessing["exp_time"] = exp_time
     if resize_param:
-        cfg.preprocessing.resize_param = resize_param
+        cfg.preprocessing["resize_param"] = resize_param
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."
