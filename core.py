@@ -108,7 +108,7 @@ def detect_video(video_name,
             logger.info("Parsing \"exp_time\"=%s" % (exp_option))
             exp_time = init_exp_time(exp_option,
                                      video_reader,
-                                     upper_bound=0.25)
+                                     upper_bound=0.1)
             exp_frame, eq_fps, eq_int_fps = int(round(
                 exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
             

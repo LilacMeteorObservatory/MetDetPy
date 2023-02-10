@@ -383,7 +383,7 @@ def rf_estimator(video_loader):
     return est_frames
 
 
-def init_exp_time(exp_time, video_loader, upper_bound=0.1):
+def init_exp_time(exp_time, video_loader, upper_bound):
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -405,6 +405,7 @@ def init_exp_time(exp_time, video_loader, upper_bound=0.1):
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
 
+    print(int(1/upper_bound))
     if fps <= int(1/upper_bound):
         logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
         return 1 / fps
