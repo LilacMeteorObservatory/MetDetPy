@@ -23,12 +23,11 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 * [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster)
 * [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
-
-
 ## Requirements
 
 ### Enviroments
 
+* 64bit OS
 * Python>=3.7
 
 ### Packages
@@ -138,9 +137,9 @@ positional arguments:
 
 * target: the target video.
 
-* json: a JSON-format string or the path to a JSON file where start time, end-time and filename (optional) are listed. 
+* json: a JSON-format string or the path to a JSON file where start time, end-time and filename (optional) are listed.
 
-    Specifically, this JSON should be an array of elements, where every element should include at least a `"time"` key. The value of the `"time"` key should be an array of two `"hh:mm:ss.ms"` format strings, which indicates the start time and the end time of the clip. `"filename"` is an optional key, in whose value you can specify the filename and suffix (i.e what the video clip should be converted to and named.) `"filename"` is more prior than `--mode` and `--suffix` options, but if not specified, this clip will be automatically converted and named according to the command options. 
+    Specifically, this JSON should be an array of elements, where every element should include at least a `"time"` key. The value of the `"time"` key should be an array of two `"hh:mm:ss.ms"` format strings, which indicates the start time and the end time of the clip. `"filename"` is an optional key, in whose value you can specify the filename and suffix (i.e what the video clip should be converted to and named.) `"filename"` is more prior than `--mode` and `--suffix` options, but if not specified, this clip will be automatically converted and named according to the command options.
 
     We provide [clip_test.json](./test/clip_test.json) as a use case and test JSON.
 
@@ -163,7 +162,6 @@ python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode imag
 ```
 
 Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
-
 
 ## Package python codes to executables
 
@@ -191,6 +189,7 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
 Notice:
+
 1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
 2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
 3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
@@ -208,8 +207,6 @@ Notice:
  5. 评估系统
  6. 利用cython改善性能
  7. 添加天区解析功能，为支持快速叠图，组网提供基础支持
-
-
 
 P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
 
@@ -230,15 +227,15 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 uzanka [[Github]](https://github.com/uzanka)
 
-奔跑的龟斯 [[Personal Website]](https://photohelper.cn)[[Weibo]](https://weibo.com/u/1184392917)
+奔跑的龟斯 [[Personal Website]](https://photohelper.cn) [[Weibo]](https://weibo.com/u/1184392917)
 
 纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
 DustYe夜尘[[Bilibili]](https://space.bilibili.com/343640654)
 
-RoyalK[[Weibo]](https://weibo.com/u/2244860993)[[Bilibili]](https://space.bilibili.com/259900185)
+RoyalK[[Weibo]](https://weibo.com/u/2244860993) [[Bilibili]](https://space.bilibili.com/259900185)
 
-MG_Raiden扬[[Weibo]](https://weibo.com/811151123)[[Bilibili]](https://space.bilibili.com/11282636)
+MG_Raiden扬[[Weibo]](https://weibo.com/811151123) [[Bilibili]](https://space.bilibili.com/11282636)
 
 星北之羽[[Bilibili]](https://space.bilibili.com/366525868/)
 

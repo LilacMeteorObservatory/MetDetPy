@@ -64,17 +64,18 @@ if os.path.split(video_name)[0] == "":
 if os.path.split(mask_name)[0] == "":
     mask_name = os.path.join(shared_path, mask_name)
 
-start_time = getattr(video_dict, "start_time", None)
-end_time = getattr(video_dict, "end_time", None)
+#start_time = getattr(video_dict, "start_time", None)
+#end_time = getattr(video_dict, "end_time", None)
 
-resize, results = detect_video(video_name,
+results = detect_video(video_name,
                                mask_name,
                                cfg,
                                args.debug,
                                work_mode="frontend",
-                               time_range=(start_time, end_time))
+                               time_range=(None, None))
 # List of Gts
-meteor = resize_gt_coord(video_dict.meteors, video_dict.anno_size, resize)
+#meteor = resize_gt_coord(video_dict.meteors, video_dict.anno_size, resize)
 
 # List of predictions
-results
+with open("result.json",mode='w',encoding="utf-8") as f:
+    json.dump(results,f)
