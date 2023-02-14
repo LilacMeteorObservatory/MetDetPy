@@ -405,7 +405,6 @@ def init_exp_time(exp_time, video_loader, upper_bound):
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
 
-    print(int(1/upper_bound))
     if fps <= int(1/upper_bound):
         logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
         return 1 / fps

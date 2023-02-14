@@ -25,10 +25,7 @@ def init_detector(name, detect_cfg, fps):
         return ClassicDetector(-1, detect_cfg)
 
     elif name == "M3Detector":
-        # Odd Length for M3Detector
-        window_size = max(int(detect_cfg["window_sec"] * fps), 2)
-        if window_size % 2 == 0:
-            window_size += 1
+        window_size = int(detect_cfg["window_sec"] * fps)
         return M3Detector(window_size, detect_cfg)
 
 
