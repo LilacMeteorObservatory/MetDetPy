@@ -275,7 +275,7 @@ class MeteorSeries(object):
             dist=np.round(self.dist, 3),
             pt1=self.range[0],
             pt2=self.range[1],
-            #drct_loss=self.drst_std,
+            drct_loss=self.drst_std,
             score=self.prob_meteor())
 
     @property

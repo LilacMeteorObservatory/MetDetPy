@@ -126,6 +126,8 @@ def detect_video(video_name,
                            exp_frame=exp_frame)
 
         # Init detector
+        if cfg.detect_cfg["bi_cfg"]["sensitivity"]=="high":
+            cfg.detect_cfg["max_gap"]=10
         cfg.detect_cfg.update(img_mask=mask)
         detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
 
@@ -186,13 +188,12 @@ def detect_video(video_name,
                 draw_img = main_mc.draw_on_img(img_visu(), frame_num=i)
                 #cv2.imwrite("test/frame_%s.jpg"%i,draw_img)
                 cv2.imshow("Debug Window (Press Q to exit)", draw_img)
-
+        logger.info('Video EOF detected.')
     finally:
         video_reader.stop()
         output_meteors(main_mc.clear())
         video.release()
         cv2.destroyAllWindows()
-        logger.info('Video EOF detected.')
         logger.info("Time cost: %.4ss." % (time.time() - t0))
         logger.stop()
 

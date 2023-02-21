@@ -1,4 +1,3 @@
-from datetime import datetime
 from functools import partial
 
 import cv2
@@ -7,26 +6,6 @@ import numpy as np
 from .VideoLoader import ThreadVideoReader
 
 identity = lambda x: x
-
-
-def dt2ts(dt: datetime) -> float:
-    """
-    Transfer a datetime.datetime object to float.
-    
-    I implement this only because datetime.timestamp() 
-    seems does not support my data.
-    
-    (Maybe because it is default to be started from 1990-01-01)
-    (Also, this function does not support time that longer than 24h.)
-
-    Args:
-        dt (datetime.datetime): the time object.
-
-    Returns:
-        float: time (in second).
-    """
-    return dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
-
 
 def generate_resize_func(resize):
     if resize:
@@ -87,20 +66,3 @@ def max_stacker(video, start_frame, end_frame, resize):
         return base_frame
     finally:
         video_reader.stop()
-
-
-def time2frame(time: str, fps: float) -> int:
-    """Transfer a utc time string into the frame num.
-
-    Args:
-        time (str): UTC time string.
-        fps (float): frame per second of the video.
-
-    Returns:
-        int: the corresponding frame num of the input time.
-        
-    Example:
-        time2frame("00:00:02.56",25) -> 64(=(2+(56/100))*25))
-    """
-    dt_time = datetime.strptime(time, "%H:%M:%S.%f")
-    return int(dt2ts(dt_time) * fps)

@@ -2,9 +2,10 @@ import argparse
 import json
 import os
 
-from MetLib.Stacker import max_stacker, all_stacker, time2frame
-from MetLib.utils import save_img, save_video
+from MetLib.Stacker import max_stacker, all_stacker
+from MetLib.utils import save_img, save_video, time2frame
 from MetLib.VideoWarpper import OpenCVVideoWarpper
+from MetLib.MetLog import get_default_logger
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
@@ -12,14 +13,18 @@ support_video_suffix = ["AVI"]
 
 def stack_and_save_img(video, start_time, end_time, path, quality, compressing,
                        resize):
-    results = max_stacker(video, time2frame(start_time, video.fps),
-                          time2frame(end_time, video.fps), resize=resize)
+    results = max_stacker(video,
+                          time2frame(start_time, video.fps),
+                          time2frame(end_time, video.fps),
+                          resize=resize)
     save_img(results, path, quality, compressing)
 
 
 def clip_and_save_video(video, start_time, end_time, path, resize):
-    video_series = all_stacker(video, time2frame(start_time, video.fps),
-                               time2frame(end_time, video.fps), resize=resize)
+    video_series = all_stacker(video,
+                               time2frame(start_time, video.fps),
+                               time2frame(end_time, video.fps),
+                               resize=resize)
     save_video(video_series, video.fps, path)
 
 
@@ -48,19 +53,18 @@ argparser.add_argument("--suffix",
 argparser.add_argument(
     "--save-path",
     type=str,
-    help="the path where image(s)/video(s) are placed. When only one clip is provided,\
+    help=
+    "the path where image(s)/video(s) are placed. When only one clip is provided,\
         included filename will be used as filename.",
     default=os.getcwd())
 
-argparser.add_argument(
-    "--resize",
-    type=str,
-    help="resize img/video to the given solution.",
-    default=None)
+argparser.add_argument("--resize",
+                       type=str,
+                       help="resize img/video to the given solution.",
+                       default=None)
 
-
-
-img_group_args = argparser.add_argument_group("optional image-related arguments")
+img_group_args = argparser.add_argument_group(
+    "optional image-related arguments")
 
 img_group_args.add_argument(
     "--png-compressing",
@@ -119,32 +123,45 @@ if len(data) == 1 and (not os.path.isdir(save_path)):
     save_path, filename = os.path.split(save_path)
     data[0]["filename"] = filename
 
-for single_data in data:
-    start_time, end_time = single_data["time"]
-    # 如果未给定名称则使用缺省名称
-    tgt_name = single_data.get(
-        "filename",
-        f"{video_name_pure}_{start_time}-{end_time}.{default_suffix}")
-    tgt_name = tgt_name.replace(":", "_")
+# 获取Logger
+logger = get_default_logger()
 
-    # 获取后缀，检查合法性
-    cur_mode = mode
-    suffix = tgt_name.split(".")[-1].upper()
-    if suffix in support_image_suffix: cur_mode = "image"
-    elif suffix in support_video_suffix: cur_mode = "video"
-    else:
-        print(f"Unsupport suffix: {suffix}. Ignore error and continue.")
-        continue
+try:
+    logger.start()
+    for single_data in data:
+        start_time, end_time = single_data["time"]
+        # 如果未给定名称则使用缺省名称
+        tgt_name = single_data.get(
+            "filename",
+            f"{video_name_pure}_{start_time}-{end_time}.{default_suffix}")
+        tgt_name = tgt_name.replace(":", "_")
 
-    full_path = os.path.join(save_path, tgt_name)
+        # 获取后缀，检查合法性
+        cur_mode = mode
+        suffix = tgt_name.split(".")[-1].upper()
+        if suffix in support_image_suffix: cur_mode = "image"
+        elif suffix in support_video_suffix: cur_mode = "video"
+        else:
+            print(f"Unsupport suffix: {suffix}. Ignore error and continue.")
+            continue
 
-    if cur_mode == "image":
-        stack_and_save_img(video,
-                           start_time,
-                           end_time,
-                           full_path,
-                           quality=jpg_quality,
-                           compressing=png_compress,
-                           resize=resize_param)
-    else:
-        clip_and_save_video(video, start_time, end_time, full_path, resize=resize_param)
+        full_path = os.path.join(save_path, tgt_name)
+
+        if cur_mode == "image":
+            stack_and_save_img(video,
+                            start_time,
+                            end_time,
+                            full_path,
+                            quality=jpg_quality,
+                            compressing=png_compress,
+                            resize=resize_param)
+        else:
+            clip_and_save_video(video,
+                                start_time,
+                                end_time,
+                                full_path,
+                                resize=resize_param)
+        logger.info(f"Saved: {full_path}")
+
+finally:
+    logger.stop()

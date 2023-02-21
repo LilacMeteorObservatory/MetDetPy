@@ -15,7 +15,7 @@
         },
         "hough_threshold": 10,
         "min_len": 10,
-        "max_gap": 10
+        "max_gap": 5
     },
     "meteor_cfg": {
         "min_len": 10,
