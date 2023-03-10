@@ -3,11 +3,11 @@ import json
 import cv2
 import numpy as np
 
-from .utils import frame2ts, color_interpolater
+from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms
 
 drct = lambda pts: np.arccos((pts[3] - pts[1]) /
                              (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
-pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
+
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
 
@@ -61,13 +61,11 @@ class MeteorCollector(object):
                  raw_size) -> None:
         self.min_len = min_len
         self.max_interval = max_interval
+        self.max_acti_frame = max_interval
         self.det_thre = det_thre
         self.active_meteor = [
-            MeteorSeries(np.inf, np.inf, [-100, -100, -101, -101],
-                         create_prob_func((-np.nan, -np.nan)),
-                         create_prob_func((-np.nan, -np.nan)),
-                         create_prob_func((-np.nan, -np.nan)),
-                         create_prob_func((-np.nan, -np.nan)), np.nan, np.nan)
+            MeteorSeries(np.inf, np.inf, [-100, -100, -101, -101], np.nan,
+                         np.nan)
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -102,21 +100,21 @@ class MeteorCollector(object):
         met_list = []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
-                if ms.prob_meteor() > self.det_thre:
+                if self.prob_meteor(ms) > self.det_thre:
                     temp_waiting_meteor.append(ms)
                 else:
                     drop_list.append(ms)
         # 维护
         for ms in drop_list:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(ms.attributes)
+            self.ended_meteor.append(self.get_met_attr(ms))
         for ms in temp_waiting_meteor:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(ms.attributes)
+            self.ended_meteor.append(self.get_met_attr(ms))
 
         # drop的部分不进行合并，直接构建序列化
         drop_list = self.list2json([
-            init_output_dict(ms.attributes, size=self.raw_size)
+            init_output_dict(self.get_met_attr(ms), size=self.raw_size)
             for ms in drop_list
         ])
         self.waiting_meteor.extend(temp_waiting_meteor)
@@ -125,7 +123,7 @@ class MeteorCollector(object):
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
             for ms in self.active_meteor:
-                if ms.prob_meteor() >= self.det_thre and \
+                if self.prob_meteor(ms) >= self.det_thre and \
                     (ms.start_frame - self.waiting_meteor[-1].last_activate_frame<= self.max_interval):
                     no_prob_met = False
                     break
@@ -135,13 +133,16 @@ class MeteorCollector(object):
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
+        # 做NMS
+        if len(lines)>0:
+            lines = lineset_nms(lines,self.thre2)
         for line in lines:
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
             # TODO: cur_frame+-eframe fixed!!
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
-                is_in = ms.may_in_series(line)
+                is_in = ms.may_in_series(line, cur_frame)
                 if is_in:
                     ms.update(self.cur_frame, line)
                     is_in_series = True
@@ -154,12 +155,8 @@ class MeteorCollector(object):
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
                              self.cur_frame,
                              line,
-                             time_func=self.time_prob_func,
-                             speed_func=self.speed_prob_func,
-                             len_func=self.len_prob_func,
-                             drct_func=self.drct_prob_func,
                              max_acceptable_dist=self.thre2,
-                             fps=self.fps))
+                             max_acti_frame=self.max_acti_frame))
         return met_list, drop_list
 
     def list2json(self, meteor_list):
@@ -179,7 +176,7 @@ class MeteorCollector(object):
         output_dict = dict()
         final_list = []
         for ms in self.waiting_meteor:
-            ms_attrbutes = ms.attributes
+            ms_attrbutes = self.get_met_attr(ms)
             if len(output_dict) == 0:
                 output_dict = init_output_dict(ms_attrbutes,
                                                size=self.raw_size)
@@ -202,24 +199,28 @@ class MeteorCollector(object):
         # add timestamp
         h, w, _ = draw_img.shape
         max_len = max(h, w)
-        draw_img = cv2.putText(draw_img, frame2ts(frame_num, self.fps),
+        draw_img = cv2.putText(draw_img, self.frame2ts(frame_num),
                                (int(w * 0.01), int(h * 0.98)),
                                cv2.FONT_HERSHEY_COMPLEX, max_len / 1920,
                                (255, 255, 255), 1)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
-            color = color_mapper(ms.prob_meteor())
+            color = color_mapper(self.prob_meteor(ms))
+            first = np.where(
+                ms.coord_list.frame_num >= frame_num - self.max_acti_frame)[0]
+            first = len(
+                ms.coord_list.frame_num) if len(first) == 0 else first[0]
             draw_img = cv2.rectangle(draw_img, pt1, pt2, color, 2)
-            for pts in ms.coord_list:
+            for pts in ms.coord_list[first:]:
                 pt_x, pt_y = pts
                 draw_img = cv2.circle(draw_img, (pt_x, pt_y), 2, color, -1)
             # print score
             pt1 = [min(pt1[0], pt2[0]), min(pt1[1], pt2[1])]
             draw_img = cv2.rectangle(draw_img, pt1, (pt1[0] + 35, pt1[1] - 10),
                                      color, -1)
-            draw_img = cv2.putText(draw_img, f"{ms.prob_meteor():.2f}", pt1,
-                                   cv2.FONT_HERSHEY_COMPLEX, max_len / 1920,
-                                   (255, 255, 255), 2)
+            draw_img = cv2.putText(draw_img, f"{self.prob_meteor(ms):.2f}",
+                                   pt1, cv2.FONT_HERSHEY_COMPLEX,
+                                   max_len / 1920, (255, 255, 255), 2)
 
         return draw_img
 
@@ -235,6 +236,54 @@ class MeteorCollector(object):
         """
         return self.update(np.inf, [])
 
+    def prob_meteor(self, met):
+        # 用于估计met实例属于流星序列的概率。
+        # 拟借助几个指标
+        # 1. 总速度/总长度
+        # 2. 平均响应长度（暂未实现）
+        # 3. 直线拟合情况（暂未实现）
+
+        # 对短样本实现一定的宽容
+        len_prob = self.len_prob_func(met.dist)
+
+        # 排除总时长过长/过短
+        time_prob = self.time_prob_func(met.duration)
+        # 排除速度过快/过慢
+        speed_prob = self.speed_prob_func(met.speed)
+        # 计算直线情况
+        drct_prob = self.drct_prob_func(met.drst_std)
+
+        return int(time_prob * speed_prob * len_prob * drct_prob * 100) / 100
+
+    def get_met_attr(self, met) -> dict:
+        """将met的点集序列转换为属性字典。
+
+        Args:
+            met (_type_): _description_
+
+        Returns:
+            dict: _description_
+        """
+        pt1, pt2 = met.range
+        dist = np.sqrt(pt_len_xy(pt1, pt2))
+
+        return dict(start_time=self.frame2ts(met.start_frame),
+                    end_time=self.frame2ts(met.end_frame),
+                    last_activate_frame=met.last_activate_frame,
+                    last_activate_time=self.frame2ts(met.last_activate_frame),
+                    duration=met.duration,
+                    speed=np.round(met.speed, 3),
+                    dist=np.round(dist, 3),
+                    num_pts=len(met.coord_list),
+                    pt1=pt1,
+                    pt2=pt2,
+                    drct_loss=met.drst_std,
+                    score=self.prob_meteor(met))
+
+    def frame2ts(self, frame):
+        return frame2ts(frame, self.fps)
+
+
 class MeteorSeries(object):
     """用于整合检测结果，排异和给出置信度的流星序列。
 
@@ -242,41 +291,17 @@ class MeteorSeries(object):
         object (_type_): _description_
     """
 
-    def __init__(self, start_frame, cur_frame, init_box, time_func, speed_func,
-                 len_func, drct_func, max_acceptable_dist, fps):
+    def __init__(self, start_frame, cur_frame, init_box, max_acceptable_dist,
+                 max_acti_frame):
         self.coord_list = PointList()
         self.drct_list = []
-        self.coord_list.extend(self.box2coord(init_box))
+        self.coord_list.extend(self.box2coord(init_box), cur_frame)
         self.drct_list.append(drct(init_box))
         self.start_frame = start_frame
         self.end_frame = cur_frame
         self.last_activate_frame = cur_frame
+        self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
-        self.time_func = time_func
-        self.speed_func = speed_func
-        self.drct_func = drct_func
-        self.len_func = len_func
-        self.fps = fps
-
-    def __repr__(self) -> str:
-        return "Duration %s frames; (Dist=%s); speed=%.2f px(s)/frame; \"%s - %s : %s - %s\"" % (
-            self.duration, self.dist, self.speed, self.start_frame,
-            self.last_activate_frame, self.range[0], self.range[1])
-
-    @property
-    def attributes(self) -> dict:
-        return dict(
-            start_time=self.frame2ts(self.start_frame),
-            end_time=self.frame2ts(self.end_frame),
-            last_activate_frame=self.last_activate_frame,
-            last_activate_time=self.frame2ts(self.last_activate_frame),
-            duration=self.duration,
-            speed=np.round(self.speed, 3),
-            dist=np.round(self.dist, 3),
-            pt1=self.range[0],
-            pt2=self.range[1],
-            drct_loss=self.drst_std,
-            score=self.prob_meteor())
 
     @property
     def drst_std(self):
@@ -308,10 +333,8 @@ class MeteorSeries(object):
 
     @property
     def speed(self):
+        # TODO: 有个问题：我这个速度是不是应该考虑fps的影响来着...
         return self.dist / (self.end_frame - self.start_frame + 1e-6)
-
-    def frame2ts(self, frame):
-        return frame2ts(frame, self.fps)
 
     def box2coord(cls, box):
         return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
@@ -324,16 +347,19 @@ class MeteorSeries(object):
                 ((x1 <= pt2[0] <= x2) and (y1 <= pt2[1] <= y2))):
             self.end_frame = new_frame
         self.last_activate_frame = new_frame
-        self.coord_list.extend([pt1, pt2])
+        self.coord_list.extend([pt1, pt2], new_frame)
         self.drct_list.append(drct(new_box))
 
-    def may_in_series(self, new_box):
+    def may_in_series(self, new_box, cur_frame):
         # 策略一：最后近邻法（对于有尾迹的判断不准确）
         #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
         #    return True
         # 策略二：近邻法（对于距离中间点近的，采取收入但不作为边界点策略）
+        first = np.where(
+            self.coord_list.frame_num >= cur_frame - self.max_acti_frame)[0]
+        first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
         for tgt_pt in self.box2coord(new_box):
-            for in_pt in self.coord_list:
+            for in_pt in self.coord_list[first:]:
                 if pt_len_xy(tgt_pt, in_pt) < self.max_acceptable_dist:
                     return True
         return False
@@ -343,38 +369,24 @@ class MeteorSeries(object):
             return True
         return False
 
-    def prob_meteor(self):
-        # 自身为流星序列的概率。
-        # 拟借助几个指标
-        # 1. 总速度/总长度
-        # 2. 平均响应长度（暂未实现）
-        # 3. 直线拟合情况（暂未实现）
-
-        # 对短样本实现一定的宽容
-        len_prob = self.len_func(self.dist)
-
-        # 排除总时长过长/过短
-        time_prob = self.time_func(self.duration)
-        # 排除速度过快/过慢
-        speed_prob = self.speed_func(self.speed)
-        # 计算直线情况
-        drct_prob = self.drct_func(self.drst_std)
-
-        return int(time_prob * speed_prob * len_prob * drct_prob * 100) / 100
-
 
 class PointList(object):
 
     def __init__(self) -> None:
         self.pts = np.zeros((0, 2), dtype=np.int32)
+        self.frame_num = np.zeros((0, ), dtype=np.int16)
 
-    def append(self, new_pt):
+    def append(self, new_pt, frame):
         if new_pt.shape == (2, ):
             new_pt = new_pt.reshape(-1, 2)
         self.pts = np.concatenate([self.pts, new_pt], axis=0)
+        self.frame_num = np.concatenate(
+            [self.frame_num, np.array(frame)], axis=0)
 
-    def extend(self, new_pts):
+    def extend(self, new_pts, frame):
         self.pts = np.concatenate([self.pts, np.array(new_pts)], axis=0)
+        self.frame_num = np.concatenate(
+            [self.frame_num, np.ones((len(new_pts), )) * frame], axis=0)
 
     def __iter__(self):
         self.iteration = -1
@@ -393,3 +405,9 @@ class PointList(object):
     def __repr__(self) -> str:
         return "[" + ",".join(
             ["[" + ",".join(str(p) for p in x) + "]" for x in self.pts]) + "]"
+
+    def __getitem__(self, i):
+        return self.pts[i]
+
+    def __len__(self):
+        return len(self.pts)

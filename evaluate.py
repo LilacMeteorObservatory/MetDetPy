@@ -8,6 +8,7 @@ import numpy as np
 from core import detect_video
 from MetLib.utils import Munch, time2frame
 from MetLib.VideoWarpper import OpenCVVideoWarpper
+from ClipToolkit import stack_and_save_img
 
 # 正样本阈值：默认0.5
 # 匹配要求：TIoU threshold=0.3(??) & IoU threshold=0.3 且具有唯一性(?)
@@ -144,7 +145,7 @@ mask_name = video_dict.mask
 video = OpenCVVideoWarpper(video_name)
 raw_size = video.size
 fps = video.fps
-video.release()
+#video.release()
 
 anno_size = getattr(video_dict, "anno_size", None)
 gt_meteors = getattr(video_dict, "meteors", None)
@@ -154,7 +155,7 @@ end_time = getattr(video_dict, "end_time", None)
 shared_path = os.path.split(args.video_json)[0]
 if os.path.split(video_name)[0] == "":
     video_name = os.path.join(shared_path, video_name)
-if os.path.split(mask_name)[0] == "":
+if (mask_name!="") and (os.path.split(mask_name)[0] == ""):
     mask_name = os.path.join(shared_path, mask_name)
 
 if args.load:
@@ -225,6 +226,14 @@ if args.metrics:
                 break
         if not match_flag:
             fp += 1
+
+    fn_list = np.array(gt_meteors)[gt_label == 0]
+
+    for i in range(10):
+        instance=fn_list[i]
+        print(i,instance)
+        stack_and_save_img(video, instance["start_time"], instance["end_time"], f"./fn_{i}.jpg",85,3,None)
+
 
     fn = len(gt_meteors) - tp
 

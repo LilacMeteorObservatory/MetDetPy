@@ -12,6 +12,7 @@ from .MetLog import get_default_logger
 eps = 1e-2
 
 img_max = partial(np.max, axis=0)
+pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 logger = get_default_logger()
 
@@ -29,6 +30,12 @@ class Munch(object):
 
 
 class EMA(object):
+    """移动指数平均。
+    可用于对平稳序列的评估。
+
+    Args:
+        object (_type_): _description_
+    """
 
     def __init__(self, n) -> None:
         self.n = n
@@ -47,147 +54,16 @@ class EMA(object):
         return np.std(self.ema_pool) if len(self.ema_pool) > 0 else np.inf
 
 
-class RefEMA(EMA):
-    """使用滑动窗口平均机制，用于维护参考背景图像和评估信噪比的模块。
-
-    Args:
-        EMA (_type_): _description_
-    """
-
-    def __init__(self, n, ref_mask, area=0) -> None:
-        super().__init__(n)
-        h, w = ref_mask.shape
-        self.ref_img = np.zeros_like(ref_mask, dtype=float)
-        self.img_stack = np.zeros((n, h, w), dtype=np.uint8)
-        self.std_interval = 2 * n
-        self.timer = 0
-        self.noise = 0
-        if area == 0:
-            self.est_std = np.std
-            self.signal_ratio = ((h * w) / np.sum(ref_mask))**(1 / 2)
-        else:
-            self.est_std, self.signal_ratio = self.select_subarea(ref_mask,
-                                                                  area=area)
-
-    def update(self, new_frame):
-        self.timer += 1
-        # 更新移动窗栈与均值背景参考图像（ref_img）
-        #self.img_stack.append(new_frame)
-        #if len(self.img_stack) >= self.n:
-        #    self.ref_img -= self.img_stack.pop(0)
-        #self.ref_img += new_frame
-        #logger(np.mean(self.ref_img))
-
-        # 更新移动窗栈与均值背景参考图像（ref_img）
-        rep_id = (self.timer - 1) % self.n
-        if self.timer > self.n:
-            self.ref_img -= self.img_stack[rep_id]
-        # update new frame to the place.
-        self.img_stack[rep_id] = new_frame
-        self.ref_img += self.img_stack[rep_id]
-
-        # 每std_interval时间更新一次std
-        if self.timer % self.std_interval == 0:
-            noise = self.est_std(self.img_stack[:self.length] - self.bg_img)
-            self.noise = noise
-            if len(self.ema_pool) == self.n:
-                # 考虑到是平稳序列，引入一种滤波修正估算方差(截断大于三倍标准差的更新...)
-                # kinda trick
-                noise = self.mean + min(self.noise - self.mean, 2 * self.std)
-            super().update(noise)
-
-    def select_subarea(self, mask, area=0.1):
-        """用于选择一个尽量好的子区域评估STD。
-
-        Args:
-            mask (_type_): _description_
-            area (float, optional): _description_. Defaults to 0.1.
-
-        Returns:
-            _type_: _description_
-        """
-
-        h, w = mask.shape
-        sub_rate = area**(1 / 2)
-        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
-        x1, y1 = 0, (w - sub_w) // 2
-        area = (sub_h - 1) * (sub_w - 1)
-        light_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
-        while light_ratio < 1:
-            x1 += 10
-            new_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
-            if new_ratio < light_ratio or y1 + sub_w > w:
-                x1 -= 10
-                break
-            light_ratio = new_ratio
-        self.roi = (x1, y1, x1 + sub_h, y1 + sub_w)
-        return lambda imgs: np.std(imgs[:, x1:x1 + sub_h, y1:y1 + sub_w]
-                                   ), light_ratio
-
-    @property
-    def bg_img(self):
-        return self.ref_img / self.length
-
-    @property
-    def length(self):
-        return min(self.n, self.timer)
-
-    @property
-    def li_img(self):
-        return np.max(self.img_stack, axis=0)
-
-
-class StdMultiAreaEMA(EMA):
-    """用于评估STD的EMA，选取数个区域作为参考。每次取中值作为参考标准差。
-    是原型代码。
-    有点慢，不同区域可能也有不同（差异比较大）
-    Args:
-        EMA (_type_): _description_
-    """
-
-    def __init__(self, n, ref_mask, area=0.1, k=3) -> None:
-        super().__init__(n)
-        self.k = k
-        self.area = area
-        self.areas, self.area_ratios = self.select_topk_subarea(
-            ref_mask, self.area, self.k)
-
-    def update(self, diff_stack):
-        stds = np.zeros((self.k, ))
-        for i, ((l, r, t, b),
-                ratio) in enumerate(zip(self.areas, self.area_ratios)):
-            stds[i] = np.std(diff_stack[:, l:r, t:b]) / ratio
-        #logger(stds)
-        return super().update(np.median(stds))
-
-    def select_topk_subarea(self, mask, area, topk=1):
-        h, w = mask.shape
-        sub_rate = area**(1 / 2)
-        slide_n = floor(1 / sub_rate)
-        best_cor = (slide_n - 1) / 2
-        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
-        dx, dy = int(h / slide_n), int(w / slide_n)
-        score_mat = np.zeros((slide_n, slide_n))
-        cor_mat = np.zeros((slide_n, slide_n))
-        for i in range(slide_n):
-            for j in range(slide_n):
-                # 得分由两个部分组成，区域有效面积和靠近中心的程度。
-                # 相同得分的情况下，优先选择靠近中心的区域。
-                area_mask = mask[i * dx:i * dx + sub_h, j * dy:j * dy + sub_w]
-                cor_mat[i, j] = -(abs(i - best_cor) + abs(j - best_cor))
-                score_mat[i, j] = np.sum(area_mask)
-        top_pos = np.argpartition((score_mat + cor_mat).reshape(-1),
-                                  -topk)[-topk:]
-        top_x, top_y = top_pos // slide_n, top_pos % slide_n
-        area_list = [(x * dx, x * dx + sub_h, y * dy, y * dy + sub_w)
-                     for (x, y) in zip(top_x, top_y)]
-        mask_list = [
-            score_mat[x, y] / (sub_h * sub_w) for (x, y) in zip(top_x, top_y)
-        ]
-        return area_list, mask_list
-
-
 def sigma_clip(sequence, sigma=3.00):
+    """Sigma裁剪均值。
+
+    Args:
+        sequence (_type_): _description_
+        sigma (float, optional): _description_. Defaults to 3.00.
+
+    Returns:
+        _type_: _description_
+    """
     mean, std = np.mean(sequence), np.std(sequence)
     while True:
         # update sequence
@@ -405,7 +281,7 @@ def init_exp_time(exp_time, video_loader, upper_bound):
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
 
-    if fps <= int(1/upper_bound):
+    if fps <= int(1 / upper_bound):
         logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
         return 1 / fps
 
@@ -441,6 +317,7 @@ def frame2ts(frame, fps):
     return datetime.datetime.strftime(
         datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
 
+
 def time2frame(time: str, fps: float) -> int:
     """Transfer a utc time string into the frame num.
 
@@ -466,6 +343,7 @@ def time2frame(time: str, fps: float) -> int:
     dt_time = dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
     return int(dt_time * fps)
 
+
 def color_interpolater(color_list):
     # 用于创建跨越多种颜色的插值条
     # 返回一个函数，该函数可以接受[0,1]并返回对应颜色
@@ -483,6 +361,41 @@ def color_interpolater(color_list):
         return list(map(int, inte_func[i](dx, i)))
 
     return color_interpolate_func
+
+
+def lineset_nms(lines, max_dist):
+    """对线段合集执行NMS。
+    （此处的NMS并不是纯粹的去重，还包含了合并近邻直线，用于处理面积类型）
+    （如何划分两种类型，目前并没有很好的想法）
+
+    Args:
+        lines (_type_): _description_
+    """
+    num_line = len(lines)
+    length = np.sqrt(
+        np.power((lines[:, 3] - lines[:, 1]), 2) +
+        np.power((lines[:, 2] - lines[:, 0]), 2))
+    centers = (lines[:, 2:] + lines[:, :2]) // 2
+    merged_list = []
+    nms_mask = np.zeros_like((len(lines), ), dtype=np.uint8)
+    length_sort = np.argsort(length)[::-1]
+    lines = lines[length_sort]
+    centers = centers[length_sort]
+
+    # BFS聚类
+    for i in range(num_line):
+        if nms_mask[i]: continue
+        nms_mask[i] = 1
+        this_list = [i]
+        ind = 0
+        while ind < len(this_list):
+            for j in range(num_line):
+                if nms_mask[j]: continue
+                if pt_len_xy(centers[this_list[ind]], centers[j]) < max_dist:
+                    this_list.append(j)
+                    nms_mask[j] = 1
+        merged_list.append(this_list)
+    return [x[0] for x in merged_list]
 
 
 def least_square_fit(pts):

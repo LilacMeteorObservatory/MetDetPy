@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from .utils import m3func, RefEMA
+from .utils import EMA
 
 pi = np.pi / 180.0
 
@@ -57,6 +57,146 @@ def DrawHist(src, mask, hist_num=256, threshold=0):
     return canvas
 
 
+class RefEMA(EMA):
+    """使用滑动窗口平均机制，用于维护参考背景图像和评估信噪比的模块。
+
+    Args:
+        EMA (_type_): _description_
+    """
+
+    def __init__(self, n, ref_mask, area=0) -> None:
+        super().__init__(n)
+        h, w = ref_mask.shape
+        self.ref_img = np.zeros_like(ref_mask, dtype=float)
+        self.img_stack = np.zeros((n, h, w), dtype=np.uint8)
+        self.std_interval = 2 * n
+        self.timer = 0
+        self.noise = 0
+        if area == 0:
+            self.est_std = np.std
+            self.signal_ratio = ((h * w) / np.sum(ref_mask))**(1 / 2)
+        else:
+            self.est_std, self.signal_ratio = self.select_subarea(ref_mask,
+                                                                  area=area)
+
+    def update(self, new_frame):
+        self.timer += 1
+        # 更新移动窗栈与均值背景参考图像（ref_img）
+        #self.img_stack.append(new_frame)
+        #if len(self.img_stack) >= self.n:
+        #    self.ref_img -= self.img_stack.pop(0)
+        #self.ref_img += new_frame
+        #logger(np.mean(self.ref_img))
+
+        # 更新移动窗栈与均值背景参考图像（ref_img）
+        rep_id = (self.timer - 1) % self.n
+        if self.timer > self.n:
+            self.ref_img -= self.img_stack[rep_id]
+        # update new frame to the place.
+        self.img_stack[rep_id] = new_frame
+        self.ref_img += self.img_stack[rep_id]
+
+        # 每std_interval时间更新一次std
+        if self.timer % self.std_interval == 0:
+            noise = self.est_std(self.img_stack[:self.length] - self.bg_img)
+            self.noise = noise
+            if len(self.ema_pool) == self.n:
+                # 考虑到是平稳序列，引入一种滤波修正估算方差(截断大于三倍标准差的更新...)
+                # kinda trick
+                noise = self.mean + min(self.noise - self.mean, 2 * self.std)
+            super().update(noise)
+
+    def select_subarea(self, mask, area=0.1):
+        """用于选择一个尽量好的子区域评估STD。
+
+        Args:
+            mask (_type_): _description_
+            area (float, optional): _description_. Defaults to 0.1.
+
+        Returns:
+            _type_: _description_
+        """
+
+        h, w = mask.shape
+        sub_rate = area**(1 / 2)
+        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
+        x1, y1 = 0, (w - sub_w) // 2
+        area = (sub_h - 1) * (sub_w - 1)
+        light_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
+        while light_ratio < 1:
+            x1 += 10
+            new_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
+            if new_ratio < light_ratio or y1 + sub_w > w:
+                x1 -= 10
+                break
+            light_ratio = new_ratio
+        self.roi = (x1, y1, x1 + sub_h, y1 + sub_w)
+        return lambda imgs: np.std(imgs[:, x1:x1 + sub_h, y1:y1 + sub_w]
+                                   ), light_ratio
+
+    @property
+    def bg_img(self):
+        return self.ref_img / self.length
+
+    @property
+    def length(self):
+        return min(self.n, self.timer)
+
+    @property
+    def li_img(self):
+        return np.max(self.img_stack, axis=0)
+
+
+class StdMultiAreaEMA(EMA):
+    """用于评估STD的EMA，选取数个区域作为参考。每次取中值作为参考标准差。
+    是原型代码。
+    有点慢，不同区域可能也有不同（差异比较大）
+    Args:
+        EMA (_type_): _description_
+    """
+
+    def __init__(self, n, ref_mask, area=0.1, k=3) -> None:
+        super().__init__(n)
+        self.k = k
+        self.area = area
+        self.areas, self.area_ratios = self.select_topk_subarea(
+            ref_mask, self.area, self.k)
+
+    def update(self, diff_stack):
+        stds = np.zeros((self.k, ))
+        for i, ((l, r, t, b),
+                ratio) in enumerate(zip(self.areas, self.area_ratios)):
+            stds[i] = np.std(diff_stack[:, l:r, t:b]) / ratio
+        #logger(stds)
+        return super().update(np.median(stds))
+
+    def select_topk_subarea(self, mask, area, topk=1):
+        h, w = mask.shape
+        sub_rate = area**(1 / 2)
+        slide_n = np.floor(1 / sub_rate)
+        best_cor = (slide_n - 1) / 2
+        sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
+        dx, dy = int(h / slide_n), int(w / slide_n)
+        score_mat = np.zeros((slide_n, slide_n))
+        cor_mat = np.zeros((slide_n, slide_n))
+        for i in range(slide_n):
+            for j in range(slide_n):
+                # 得分由两个部分组成，区域有效面积和靠近中心的程度。
+                # 相同得分的情况下，优先选择靠近中心的区域。
+                area_mask = mask[i * dx:i * dx + sub_h, j * dy:j * dy + sub_w]
+                cor_mat[i, j] = -(abs(i - best_cor) + abs(j - best_cor))
+                score_mat[i, j] = np.sum(area_mask)
+        top_pos = np.argpartition((score_mat + cor_mat).reshape(-1),
+                                  -topk)[-topk:]
+        top_x, top_y = top_pos // slide_n, top_pos % slide_n
+        area_list = [(x * dx, x * dx + sub_h, y * dy, y * dy + sub_w)
+                     for (x, y) in zip(top_x, top_y)]
+        mask_list = [
+            score_mat[x, y] / (sub_h * sub_w) for (x, y) in zip(top_x, top_y)
+        ]
+        return area_list, mask_list
+
+
 class BaseDetector(object):
     """检测器类。
 
@@ -87,7 +227,7 @@ class BaseDetector(object):
         self.stack.append(new_frame)
         self.stack = self.stack[-self.stack_maxsize:]
 
-    def draw_light_on_bg(self, bg, light, text=None):
+    def draw_light_on_bg(self, bg, light, extra_info=[]):
         """ 简单实现的闭包式的绘图API，用于支持可视化
 
         Args:
@@ -100,6 +240,7 @@ class BaseDetector(object):
             b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
             p[:, :, 0] = 0
             cb_img = cv2.addWeighted(b, 1, p, 0.5, 1)
+            text_h = 20
             if getattr(self, "ref_ema", None):
                 if getattr(self.ref_ema, "roi", None):
                     x1, y1, x2, y2 = self.ref_ema.roi
@@ -109,12 +250,18 @@ class BaseDetector(object):
                 cb_img = cv2.putText(
                     cb_img,
                     f"STD:{self.ref_ema.mean:.4f}; (Real noise: {self.ref_ema.noise:.4f})",
-                    (10, 20), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 1)
+                    (10, text_h), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0),
+                    1)
+                text_h += 20
                 cb_img = cv2.putText(cb_img,
                                      f"Bi_Threshold: {self.bi_threshold:.2f}",
-                                     (10, 40), cv2.FONT_HERSHEY_COMPLEX, 0.5,
-                                     (0, 255, 0), 1)
-
+                                     (10, text_h), cv2.FONT_HERSHEY_COMPLEX,
+                                     0.5, (0, 255, 0), 1)
+                text_h += 20
+            for (text, color) in extra_info:
+                cb_img = cv2.putText(cb_img, text, (10, text_h),
+                                     cv2.FONT_HERSHEY_COMPLEX, 0.5, color, 1)
+                text_h += 20
             return cb_img
 
         return core_drawer
@@ -186,18 +333,23 @@ class M3Detector(BaseDetector):
         # 必须包含的参数
         # bi_threshold line_threshold self.max_gap mask
         super().__init__(*args, **kwargs)
-
-        self.area = 0
+        self.ref_area = 0
+        self.mask_area= np.sum(self.img_mask)
         # 加载自适应阈值的配置参数
         if self.adaptive_bi_thre:
             self.sensitivity = self.bi_cfg["sensitivity"]
             self.std2thre = sensi_func[self.sensitivity]
             self.bi_threshold = absolute_sensitivity_mapping[self.sensitivity]
-            self.area = self.bi_cfg["area"]
+            self.ref_area = self.bi_cfg["area"]
         # 使用RefEMA作为滑窗数值管理器
         self.ref_ema = RefEMA(n=self.stack_maxsize,
                               ref_mask=self.img_mask,
-                              area=self.area)
+                              area=self.ref_area)
+        # 如果启用动态蒙版（dynamic mask），在此处构建另一个滑窗管理
+        if self.dynamic_mask:
+            self.dy_mask_list = RefEMA(n=self.stack_maxsize,
+                                       ref_mask=self.img_mask,
+                                       area=self.ref_area)
 
     def update(self, new_frame):
         self.ref_ema.update(new_frame)
@@ -211,18 +363,49 @@ class M3Detector(BaseDetector):
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
-        dst = cv2.medianBlur(dst, 3)
+        #dst = cv2.medianBlur(dst, 3)
+        #dst = cv2.morphologyEx(dst, cv2.MORPH_OPEN, self.cv_op)
         dst = cv2.morphologyEx(dst, cv2.MORPH_CLOSE, self.cv_op)
-        dst = cv2.dilate(dst, self.cv_op)
+
+        # 此处dst即为二值图
+        if self.dynamic_mask:
+            self.dy_mask_list.update(dst)
+            #print(np.sum(self.dy_mask_list.img_stack//255, axis=0),type(np.sum(self.dy_mask_list.img_stack//255, axis=0)), self.dy_mask_list.length)
+            # TODO: 你要不要看看你在写什么.jpg
+            dy_mask = cv2.threshold(
+                np.sum(self.dy_mask_list.img_stack // 255,
+                       axis=0,
+                       dtype=np.uint8), self.dy_mask_list.length - 1, 1,
+                cv2.THRESH_BINARY_INV)[-1]
+            dy_mask = cv2.erode(dy_mask, self.cv_op)
+            dst = dy_mask * dst
+
+        #dst = cv2.dilate(dst, self.cv_op)
+        dst_sum = np.sum(dst / 255.) / self.mask_area *100
         linesp = cv2.HoughLinesP(dst,
-                                 rho=0.8,
+                                 rho=1,
                                  theta=pi,
                                  threshold=self.hough_threshold,
                                  minLineLength=self.min_len,
                                  maxLineGap=self.max_gap)
+        linesp = np.array([]) if linesp is None else linesp[:, 0, :]
+        # temp solution
+        lines_num = len(linesp)
+        texts = [(f"Line num: {lines_num}", (0, 255, 0)),
+                 (f"Diff Area: {dst_sum:.2f}%", (0, 255, 0))]
+        if lines_num > 10:
+            texts.append((f"WARNING: TOO MANY LINES!", (0, 0, 255)))
+        return linesp, self.draw_light_on_bg(light_img, dst, extra_info=texts)
 
-        linesp = [] if linesp is None else linesp[0]
-        return linesp, self.draw_light_on_bg(
-            light_img,
-            dst,
-        )
+
+#linesp = [] if linesp is None else linesp[:, 0, :]
+#
+#dxy = linesp[:, 2:] - linesp[:, :2]
+#xy_step = np.einsum("ab,a->ab", dxy, 1 / np.max(dxy, axis=1))
+#
+#inters = [[
+#    np.arange(line[0], line[2], step=step[0],
+#              dtype=float).astype(np.int16),
+#    np.arange(line[1], line[3], step=step[1],
+#              dtype=float).astype(np.int16)
+#] for line, step in zip(linesp, xy_step)]

@@ -8,21 +8,23 @@
     "detect_cfg": {
         "window_sec": 1,
         "adaptive_bi_thre": true,
+        "dynamic_mask": true,
         "bi_cfg": {
-            "init_value": 5,
+            "init_value": 10,
             "sensitivity": "normal",
-            "area": 0.1
+            "area": 0.1,
+            "range_thre": 0.005
         },
         "hough_threshold": 10,
         "min_len": 10,
         "max_gap": 5
     },
     "meteor_cfg": {
-        "min_len": 10,
+        "min_len": 15,
         "max_interval": 3,
         "time_range": [
-            0.25,
-            6
+            0,
+            8
         ],
         "speed_range": [
             0.9,
@@ -30,7 +32,7 @@
         ],
         "drct_range": [
             0,
-            0.17
+            0.2
         ],
         "pos_threshold": 0.5,
         "thre2": 512

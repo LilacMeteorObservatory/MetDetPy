@@ -14,15 +14,6 @@ from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
                           preprocessing)
 from MetLib.VideoLoader import ThreadVideoReader
 from MetLib.MetLog import get_default_logger, set_default_logger
-## baseline:
-## 42 fps; tp 4/4 ; tn 0/6 ; fp 0/8.
-
-## spring-beta: 11 fps(debug mode);tp 4/4 (some not believeable); tn 3/6 (2 of which are REALLY-HARD!); fp 4/8.(Why???)
-## spring-v1: 9 fps (debug mode)/ 16 fps (speed mode); tp 4/4; tn 4/6; fp 8/11.
-## spring-v2: 20 fps (no-skipping); 25 fps(median-skipping, fp 6/8)
-
-# POSITIVE: 3.85 3.11 3.03 2.68 2.55 2.13 2.61 1.94
-# NEGATIVE: 0.49  0.65 2.96 5.08 2.44  1.49 2.69 7.52 19.45 11.18 13.96
 
 
 def output_meteors(update_info):
@@ -182,6 +173,7 @@ def detect_video(video_name,
                 output_meteors(main_mc.update(i, lines=lines))
             if debug_mode:
                 if (cv2.waitKey(int(exp_time * 400)) & 0xff == ord("q")):
+                    logger.info('Keyboard interrupt detected.')
                     break
                 # img_visu is used to get the image,
                 # and is only executed when visualizing.
