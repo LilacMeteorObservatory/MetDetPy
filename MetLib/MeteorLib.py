@@ -3,10 +3,7 @@ import json
 import cv2
 import numpy as np
 
-from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms
-
-drct = lambda pts: np.arccos((pts[3] - pts[1]) /
-                             (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
+from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms, drct
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
@@ -65,7 +62,7 @@ class MeteorCollector(object):
         self.det_thre = det_thre
         self.active_meteor = [
             MeteorSeries(np.inf, np.inf, [-100, -100, -101, -101], np.nan,
-                         np.nan)
+                         np.nan, "None")
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -133,30 +130,42 @@ class MeteorCollector(object):
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
+        drcts = []
         # 做NMS
-        if len(lines)>0:
-            lines = lineset_nms(lines,self.thre2)
-        for line in lines:
+        if len(lines) > 0:
+            drcts, lines = lineset_nms(lines, self.thre2)
+        self.drcts = drcts
+        self.lines = lines
+
+        for line_drct, line in zip(drcts, lines):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
             # TODO: cur_frame+-eframe fixed!!
+            
+            met_type = "area" if self.drct_prob_func(line_drct) < 0.75 else "line"
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
+                # Area不再接收line性质的更新
+                if ms.met_type=="area" and met_type=="line" : continue
+                
                 is_in = ms.may_in_series(line, cur_frame)
                 if is_in:
-                    ms.update(self.cur_frame, line)
+                    ms.update(self.cur_frame, line, update_type = met_type)
                     is_in_series = True
                     break
             # 如果不属于已存在的序列，则为其构建新的序列开头
             if is_in_series:
                 continue
+
+            
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
                              self.cur_frame,
                              line,
                              max_acceptable_dist=self.thre2,
-                             max_acti_frame=self.max_acti_frame))
+                             max_acti_frame=self.max_acti_frame,
+                             met_type=met_type))
         return met_list, drop_list
 
     def list2json(self, meteor_list):
@@ -203,6 +212,13 @@ class MeteorCollector(object):
                                (int(w * 0.01), int(h * 0.98)),
                                cv2.FONT_HERSHEY_COMPLEX, max_len / 1920,
                                (255, 255, 255), 1)
+        for line_drct, line in zip(self.drcts,self.lines):
+            line_color = [0,0,0] if self.drct_prob_func(line_drct)<0.75 else [0,255,0]
+            draw_img = cv2.line(draw_img,
+                                line[:2],
+                                line[2:],
+                                color=line_color,
+                                thickness=3)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             color = color_mapper(self.prob_meteor(ms))
@@ -243,6 +259,9 @@ class MeteorCollector(object):
         # 2. 平均响应长度（暂未实现）
         # 3. 直线拟合情况（暂未实现）
 
+        # AREA目前按照排异移除掉...或者需要另外给一个头？
+        type_prob = 0 if met.met_type=="area" else 1
+        
         # 对短样本实现一定的宽容
         len_prob = self.len_prob_func(met.dist)
 
@@ -251,9 +270,10 @@ class MeteorCollector(object):
         # 排除速度过快/过慢
         speed_prob = self.speed_prob_func(met.speed)
         # 计算直线情况
+        #print(met.drct_list)
         drct_prob = self.drct_prob_func(met.drst_std)
 
-        return int(time_prob * speed_prob * len_prob * drct_prob * 100) / 100
+        return int(type_prob * time_prob * speed_prob * len_prob * drct_prob * 100) / 100
 
     def get_met_attr(self, met) -> dict:
         """将met的点集序列转换为属性字典。
@@ -292,7 +312,7 @@ class MeteorSeries(object):
     """
 
     def __init__(self, start_frame, cur_frame, init_box, max_acceptable_dist,
-                 max_acti_frame):
+                 max_acti_frame, met_type):
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(self.box2coord(init_box), cur_frame)
@@ -302,6 +322,7 @@ class MeteorSeries(object):
         self.last_activate_frame = cur_frame
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
+        self.met_type = met_type
 
     @property
     def drst_std(self):
@@ -340,7 +361,7 @@ class MeteorSeries(object):
         return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
                                                     (box[1] + box[3]) // 2]
 
-    def update(self, new_frame, new_box):
+    def update(self, new_frame, new_box, update_type):
         pt1, pt2 = new_box[:2], new_box[2:]
         (x1, y1), (x2, y2) = self.range
         if not (((x1 <= pt1[0] <= x2) and (y1 <= pt1[1] <= y2)) and
@@ -348,7 +369,8 @@ class MeteorSeries(object):
             self.end_frame = new_frame
         self.last_activate_frame = new_frame
         self.coord_list.extend([pt1, pt2], new_frame)
-        self.drct_list.append(drct(new_box))
+        if update_type=="line":
+            self.drct_list.append(drct(new_box))
 
     def may_in_series(self, new_box, cur_frame):
         # 策略一：最后近邻法（对于有尾迹的判断不准确）

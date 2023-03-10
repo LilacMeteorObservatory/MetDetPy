@@ -13,6 +13,9 @@ eps = 1e-2
 
 img_max = partial(np.max, axis=0)
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
+drct = lambda pts: np.arccos((pts[3] - pts[1]) /
+                             (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
+
 
 logger = get_default_logger()
 
@@ -362,6 +365,20 @@ def color_interpolater(color_list):
 
     return color_interpolate_func
 
+def drct_std(lines):
+    """计算方向的方差。可能不完全对？
+
+    Returns:
+        _type_: _description_
+    """
+    drct_list = [drct(line) for line in lines]
+    drct_copy = np.array(drct_list.copy())
+    std1 = np.std(np.sort(drct_copy)
+                    [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+    drct_copy[drct_copy > np.pi / 2] -= np.pi
+    std2 = np.std(np.sort(drct_copy)
+                    [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+    return min(std1, std2)
 
 def lineset_nms(lines, max_dist):
     """对线段合集执行NMS。
@@ -369,6 +386,7 @@ def lineset_nms(lines, max_dist):
     （如何划分两种类型，目前并没有很好的想法）
 
     Args:
+        drct: 方向方差，可作为Area贡献或者是Line的参考依据。
         lines (_type_): _description_
     """
     num_line = len(lines)
@@ -377,7 +395,7 @@ def lineset_nms(lines, max_dist):
         np.power((lines[:, 2] - lines[:, 0]), 2))
     centers = (lines[:, 2:] + lines[:, :2]) // 2
     merged_list = []
-    nms_mask = np.zeros_like((len(lines), ), dtype=np.uint8)
+    nms_mask = np.zeros((num_line, ), dtype=np.uint8)
     length_sort = np.argsort(length)[::-1]
     lines = lines[length_sort]
     centers = centers[length_sort]
@@ -394,8 +412,10 @@ def lineset_nms(lines, max_dist):
                 if pt_len_xy(centers[this_list[ind]], centers[j]) < max_dist:
                     this_list.append(j)
                     nms_mask[j] = 1
+            ind += 1
         merged_list.append(this_list)
-    return [x[0] for x in merged_list]
+    
+    return [drct_std(lines[x]) for x in merged_list], [lines[x[0]] for x in merged_list]
 
 
 def least_square_fit(pts):
