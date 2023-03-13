@@ -28,7 +28,7 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 ### Enviroments
 
 * 64bit OS
-* Python>=3.7
+* Python>=3.7 (3.9+ is recommended)
 
 ### Packages
 
@@ -60,9 +60,9 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 * --mask: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* --start-time: the start time of detecting (in ms). The default is the start of the video (i.e, 0).
+* --start-time: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e, 0).
 
-* --end-time: the end time of detecting (in ms). The default is the end of the video.
+* --end-time: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
 
 * --mode: the running mode. Its argument should be selected from {backend, frontend}. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
 
@@ -72,7 +72,7 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 The following arguments has default value in [config files](./config.json). Their detail explanation can be seen in [configuration documents](./docs/config-doc.md).
 
-* --resize: the frame image size used during the detection.
+* --resize: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
 
 * --exp-time: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
 
@@ -85,43 +85,12 @@ The following arguments has default value in [config files](./config.json). Thei
 #### Example
 
 ```sh
-python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
+python core.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg"
 ```
 
 ### Customize Configuration
 
 Unlike video-related arguments, most detect-related important arguments are predefined and stored in the configuration file. In most cases, predefined arguments works fine. However, sometimes it is possible to finetune these arguments to get better results. If you want to get the illustration of the configuration file, see [configuration documents](./docs/config-doc.md) for more information.
-
-### Run Evaulation (Coming soon)
-
-To evaluate this program on a series of videos, you can simply run `evaluate.py` :
-
-```sh
-python evaluate.py --videos test_video.json
-```
-
-where `test_video.json` places a series of videos and masks (if provided). It should be formatted like:
-
-```json
-{
-    "video": "path/to/the/video.mp4",
-    "mask": "path/to/the/mask.jpg",
-    "meteors": [{
-        "start_time": "HH:MM:SS.XX0000",
-        "end_time": "HH:MM:SS.XX0000",
-        "pt1": [
-            260,
-            225
-        ],
-        "pt2": [
-            154,
-            242
-        ]
-    }]
-}
-```
-
-If a video has no corresponding mask, simply use `""` .
 
 ### Usage of Other Tools
 
@@ -133,7 +102,7 @@ ClipToolkit can be used to create several video clips or stacked images at once.
 python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] target json
 ```
 
-positional arguments:
+##### Arguments:
 
 * target: the target video.
 
@@ -158,10 +127,59 @@ positional arguments:
 For example:
 
 ```sh
-python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540
+python ClipToolkit.py "./test/20220413Red.mp4" "./test/clip_test.json" --mode image --suffix jpg --jpg-quality 60 --resize 960x540
 ```
 
 Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
+
+
+#### Evaulate
+
+To evaluate how MetDetPy performs on your video, you can simply run `evaluate.py` :
+
+```sh
+python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug] video_json
+```
+##### Arguments
+
+* video_json: a JSON file that places the name of the video, the mask, and meteor annotations. It should be formatted like this:
+
+```json
+{
+    "video": "path/to/the/video.mp4",
+    "mask": "path/to/the/mask.jpg",
+    "meteors": [{
+        "start_time": "HH:MM:SS.XX0000",
+        "end_time": "HH:MM:SS.XX0000",
+        "pt1": [
+            260,
+            225
+        ],
+        "pt2": [
+            154,
+            242
+        ]
+    }]
+}
+```
+
+If there is no corresponding mask, simply use `""`. If there is no meteor annotation, the `"meteors"` can be ignored too.
+
+* --cfg: configuration file. Use [config.json](./config.json) under the same path default.
+
+* --load: the filename of the detection result that is saved by `evaluate.py`. If it is applied, `evaluate.py` will directly load the result file instead of running detection through the video.
+
+* --save: the filename of the detection result that is going to save.
+
+* --metrics: calculate precision and recall of the detection. To apply this, `"meteors"` has to be provided in `video_json`.
+
+* --debug: when launching `evaluate.py` with this, there will be a debug window showing videos and detected meteors.
+
+##### Example
+```sh
+python evaluate.py "test/20220413_annotation.json"
+```
+
 
 ## Package python codes to executables
 
@@ -196,18 +214,17 @@ Notice:
 
 ## Todo List
 
- 1. 改善对于实际低帧率视频的检测效果 (Almost Done, but some potential bugs left)
-    1. 找到合适的超参数： max_gap （多个独立点过于敏感）
-    2. 设计再校验机制：利用叠图结果做重校准
-    3. 优化速度计算逻辑，包括方向，平均速度等
-    4. 改善自适应阈值：当误检测点很多时，适当提高分割阈值
-    5. 改善对暗弱流星的召回率
- 2. 改善对蝙蝠/云等情况的误检(!!)
- 3. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 4. 评估系统
- 5. 利用cython改善性能
- 6. 添加天区解析功能，为支持快速叠图，组网提供基础支持
- 7. 改善解析帧率与真实帧率不匹配时的大量误报问题；优化帧率估算机制；优化关键帧附近大量噪点的问题
+ 1. 改善检测效果 (Almost Done, but some potential bugs left)
+    1. 设计再校验机制：利用叠图结果做重校准
+    2. 优化速度计算逻辑，包括方向，平均速度等
+    3. 改善对暗弱流星的召回率
+    4. 改善解析帧率与真实帧率不匹配时的大量误报问题
+    5. 优化帧率估算机制；
+    6. 改善对蝙蝠/云等情况的误检(？)
+ 2. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
+ 3. 利用cython改善性能
+ 4. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
+ 
 
 P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
 
@@ -218,9 +235,13 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 ## Performance and Efficiency
 
- 1. With `MergeStacker`, MetDetPy now can detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500).
+1. When applying default configuration on 3840x2160 10fps video, MetDetPy detect meteors  with a 20-30% time cost of video length on average (tested with an Intel i5-7500). Videos with higher FPS may cost more time.
 
- 2. Test tool `evaluate.py` is going to be updated soon. For now, MetDetPy performs great for videos from monitoring cameras. For camera-captured videos, the ratio of false positive samples still seems to be a little high.
+2. So far no deep-learning model is introduced to MetDetPy, thus it does not require GPU and can support multi-camera real-time detection on mainstream computer or barebone ([MeteorMaster](https://www.photohelper.cn/MeteorMaster) has supported this). (P. S: We do plan to add A simple and light-weight CNN classifier in our future ---- do not worry, it will not increase CPU load significantly, while it can utilize Nvidia GPU if applicable.)
+
+3. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
+
+4. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcomed to contact us or submit issues (if possible and applicable, provide full or clipped video).
 
 ## Appendix
 
@@ -228,7 +249,7 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 uzanka [[Github]](https://github.com/uzanka)
 
-奔跑的龟斯 [[Personal Website]](https://photohelper.cn) [[Weibo]](https://weibo.com/u/1184392917)
+奔跑的龟斯 [[Personal Website]](https://photohelper.cn) [[Weibo]](https://weibo.com/u/1184392917) [[Bilibili]](https://space.bilibili.com/401484)
 
 纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
@@ -246,8 +267,14 @@ LittleQ
 
 来自偶然
 
-ylp
+杨雳鹏
+
+兔爷 [[Weibo]](https://weibo.com/u/2094322147)[[Bilibili]](https://space.bilibili.com/1044435613)
+
+Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space.bilibili.com/474329765)
+
+贾昊
 
 ### Update Log
 
-See [update-log](docs/update-log.md).
+See [update log](docs/update-log.md).

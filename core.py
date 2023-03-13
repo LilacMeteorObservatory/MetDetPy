@@ -11,7 +11,7 @@ import tqdm
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
-                          preprocessing)
+                          preprocessing, timestr2int)
 from MetLib.VideoLoader import ThreadVideoReader
 from MetLib.MetLog import get_default_logger, set_default_logger
 
@@ -204,11 +204,11 @@ if __name__ == "__main__":
 
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
-                        type=int,
+                        type=str,
                         default=None)
     parser.add_argument('--end-time',
                         help="The end time (ms) of the video.",
-                        type=int,
+                        type=str,
                         default=None)
     parser.add_argument(
         '--mode',
@@ -293,6 +293,10 @@ if __name__ == "__main__":
     if bi_thre:
         cfg.detect_cfg["bi_cfg"]["init_value"] = bi_thre
 
+    # Preprocess start_time and end_time to int
+    start_time = timestr2int(start_time)
+    end_time = timestr2int(end_time)
+    
     detect_video(video_name,
                  mask_name,
                  cfg,

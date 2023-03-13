@@ -321,17 +321,15 @@ def frame2ts(frame, fps):
     return datetime.datetime.strftime(
         datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
 
-
 def time2frame(time: str, fps: float) -> int:
-    """Transfer a utc time string into the frame num.
-
-    Transfer a datetime.datetime object to float.
+    """Transfer a utc time string (format in `HH:MM:SS` or `HH:MM:SS.MS`) into the frame num.
     
-    I implement this only because datetime.timestamp() 
+    I implement this only because `datetime.timestamp() `
     seems does not support my data.
     
-    (Maybe because it is default to be started from 1971?)
-    (Also, this function does not support time that longer than 24h.)
+    (Or maybe because it is default to be started from 1971?)
+    
+    Notice: this function does not support time that longer than 24h.
 
     Args:
         time (str): UTC time string.
@@ -343,10 +341,35 @@ def time2frame(time: str, fps: float) -> int:
     Example:
         time2frame("00:00:02.56",25) -> 64(=(2+(56/100))*25))
     """
-    dt = datetime.datetime.strptime(time, "%H:%M:%S.%f")
+    assert time.count(":")==2, f"Invaild time string: \":\" in \"{time}\" should appear exactly 2 times."
+    if "." in time:
+        dt = datetime.datetime.strptime(time, "%H:%M:%S.%f")
+    else:
+        dt = datetime.datetime.strptime(time, "%H:%M:%S")
     dt_time = dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
     return int(dt_time * fps)
 
+def timestr2int(time: str) -> int:
+    """A wrapper of `time2frame`, is mainly used to turn time-string to its corresponding integer in ms.
+    
+    It supports input like:
+        'NoneType' -> return 'NoneType' as well.
+        
+        `HH:MM:SS` or `HH:MM:SS.MS` -> return its corresponding integer in ms.
+        
+        A string that describes the time in ms -> its corresponding integer.
+
+    Args:
+        time (str): time string.
+
+    Returns:
+        int: corresponding integer in ms.
+    """
+    if time==None:
+        return None
+    if ":" in time:
+        return time2frame(time, fps=1000)
+    return int(time)
 
 def color_interpolater(color_list):
     # 用于创建跨越多种颜色的插值条
