@@ -2,7 +2,7 @@
 
 ## 预处理/Preprocessing
 
-涉及到读入和预处理的参数于此处设置。
+涉及到读入和预处理的参数于此处设置。示例配置如下：
 
 ```json
 "preprocessing":{
@@ -30,7 +30,7 @@
 
 涉及到读入后帧合并的处理于此处设置。
 
-⚠️ 由于`"SimpleStacker"`实质上是`"MergeStacker"`的特殊情况，有关选项计划将在`v2.0.0`废弃。可以通过在`exp_time`项指定`"real-time"`实现`SimpleStacker`的效果。`pfunc`则将合并到[Preprocessing](#预处理preprocessing)中，并更名为`merge_func`。为保持兼容性，`v2.0.0`前两种写法均可使用。
+⚠️ 由于`"SimpleStacker"`实质上是`"MergeStacker"`的特殊情况，有关选项将在`v2.0.0`废弃。可以通过在`exp_time`项指定`"real-time"`实现`SimpleStacker`的效果。`pfunc`则将合并到[Preprocessing](#预处理preprocessing)中，并更名为`merge_func`。为保持兼容性，`v2.0.0`前两种写法均可使用。
 
 
 ```json

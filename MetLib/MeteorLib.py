@@ -134,28 +134,28 @@ class MeteorCollector(object):
         # 做NMS
         self.line_type, self.lines = [], []
         if len(lines) > 0:
-            self.line_type, self.lines = lineset_nms(lines, self.thre2, self.drct_prob_func)
+            self.line_type, self.lines = lineset_nms(lines, self.thre2,
+                                                     self.drct_prob_func)
 
         for met_type, line in zip(self.line_type, self.lines):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
             # TODO: cur_frame+-eframe fixed!!
-            
+
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
                 # Area不再接收line性质的更新
-                if ms.met_type=="area" and met_type=="line" : continue
-                
+                if ms.met_type == "area" and met_type == "line": continue
+
                 is_in = ms.may_in_series(line, cur_frame)
                 if is_in:
-                    ms.update(self.cur_frame, line, update_type = met_type)
+                    ms.update(self.cur_frame, line, update_type=met_type)
                     is_in_series = True
                     break
             # 如果不属于已存在的序列，则为其构建新的序列开头
             if is_in_series:
                 continue
 
-            
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
@@ -252,8 +252,8 @@ class MeteorCollector(object):
         # 3. 直线拟合情况（暂未实现）
 
         # AREA目前按照排异移除掉...或者需要另外给一个头？
-        type_prob = 0 if met.met_type=="area" else 1
-        
+        type_prob = 0 if met.met_type == "area" else 1
+
         # 对短样本实现一定的宽容
         len_prob = self.len_prob_func(met.dist)
 
@@ -264,8 +264,9 @@ class MeteorCollector(object):
         # 计算直线情况
         #print(met.drct_list)
         drct_prob = self.drct_prob_func(met.drst_std)
-        
-        return int(type_prob * time_prob * speed_prob * len_prob * drct_prob * 100) / 100
+
+        return int(type_prob * time_prob * speed_prob * len_prob * drct_prob *
+                   100) / 100
 
     def get_met_attr(self, met) -> dict:
         """将met的点集序列转换为属性字典。
@@ -276,7 +277,7 @@ class MeteorCollector(object):
         Returns:
             dict: _description_
         """
-        pt1, pt2 = met.range
+        pt1, pt2 = met.sort_range
         dist = np.sqrt(pt_len_xy(pt1, pt2))
 
         return dict(start_time=self.frame2ts(met.start_frame),
@@ -308,7 +309,7 @@ class MeteorSeries(object):
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(self.box2coord(init_box), cur_frame)
-        if met_type=="line":
+        if met_type == "line":
             self.drct_list.append(drct_line(init_box))
         self.start_frame = start_frame
         self.end_frame = cur_frame
@@ -319,7 +320,7 @@ class MeteorSeries(object):
 
     @property
     def drst_std(self):
-        if len(self.drct_list)==0: return 0
+        if len(self.drct_list) == 0: return 0
         drct_copy = np.array(self.drct_list.copy())
         std1 = np.std(np.sort(drct_copy)
                       [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
@@ -343,6 +344,19 @@ class MeteorSeries(object):
         ]
 
     @property
+    def sort_range(self):
+        """range的增强版，按照时间顺序给出起止点组合
+        """
+        [x0, y0], [x1, y1] = self.range
+        e_x, e_y = self.coord_list[np.argmin(self.coord_list.frame_num)]
+        l_x, l_y = self.coord_list[np.argmax(self.coord_list.frame_num)]
+        if e_x > l_x:
+            x0, x1 = x1, x0
+        if e_y > l_y:
+            y0, y1 = y1, y0
+        return [x0, y0], [x1, y1]
+
+    @property
     def dist(self):
         return pt_len_xy(*self.range)**(1 / 2)
 
@@ -352,14 +366,14 @@ class MeteorSeries(object):
         return self.dist / (self.end_frame - self.start_frame + 1e-6)
 
     def box2coord(self, box):
-        if len(box)==4:
+        if len(box) == 4:
             return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
-                                                    (box[1] + box[3]) // 2]
+                                                        (box[1] + box[3]) // 2]
         else:
             return box
 
     def update(self, new_frame, new_box, update_type):
-        if update_type=="line":
+        if update_type == "line":
             new_box = [new_box[:2], new_box[2:]]
         (x1, y1), (x2, y2) = self.range
 
@@ -370,7 +384,7 @@ class MeteorSeries(object):
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
 
-        if update_type=="line":
+        if update_type == "line":
             self.drct_list.append(drct(new_box))
 
     def may_in_series(self, new_box, cur_frame):
@@ -385,11 +399,6 @@ class MeteorSeries(object):
             for in_pt in self.coord_list[first:]:
                 if pt_len_xy(tgt_pt, in_pt) < self.max_acceptable_dist:
                     return True
-        return False
-
-    def is_in_range(self, value, range_tuple):
-        if range_tuple[0] <= value <= range_tuple[1]:
-            return True
         return False
 
 
