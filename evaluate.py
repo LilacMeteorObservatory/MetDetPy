@@ -229,10 +229,10 @@ if args.metrics:
 
     fn_list = np.array(gt_meteors)[gt_label == 0]
 
-    for i in range(10):
-        instance=fn_list[i]
-        print(i,instance)
-        stack_and_save_img(video, instance["start_time"], instance["end_time"], f"./fn_{i}.jpg",85,3,None)
+    #for i in range(min(10,len(fn_list))):
+    #    instance=fn_list[i]
+    #    print(i,instance)
+    #    stack_and_save_img(video, instance["start_time"], instance["end_time"], f"./fn_{i}.jpg",85,3,None)
 
 
     fn = len(gt_meteors) - tp

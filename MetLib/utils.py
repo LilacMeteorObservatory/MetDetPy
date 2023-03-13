@@ -13,9 +13,10 @@ eps = 1e-2
 
 img_max = partial(np.max, axis=0)
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
-drct = lambda pts: np.arccos((pts[3] - pts[1]) /
-                             (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
-
+drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
+                             (pt_len_xy(pts[0], pts[1]))**(1 / 2))
+drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
+                                  (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 
 logger = get_default_logger()
 
@@ -365,22 +366,24 @@ def color_interpolater(color_list):
 
     return color_interpolate_func
 
+
 def drct_std(lines):
     """计算方向的方差。可能不完全对？
 
     Returns:
         _type_: _description_
     """
-    drct_list = [drct(line) for line in lines]
+    drct_list = [drct_line(line) for line in lines]
     drct_copy = np.array(drct_list.copy())
-    std1 = np.std(np.sort(drct_copy)
-                    [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+    std1 = np.std(
+        np.sort(drct_copy)[:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
     drct_copy[drct_copy > np.pi / 2] -= np.pi
-    std2 = np.std(np.sort(drct_copy)
-                    [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+    std2 = np.std(
+        np.sort(drct_copy)[:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
     return min(std1, std2)
 
-def lineset_nms(lines, max_dist):
+
+def lineset_nms(lines, max_dist, drct_prob_func):
     """对线段合集执行NMS。
     （此处的NMS并不是纯粹的去重，还包含了合并近邻直线，用于处理面积类型）
     （如何划分两种类型，目前并没有很好的想法）
@@ -388,6 +391,7 @@ def lineset_nms(lines, max_dist):
     Args:
         drct: 方向方差，可作为Area贡献或者是Line的参考依据。
         lines (_type_): _description_
+        drct_prob_func 计算drct属于line概率的函数
     """
     num_line = len(lines)
     length = np.sqrt(
@@ -414,8 +418,61 @@ def lineset_nms(lines, max_dist):
                     nms_mask[j] = 1
             ind += 1
         merged_list.append(this_list)
-    
-    return [drct_std(lines[x]) for x in merged_list], [lines[x[0]] for x in merged_list]
+
+    line_type = [
+        "area" if drct_prob_func(drct_std(lines[x])) < 1 else "line"
+        for x in merged_list
+    ]
+
+    ret_list = []
+    for single_type, inds in zip(line_type, merged_list):
+        if single_type == "area":
+            # 找到各个边界的代表点以及整个分布的中心点作为代表点集？
+            # 有点奇怪
+            sin_lines = lines[inds]
+            l1 = sin_lines[np.argmin(sin_lines[:, 0])]
+            l2 = sin_lines[np.argmin(sin_lines[:, 1])]
+            l3 = sin_lines[np.argmax(sin_lines[:, 2])]
+            l4 = sin_lines[np.argmax(sin_lines[:, 3])]
+            cc = np.mean((sin_lines[:, :2] + sin_lines[:, 2:]) / 2, axis=0).astype(np.int16)
+            #print(l1,l2,l3,l4,cc)
+            ret_list.append(
+                np.concatenate([l1, l2, l3, l4, cc], axis=0).reshape((-1, 2)))
+        else:
+            ret_list.append(lines[inds[0]])
+            #drct_mean = np.mean([drct(line) for line in inds])
+
+    return line_type, ret_list
+
+
+def generate_group_interpolate(lines):
+    """生成所有线段的插值点坐标，可用于计算得分。
+
+    Args:
+        lines (_type_): _description_
+    """
+    dxys = lines[:, 2:] - lines[:, :2]
+    nums = np.max(np.abs(dxys), axis=1)
+    coord_list = [None for i in range(len(lines))]
+    for i, (num, line) in enumerate(zip(nums, lines)):
+        step_x, step_y = float(line[2] - line[0]) / num, float(line[3] -
+                                                               line[1]) / num
+        xx = np.ones(
+            (num, ),
+            dtype=np.int16) * line[0] if line[0] == line[2] else np.arange(
+                line[0], line[2] + step_x, step=step_x).astype(np.int16)
+        yy = np.ones(
+            (num, ),
+            dtype=np.int16) * line[1] if line[1] == line[3] else np.arange(
+                line[1],
+                line[3] + step_y,
+                step=step_y,
+            ).astype(np.int16)
+        shorter = min(len(xx), len(yy))
+        xx = xx[:shorter]
+        yy = yy[:shorter]
+        coord_list[i] = [xx, yy]
+    return coord_list
 
 
 def least_square_fit(pts):

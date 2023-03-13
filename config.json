@@ -10,14 +10,15 @@
         "adaptive_bi_thre": true,
         "dynamic_mask": true,
         "bi_cfg": {
-            "init_value": 10,
+            "init_value": 5,
             "sensitivity": "normal",
-            "area": 0.1,
-            "range_thre": 0.005
+            "area": 0.1
         },
         "hough_threshold": 10,
         "min_len": 10,
-        "max_gap": 5
+        "max_gap": 10,
+        "max_allow_gap": 0.05,
+        "fill_thre": 0.6
     },
     "meteor_cfg": {
         "min_len": 15,
@@ -28,11 +29,11 @@
         ],
         "speed_range": [
             0.9,
-            12
+            18
         ],
         "drct_range": [
             0,
-            0.2
+            0.5
         ],
         "pos_threshold": 0.5,
         "thre2": 512

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from .utils import EMA
+from .utils import EMA, generate_group_interpolate
 
 pi = np.pi / 180.0
 
@@ -334,7 +334,7 @@ class M3Detector(BaseDetector):
         # bi_threshold line_threshold self.max_gap mask
         super().__init__(*args, **kwargs)
         self.ref_area = 0
-        self.mask_area= np.sum(self.img_mask)
+        self.mask_area = np.sum(self.img_mask)
         # 加载自适应阈值的配置参数
         if self.adaptive_bi_thre:
             self.sensitivity = self.bi_cfg["sensitivity"]
@@ -357,17 +357,22 @@ class M3Detector(BaseDetector):
             self.bi_threshold = self.std2thre(self.ref_ema.mean)
 
     def detect(self) -> tuple:
+
+        # Preprocessing
+        # Mainly calculate diff_img (which basically equals to max-mid)
         light_img = self.ref_ema.li_img
         diff_img = (light_img - self.ref_ema.bg_img).astype(dtype=np.uint8)
-
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
+        
+        # 以前曾用过下列两个函数改善误检情况，现因效果不明显，暂时转为弃用。
         #dst = cv2.medianBlur(dst, 3)
         #dst = cv2.morphologyEx(dst, cv2.MORPH_OPEN, self.cv_op)
+        
         dst = cv2.morphologyEx(dst, cv2.MORPH_CLOSE, self.cv_op)
 
-        # 此处dst即为二值图
+        # if "dynamic_mask" is applied, stack and mask dst
         if self.dynamic_mask:
             self.dy_mask_list.update(dst)
             #print(np.sum(self.dy_mask_list.img_stack//255, axis=0),type(np.sum(self.dy_mask_list.img_stack//255, axis=0)), self.dy_mask_list.length)
@@ -380,32 +385,47 @@ class M3Detector(BaseDetector):
             dy_mask = cv2.erode(dy_mask, self.cv_op)
             dst = dy_mask * dst
 
+        # 曾使用dilate放大微弱检测。
+        # 有助于改善暗弱流星的检测，但可能会引起更多误报。
         #dst = cv2.dilate(dst, self.cv_op)
-        dst_sum = np.sum(dst / 255.) / self.mask_area *100
+        
+        
+        # dynamic_gap机制
+        # 根据产生的响应比例适量减少gap
+        # 一定程度上能够改善对低信噪比场景的误检
+        dst_sum = np.sum(dst / 255.) / self.mask_area * 100
+        gap = max(0, 1 - dst_sum / self.max_allow_gap) * self.max_gap
+
+        # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
                                  rho=1,
                                  theta=pi,
                                  threshold=self.hough_threshold,
                                  minLineLength=self.min_len,
-                                 maxLineGap=self.max_gap)
+                                 maxLineGap=gap)
         linesp = np.array([]) if linesp is None else linesp[:, 0, :]
-        # temp solution
+
+        # 如果产生的响应数目非常多（按照经验取值500），忽略该帧
         lines_num = len(linesp)
+        if lines_num > 500: 
+            linesp = np.array([])
+        
+        # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
+        # 这一步骤会造成一些暗弱流星的丢失。
+        if len(linesp) > 0:
+            line_pts = generate_group_interpolate(linesp)
+            line_score = np.array([
+                np.sum(dst[line_pt[1], line_pt[0]]) / (len(line_pt[0]) * 255)
+                for line_pt in line_pts
+            ])
+            #for line, line_pt in zip(linesp,line_pts):
+            #    print(line, line_pt)
+            #    print(dst[line_pt[1], line_pt[0]])
+            linesp = linesp[line_score > self.fill_thre]
+            lines_num = len(linesp)
+        
         texts = [(f"Line num: {lines_num}", (0, 255, 0)),
                  (f"Diff Area: {dst_sum:.2f}%", (0, 255, 0))]
         if lines_num > 10:
             texts.append((f"WARNING: TOO MANY LINES!", (0, 0, 255)))
         return linesp, self.draw_light_on_bg(light_img, dst, extra_info=texts)
-
-
-#linesp = [] if linesp is None else linesp[:, 0, :]
-#
-#dxy = linesp[:, 2:] - linesp[:, :2]
-#xy_step = np.einsum("ab,a->ab", dxy, 1 / np.max(dxy, axis=1))
-#
-#inters = [[
-#    np.arange(line[0], line[2], step=step[0],
-#              dtype=float).astype(np.int16),
-#    np.arange(line[1], line[3], step=step[1],
-#              dtype=float).astype(np.int16)
-#] for line, step in zip(linesp, xy_step)]

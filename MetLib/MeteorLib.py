@@ -3,7 +3,7 @@ import json
 import cv2
 import numpy as np
 
-from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms, drct
+from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms, drct, drct_line
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
@@ -130,19 +130,17 @@ class MeteorCollector(object):
 
         # 对新的line进行判断
         num_activate = len(self.active_meteor)
-        drcts = []
-        # 做NMS
-        if len(lines) > 0:
-            drcts, lines = lineset_nms(lines, self.thre2)
-        self.drcts = drcts
-        self.lines = lines
 
-        for line_drct, line in zip(drcts, lines):
+        # 做NMS
+        self.line_type, self.lines = [], []
+        if len(lines) > 0:
+            self.line_type, self.lines = lineset_nms(lines, self.thre2, self.drct_prob_func)
+
+        for met_type, line in zip(self.line_type, self.lines):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
             # TODO: cur_frame+-eframe fixed!!
             
-            met_type = "area" if self.drct_prob_func(line_drct) < 0.75 else "line"
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
                 # Area不再接收line性质的更新
@@ -212,13 +210,6 @@ class MeteorCollector(object):
                                (int(w * 0.01), int(h * 0.98)),
                                cv2.FONT_HERSHEY_COMPLEX, max_len / 1920,
                                (255, 255, 255), 1)
-        for line_drct, line in zip(self.drcts,self.lines):
-            line_color = [0,0,0] if self.drct_prob_func(line_drct)<0.75 else [0,255,0]
-            draw_img = cv2.line(draw_img,
-                                line[:2],
-                                line[2:],
-                                color=line_color,
-                                thickness=3)
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             color = color_mapper(self.prob_meteor(ms))
@@ -228,6 +219,7 @@ class MeteorCollector(object):
                 ms.coord_list.frame_num) if len(first) == 0 else first[0]
             draw_img = cv2.rectangle(draw_img, pt1, pt2, color, 2)
             for pts in ms.coord_list[first:]:
+                #print(pts)
                 pt_x, pt_y = pts
                 draw_img = cv2.circle(draw_img, (pt_x, pt_y), 2, color, -1)
             # print score
@@ -272,7 +264,7 @@ class MeteorCollector(object):
         # 计算直线情况
         #print(met.drct_list)
         drct_prob = self.drct_prob_func(met.drst_std)
-
+        
         return int(type_prob * time_prob * speed_prob * len_prob * drct_prob * 100) / 100
 
     def get_met_attr(self, met) -> dict:
@@ -316,7 +308,8 @@ class MeteorSeries(object):
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(self.box2coord(init_box), cur_frame)
-        self.drct_list.append(drct(init_box))
+        if met_type=="line":
+            self.drct_list.append(drct_line(init_box))
         self.start_frame = start_frame
         self.end_frame = cur_frame
         self.last_activate_frame = cur_frame
@@ -326,6 +319,7 @@ class MeteorSeries(object):
 
     @property
     def drst_std(self):
+        if len(self.drct_list)==0: return 0
         drct_copy = np.array(self.drct_list.copy())
         std1 = np.std(np.sort(drct_copy)
                       [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
@@ -357,18 +351,25 @@ class MeteorSeries(object):
         # TODO: 有个问题：我这个速度是不是应该考虑fps的影响来着...
         return self.dist / (self.end_frame - self.start_frame + 1e-6)
 
-    def box2coord(cls, box):
-        return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
+    def box2coord(self, box):
+        if len(box)==4:
+            return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
                                                     (box[1] + box[3]) // 2]
+        else:
+            return box
 
     def update(self, new_frame, new_box, update_type):
-        pt1, pt2 = new_box[:2], new_box[2:]
+        if update_type=="line":
+            new_box = [new_box[:2], new_box[2:]]
         (x1, y1), (x2, y2) = self.range
-        if not (((x1 <= pt1[0] <= x2) and (y1 <= pt1[1] <= y2)) and
-                ((x1 <= pt2[0] <= x2) and (y1 <= pt2[1] <= y2))):
-            self.end_frame = new_frame
+
+        for pt in new_box:
+            if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
+                self.end_frame = new_frame
+                break
         self.last_activate_frame = new_frame
-        self.coord_list.extend([pt1, pt2], new_frame)
+        self.coord_list.extend(new_box, new_frame)
+
         if update_type=="line":
             self.drct_list.append(drct(new_box))
 
