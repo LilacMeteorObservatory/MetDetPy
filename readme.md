@@ -2,17 +2,17 @@
 
 Other Language Version: [[中文版]](./docs/readme-cn.md)
 
-MetDetPy is a python-based video meteor detector that can detect meteors from video files.
+MetDetPy is a python-based video meteor detector that can detect meteors from video files. It is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector).
 
-* Basically, MetDetPy is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). In this project, their work is also reproduced in python3.
+* **Adaptive Sensitivity:** for most meteor videos, MetDetPy can be used directly without detailed configuration. With a series of adaptive algorithms, MetDetPy can change its detecting sensitivity according to the signal-to-noise ratio of the video.
 
-* Based on their work, we further implement the M3 detector. The M3 detector works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
+* **Applicable for Various Devices and Exposure Time:** MetDetPy can detect meteors from video files that capture by various types of devices. We implement the M3 detector, which works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
 
-* We design an adaptive threshold algorithm that can select binary threshold dynamically according to the signal-to-noise ratio of the video. (Experimental feature)
+* **Low CPU and Memory Usage:** MetDetPy is developed based on OpenCV, thus it works with low CPU and memory usage while not requiring GPU. It can support multi-camera real-time detection on mainstream computers or barebones.
 
-* We also implement a meteor detection result manager (called MeteorLib) to help integrate predictions and exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
+* **Effective Filter:** a meteor detection result manager (called MeteorLib) is designed to help integrate predictions and exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
 
-* An evaluation tool is under development and coming soon.
+* **Abundant Support Tools:** an evaluation tool and a video clip toolkit are also provided to support further video clipping, image stacking, or result evaluation.
 
 ## Release Version
 
@@ -206,11 +206,12 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 
 The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
-Notice:
+**Notice:**
 
 1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
 2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
 3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
+4. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment for packaging.
 
 ## Todo List
 
@@ -253,13 +254,13 @@ uzanka [[Github]](https://github.com/uzanka)
 
 纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
-DustYe夜尘[[Bilibili]](https://space.bilibili.com/343640654)
+DustYe夜尘 [[Bilibili]](https://space.bilibili.com/343640654)
 
-RoyalK[[Weibo]](https://weibo.com/u/2244860993) [[Bilibili]](https://space.bilibili.com/259900185)
+RoyalK [[Weibo]](https://weibo.com/u/2244860993) [[Bilibili]](https://space.bilibili.com/259900185)
 
-MG_Raiden扬[[Weibo]](https://weibo.com/811151123) [[Bilibili]](https://space.bilibili.com/11282636)
+MG_Raiden扬 [[Weibo]](https://weibo.com/811151123) [[Bilibili]](https://space.bilibili.com/11282636)
 
-星北之羽[[Bilibili]](https://space.bilibili.com/366525868/)
+星北之羽 [[Bilibili]](https://space.bilibili.com/366525868/)
 
 LittleQ
 
