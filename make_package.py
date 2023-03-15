@@ -115,7 +115,7 @@ argparser.add_argument(
 argparser.add_argument("--version",
                        type=str,
                        help="Software version.",
-                       default="1.2.4")
+                       default="1.3.0_beta")
 
 args = argparser.parse_args()
 compile_tool = args.tool
