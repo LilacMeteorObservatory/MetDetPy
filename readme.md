@@ -1,8 +1,13 @@
-# MetDetPy
+<div align="center">
+  <img src="imgs/banner.png"/>
 
-Other Language Version: [[中文版]](./docs/readme-cn.md)
+[![license](https://img.shields.io/badge/license-LGPLv3-success)](./LICENSE)
 
-MetDetPy is a python-based video meteor detector that can detect meteors from video files. It is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector).
+<center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
+
+</div>
+
+MetDetPy is a python-based video meteor detector that can detect meteors from video files, which is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy is more powerful and reliable, with the following features:
 
 * **Adaptive Sensitivity:** for most meteor videos, MetDetPy can be used directly without detailed configuration. With a series of adaptive algorithms, MetDetPy can change its detecting sensitivity according to the signal-to-noise ratio of the video.
 
@@ -208,7 +213,7 @@ The target executable file and its zip package version (if applied) will be gene
 
 **Notice:**
 
-1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues.
+1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. Besides, avoid using `nuitka>=1.5.0` (2023.03), which might lead to SystemError on some devices.
 2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
 3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 4. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment for packaging.
