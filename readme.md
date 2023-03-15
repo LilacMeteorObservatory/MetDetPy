@@ -1,11 +1,13 @@
 <div align="center">
   <img src="imgs/banner.png"/>
 
-[![license](https://img.shields.io/badge/license-LGPLv3-success)](./LICENSE)
+[![license](https://img.shields.io/badge/license-LGPL2.1-success)](./LICENSE)
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
 </div>
+
+## Introduction
 
 MetDetPy is a python-based video meteor detector that can detect meteors from video files, which is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy is more powerful and reliable, with the following features:
 
