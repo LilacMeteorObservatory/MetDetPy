@@ -243,13 +243,13 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 ## Performance and Efficiency
 
-1. When applying default configuration on 3840x2160 10fps video, MetDetPy detect meteors  with a 20-30% time cost of video length on average (tested with an Intel i5-7500). Videos with higher FPS may cost more time.
+1. When applying default configuration on 3840x2160 10fps video, MetDetPy detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500). Videos with higher FPS may cost more time.
 
-2. So far no deep-learning model is introduced to MetDetPy, thus it does not require GPU and can support multi-camera real-time detection on mainstream computer or barebone ([MeteorMaster](https://www.photohelper.cn/MeteorMaster) has supported this). (P. S: We do plan to add A simple and light-weight CNN classifier in our future ---- do not worry, it will not increase CPU load significantly, while it can utilize Nvidia GPU if applicable.)
+2. So far no deep-learning model is introduced to MetDetPy, thus it does not require GPU and can support multi-camera real-time detection on mainstream computers or barebones ([MeteorMaster](https://www.photohelper.cn/MeteorMaster) has supported this). (P. S: We do plan to add A simple and lightweight CNN classifier in our future ---- do not worry, it will not increase CPU load significantly, while it can utilize Nvidia GPU if applicable.)
 
 3. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
 
-4. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcomed to contact us or submit issues (if possible and applicable, provide full or clipped video).
+4. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcome to contact us or submit issues (if possible and applicable, provide full or clipped video).
 
 ## Appendix
 
