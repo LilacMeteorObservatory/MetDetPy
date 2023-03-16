@@ -305,8 +305,8 @@ class ClassicDetector(BaseDetector):
         self.linesp = cv2.HoughLinesP(dst, 1, pi, 1, self.min_len,
                                       self.max_gap)
 
-        linesp = [] if linesp is None else linesp[0]
-        return linesp, self.draw_light_on_bg(self.stack[3], dst)
+        self.linesp = [] if self.linesp is None else self.linesp[0]
+        return self.linesp, self.draw_light_on_bg(self.stack[3], dst)
 
 
 class M3Detector(BaseDetector):
