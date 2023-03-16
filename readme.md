@@ -1,7 +1,7 @@
 <div align="center">
   <img src="imgs/banner.png"/>
 
-[![license](https://img.shields.io/badge/license-LGPL2.1-success)](./LICENSE)
+![version](https://img.shields.io/badge/version-v1.2.4-success) [![license](https://img.shields.io/badge/license-LGPL2.1-success)](./LICENSE) 
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
