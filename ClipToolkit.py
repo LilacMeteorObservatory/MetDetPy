@@ -103,6 +103,7 @@ def main():
             data = json.load(f)
     else:
         data = json.loads(json_str)
+        print(json_str,data)
 
     # get video name
     _, video_name_nopath = os.path.split(video_name)
@@ -119,9 +120,11 @@ def main():
         resize_param = list(map(int, resize.upper().split("X")))
 
     # 单一片段时，若保存路径中包含文件名，覆盖输出的文件名。
-    if len(data) == 1 and (not os.path.isdir(save_path)):
-        save_path, filename = os.path.split(save_path)
-        data[0]["filename"] = filename
+    if len(data) == 1:
+        if not os.path.isdir(save_path):
+            save_path, filename = os.path.split(save_path)
+            data[0]["filename"] = filename
+        data = [data]
 
     # 获取Logger
     logger = get_default_logger()
@@ -129,7 +132,10 @@ def main():
     try:
         logger.start()
         for single_data in data:
-            start_time, end_time = single_data["time"]
+            if "time" in single_data:
+                start_time, end_time = single_data["time"]
+            else:
+                start_time, end_time = single_data["start_time"], single_data["end_time"]
             # 如果未给定名称则使用缺省名称
             tgt_name = single_data.get(
                 "filename",
