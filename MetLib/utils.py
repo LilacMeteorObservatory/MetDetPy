@@ -21,18 +21,6 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
 logger = get_default_logger()
 
 
-class Munch(object):
-
-    def __init__(self, idict) -> None:
-        for (key, value) in idict.items():
-            #if isinstance(value,dict):
-            #    value = Munch(value)
-            setattr(self, key, value)
-
-    def add(self, key, value) -> None:
-        setattr(self, key, value)
-
-
 class EMA(object):
     """移动指数平均。
     可用于对平稳序列的评估。

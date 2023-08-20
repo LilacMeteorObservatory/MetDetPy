@@ -103,7 +103,6 @@ def main():
             data = json.load(f)
     else:
         data = json.loads(json_str)
-        print(json_str,data)
 
     # get video name
     _, video_name_nopath = os.path.split(video_name)

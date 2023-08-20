@@ -6,14 +6,15 @@ from functools import partial
 from math import floor
 
 import cv2
+from easydict import EasyDict
 import tqdm
 
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
-from MetLib.utils import (Munch, init_exp_time, load_video_and_mask,
-                          preprocessing, timestr2int)
-from MetLib.VideoLoader import ThreadVideoReader
 from MetLib.MetLog import get_default_logger, set_default_logger
+from MetLib.utils import (init_exp_time, load_video_and_mask, preprocessing,
+                          timestr2int)
+from MetLib.VideoLoader import ThreadVideoReader
 
 
 def output_meteors(update_info):
@@ -36,7 +37,7 @@ def detect_video(video_name,
     set_default_logger(debug_mode, work_mode)
     logger = get_default_logger()
     logger.start()
-    
+
     try:
         t0 = time.time()
 
@@ -54,7 +55,6 @@ def detect_video(video_name,
             Use \"exp_time\"=\"auto\" and \"merge_func\" instead.""")
 
         # parse preprocessing params
-        cfg.preprocessing = Munch(cfg.preprocessing)
         resize_option = cfg.preprocessing.resize_param
         exp_option = cfg.preprocessing.exp_time
         merge_func = cfg.preprocessing.merge_func
@@ -97,12 +97,10 @@ def detect_video(video_name,
             exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
         else:
             logger.info("Parsing \"exp_time\"=%s" % (exp_option))
-            exp_time = init_exp_time(exp_option,
-                                     video_reader,
-                                     upper_bound=0.5)
+            exp_time = init_exp_time(exp_option, video_reader, upper_bound=0.5)
             exp_frame, eq_fps, eq_int_fps = int(round(
                 exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
-            
+
         min_time_flag = 1000 * exp_frame * eq_int_fps / fps
         logger.info(
             f"Apply exposure time of {exp_time:.2f}s. (MinTimeFlag = {min_time_flag})"
@@ -117,25 +115,26 @@ def detect_video(video_name,
                            exp_frame=exp_frame)
 
         # Init detector
-        if cfg.detect_cfg["bi_cfg"]["sensitivity"]=="high":
-            cfg.detect_cfg["max_gap"]=10
-        cfg.detect_cfg.update(img_mask=mask)
+        if cfg.detect_cfg.bi_cfg.sensitivity == "high":
+            cfg.detect_cfg.max_gap = 10
+        cfg.detect_cfg.img_mask=mask
         detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
 
         # Init meteor collector
         # TODO: To be renewed
-        # TODO: Update My Munch
-        meteor_cfg = Munch(cfg.meteor_cfg)
-        meteor_cfg = dict(min_len=meteor_cfg.min_len,
-                          max_interval=meteor_cfg.max_interval * fps,
-                          det_thre=0.5,
-                          time_range=[
-                              meteor_cfg.time_range[0] * fps,
-                              meteor_cfg.time_range[1] * fps
-                          ],
-                          speed_range=meteor_cfg.speed_range,
-                          drct_range=meteor_cfg.drct_range,
-                          thre2=meteor_cfg.thre2 * exp_frame)
+        meteor_cfg = cfg.meteor_cfg
+        # 修改属性
+        meteor_cfg.max_interval *= fps
+        meteor_cfg.time_range[0] *= fps
+        meteor_cfg.time_range[1] *= fps
+        meteor_cfg.thre2 *= exp_frame
+
+        # TODO: alias, which is not elegant.
+        # To be removed in the near future.
+        if meteor_cfg.get("pos_threshold",None):
+            meteor_cfg.det_thre = meteor_cfg.pos_threshold
+            del meteor_cfg["pos_threshold"]
+
         main_mc = MeteorCollector(**meteor_cfg,
                                   eframe=exp_frame,
                                   fps=fps,
@@ -264,55 +263,39 @@ if __name__ == "__main__":
     exp_time = args.exp_time
     resize_param = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
-        cfg = Munch(json.load(f))
+        cfg = EasyDict(json.load(f))
 
+    # 通过从旧配置生成preprocessing项，将旧风格的配置文件转换到新格式，实现兼容。
     # convert old-style config to new format by adding preprocessing automatically.
     if getattr(cfg, "preprocessing", None) == None:
-        cfg.add(
-            "preprocessing",
-            dict(
-                exp_time=cfg.exp_time,
-                resize_param=cfg.resize_param,
-                merge_func=getattr(cfg, "stacker_cfg",
-                                   dict()).get("pfunc", None),
-            ))
+        cfg.preprocessing = dict(
+            exp_time=cfg.exp_time,
+            resize_param=cfg.resize_param,
+            merge_func=getattr(cfg, "stacker_cfg", dict()).get("pfunc", None),
+        )
 
+    # 当通过参数的指定部分选项时，替代配置文件中的缺省项
     # replace config value
     if exp_time:
-        cfg.preprocessing["exp_time"] = exp_time
+        cfg.preprocessing.exp_time = exp_time
     if resize_param:
-        cfg.preprocessing["resize_param"] = resize_param
+        cfg.preprocessing.resize_param = resize_param
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."
-        adaptive = {"on": True, "off": False}[adaptive]
-        cfg.detect_cfg["adaptive_bi_thre"] = adaptive
-
+        cfg.detect_cfg.adaptive_bi_thre = {"on": True, "off": False}[adaptive]
     if sensitivity:
-        cfg.detect_cfg["bi_cfg"]["sensitivity"] = sensitivity
+        cfg.detect_cfg.bi_cfg.sensitivity = sensitivity
     if bi_thre:
-        cfg.detect_cfg["bi_cfg"]["init_value"] = bi_thre
+        cfg.detect_cfg.bi_cfg.init_value = bi_thre
 
     # Preprocess start_time and end_time to int
     start_time = timestr2int(start_time)
     end_time = timestr2int(end_time)
-    
+
     detect_video(video_name,
                  mask_name,
                  cfg,
                  debug_mode,
                  work_mode,
                  time_range=(start_time, end_time))
-    # async main loop
-    #loop = asyncio.get_event_loop()
-    #tasks = [
-    #    detect_video(
-    #        video_name,
-    #        mask_name,
-    #        cfg,
-    #        debug_mode,
-    #        work_mode,
-    #        time_range=(start_time, end_time))
-    #]
-    #loop.run_until_complete(asyncio.wait(tasks))
-    #loop.close()

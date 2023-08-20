@@ -42,6 +42,7 @@ MetDetPy 是一个基于 python 开发的，可用于从直录视频中检测流
 * numpy>=1.15.0
 * opencv_python>=4.7.0
 * tqdm>=4.0.0
+* easydict>=1.0
 
 可以通过如下指令安装模块：
 
