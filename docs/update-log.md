@@ -12,8 +12,13 @@
 ✅ API改进
 
 * 修复了直线检测获取直线的数目问题。
-* 功能性改进：命令行启动时的start-time与end-time参数现支持输入`HH:MM:SS.MS`或`HH:MM:SS`格式的时间。
+* 其他的已知问题。
+
+✅ API改进
+
+* 命令行启动时的start-time与end-time参数现支持输入`HH:MM:SS.MS`格式的时间。
 * 调整检测的返回值：返回的JSON中的`pt1`与`pt2`将按顺序描述起止位置。
+* Some API of [config.json](../config.json) is modified and going to be merged or deprecated in the future. To keep compatibility, old API is reserved until `v2.0.0`. / 对 [config.json](../config.json) 的部分API进行了修改，先前版本的部分接口会在未来被合并或废弃。为保持兼容性，旧版本API会被保留至`v2.0.0`。
 * Some API of [config.json](../config.json) is modified and going to be merged or deprecated in the future. To keep compatibility, old API is reserved until `v2.0.0`. / 对 [config.json](../config.json) 的部分API进行了修改，先前版本的部分接口会在未来被合并或废弃。为保持兼容性，旧版本API会被保留至`v2.0.0`。
 
 ✅ 算法改进
