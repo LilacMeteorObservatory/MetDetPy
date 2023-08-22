@@ -91,14 +91,12 @@ class ThreadMetLog(BaseMetLog):
 
     def start(self):
         self.stopped = False
+        self.thread.setDaemon(True)
         self.thread.start()
 
     def stop(self):
         self.stopped = True
-        while not self.is_empty:
-            pass
-
-
+        self.thread.join(timeout=2)
 
 met_logger = ThreadMetLog()
 

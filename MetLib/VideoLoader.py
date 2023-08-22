@@ -156,6 +156,7 @@ class ThreadVideoReader(BaseVideoReader):
         self.status = True
         self.video.set_to(self.start_frame)
         self.thread = threading.Thread(target=self.videoloop, args=())
+        self.thread.setDaemon(True)
         self.thread.start()
         return self
 
@@ -172,6 +173,9 @@ class ThreadVideoReader(BaseVideoReader):
         3. 其他情况一定能提供需要的帧数。
         """
         if (len(self.frame_pool) == 0 and self.stopped):
+            # TODO: 当video替换为原始video名称时，此处需要做对应改动（所有正常结束区域应当释放）
+            self.video.release()
+            self.thread.join()
             raise TimeoutError(
                 "ReadError: Attempt to read frame(s) from an ended VideoReader object."
             )
