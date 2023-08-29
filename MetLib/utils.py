@@ -1,17 +1,17 @@
 import datetime
 import warnings
 from functools import partial
-from math import floor
+from typing import Union, List, Callable
 
 import cv2
 import numpy as np
 
-from .VideoWarpper import OpenCVVideoWarpper
 from .MetLog import get_default_logger
 
 eps = 1e-2
+SHORT_LENGTH_THRESHOLD = 300
+RF_ESTIMATE_LENGTH = 100
 
-img_max = partial(np.max, axis=0)
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
                              (pt_len_xy(pts[0], pts[1]))**(1 / 2))
@@ -19,6 +19,87 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
                                   (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 
 logger = get_default_logger()
+
+
+class Transform(object):
+    """图像变换方法的集合类。
+    """
+
+    @classmethod
+    def opencv_resize(cls, dsize, **kwargs):
+        interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
+        return partial(cv2.resize, dsize=dsize, interpolation=interpolation)
+
+    @classmethod
+    def mask_with(cls, mask):
+        return lambda img: img * mask
+
+    @classmethod
+    def opencv_BGR2GRAY(cls):
+        return partial(cv2.cvtColor, code=cv2.COLOR_BGR2GRAY)
+
+    @classmethod
+    def opencv_RGB2GRAY(cls):
+        return partial(cv2.cvtColor, code=cv2.COLOR_RGB2GRAY)
+
+    @classmethod
+    def expand_3rd_channel(cls, num):
+        """将单通道灰度图像通过Repeat方式映射到多通道图像。
+        """
+        assert isinstance(num, int)
+        if num == 1:
+            return lambda img: img[:, :, None]
+        return lambda img: np.repeat(img[:, :, None], num, axis=-1)
+
+    @classmethod
+    def opencv_binary(cls, threshold, maxval=255, inv=False):
+
+        def opencv_threshold_1ret(img):
+            return cv2.threshold(
+                img,
+                thresh=threshold,
+                maxval=maxval,
+                type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)[-1]
+
+        return opencv_threshold_1ret
+
+    @classmethod
+    def compose(cls, trans_func: List[Callable]):
+        """接受一个函数的列表，返回一个compose的函数，顺序执行指定的变换。
+
+        Args:
+            trans_func (List[Callable]): _description_
+        """
+
+        def transform_img(img):
+            for func in trans_func:
+                img = func(img)
+            return img
+
+        return transform_img
+
+
+class MergeFunction(object):
+
+    @classmethod
+    def max(cls, image_stack):
+        return np.max(image_stack, axis=0, keepdims=True)[0]
+
+    @classmethod
+    def m3func(cls, image_stack):
+        """M3 for Max Minus Median.
+        Args:
+            image_stack (ndarray)
+        """
+        sort_stack = np.sort(image_stack, axis=0)
+        return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
+
+    @classmethod
+    def mix_max_median_stacker(cls, image_stack, threshold=80):
+        img_mean = np.mean(image_stack, axis=0)
+        img_max = np.max(image_stack, axis=0)
+        img_max[img_max < threshold] = img_mean[img_max < threshold]
+        return img_max
 
 
 class EMA(object):
@@ -66,17 +147,20 @@ def sigma_clip(sequence, sigma=3.00):
         mean, std = updated_mean, updated_std
 
 
-def parse_resize_param(tgt_wh, raw_wh):
+def parse_resize_param(tgt_wh: Union[None, list, str, int], raw_wh: list):
+    # (该函数返回的wh是OpenCV风格的，即w, h)
     #TODO: fix poor English
+    if tgt_wh == None:
+        return raw_wh
     w, h = raw_wh
     if isinstance(tgt_wh, str):
         try:
             # if str, tgt_wh is from args.
-            if ":" in tgt_wh or "x" in tgt_wh:
+            if ":" in tgt_wh or "x" in tgt_wh.lower():
                 if ":" in tgt_wh:
                     tgt_wh = list(map(int, tgt_wh.split(":")))
                 else:
-                    tgt_wh = list(map(int, tgt_wh.split("x")))
+                    tgt_wh = list(map(int, tgt_wh.lower().split("x")))
             else:
                 tgt_wh = int(tgt_wh)
         except Exception as e:
@@ -101,22 +185,6 @@ def parse_resize_param(tgt_wh, raw_wh):
         type(tgt_wh))
 
 
-def load_video_and_mask(video_name, mask_name=None, resize_param=(0, 0)):
-    # OpenCVVideoWarpper is the default video capture source.
-    # If you want to use your own way to load video, define your VideoWarpper
-    # in MetLib/VideoWarpper.py and replace all OpenCVVideoWarpper in your code.
-    video = OpenCVVideoWarpper(video_name)
-    # Calculate real resize parameters.
-    resize_param = parse_resize_param(resize_param, video.size)
-    mask = None
-    if mask_name:
-        mask = load_mask(mask_name, resize_param)
-    else:
-        # If no mask_name is provided, use a all-pass mask.
-        mask = np.ones((resize_param[1], resize_param[0]), dtype=np.uint8)
-    return video, mask
-
-
 def save_img(img, filename, quality, compressing):
     if filename.upper().endswith("PNG"):
         ext = ".png"
@@ -127,7 +195,7 @@ def save_img(img, filename, quality, compressing):
     else:
         suffix = filename.split(".")[-1]
         raise NameError(
-            f"Unsupported suffix \"{suffix}\";\Only .png and .jpeg/.jpg are supported."
+            f"Unsupported suffix \"{suffix}\"; Only .png and .jpeg/.jpg are supported."
         )
     status, buf = cv2.imencode(ext, img, params)
     if status:
@@ -141,6 +209,7 @@ def save_img(img, filename, quality, compressing):
 
 
 def save_video(video_series, fps, video_path):
+    cv_writer = None
     try:
         real_size = list(reversed(video_series[0].shape[:2]))
         cv_writer = cv2.VideoWriter(video_path,
@@ -149,43 +218,18 @@ def save_video(video_series, fps, video_path):
         for clip in video_series:
             p = cv_writer.write(clip)
     finally:
-        cv_writer.release()
+        if cv_writer:
+            cv_writer.release()
 
 
-def load_mask(filename, resize_param):
-    mask = cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
+def load_8bit_image(filename):
+    return cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
                         cv2.IMREAD_UNCHANGED)
-    if filename.lower().endswith(".jpg"):
-        mask = preprocessing(mask, resize_param=resize_param)
-        return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY)[-1]
-    elif filename.lower().endswith(".png"):
-        mask = cv2.resize(mask[:, :, -1], resize_param)
-        return cv2.threshold(mask, 128, 1, cv2.THRESH_BINARY_INV)[-1]
 
 
-def preprocessing(frame, mask=1, resize_param=(0, 0)):
-    frame = cv2.cvtColor(cv2.resize(frame, resize_param), cv2.COLOR_BGR2GRAY)
-    return frame * mask
-
-
-def m3func(image_stack):
-    """M3 for Max Minus Median.
-    Args:
-        image_stack (ndarray)
-    """
-    sort_stack = np.sort(image_stack, axis=0)
-    return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
-
-
-def mix_max_median_stacker(image_stack, threshold=80):
-    img_mean = np.mean(image_stack, axis=0)
-    img_max = np.max(image_stack, axis=0)
-    img_max[img_max < threshold] = img_mean[img_max < threshold]
-    return img_max
-
-
-def _rf_est_kernel(video_loader, n_frames):
+def _rf_est_kernel(video_loader):
     try:
+        n_frames = video_loader.iterations
         video_loader.start()
         f_sum = np.zeros((n_frames, ), dtype=float)
         for i in range(n_frames):
@@ -195,10 +239,6 @@ def _rf_est_kernel(video_loader, n_frames):
             else:
                 f_sum = f_sum[:i]
                 break
-        # mean filter with windows_size=3
-        #f_sum = np.array([(
-        #    f_sum[max(0, i - 1)] + f_sum[i] + f_sum[min(len(f_sum) - 1, i + 1)]
-        #) / 3 for i, _ in enumerate(f_sum)])
 
         A0, A1, A2, A3 = f_sum[:-3], f_sum[1:-2], f_sum[2:-1], f_sum[3:]
 
@@ -221,37 +261,50 @@ def rf_estimator(video_loader):
     但目前没有做到很好的估计。
 
     Args:
-        video (cv2.VideoCapture): 给定视频片段。
+        video_loader (BaseVideoReader): 待确定曝光时间的VideoLoader。
         mask (ndarray): the mask for the video.
     """
-    total_frame = video_loader.iterations
-    start_frame = video_loader.start_frame
-    if total_frame < 300:
+    start_frame, end_frame, = video_loader.start_frame, video_loader.end_frame,
+    iteration_frames = video_loader.iterations
+
+    # 估算时，将强制设置exp_frame=1以进行估算
+    raw_exp_frame = video_loader.exp_frame
+    video_loader.exp_frame = 1
+
+    if iteration_frames < SHORT_LENGTH_THRESHOLD:
         # 若不超过300帧 则进行全局估算
-        intervals = _rf_est_kernel(video_loader, total_frame)
+        intervals = _rf_est_kernel(video_loader)
     else:
         # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
-        video_loader.reset(iterations=100)
-        intervals_1 = _rf_est_kernel(video_loader, 100)
+        video_loader.reset(end_frame=start_frame + RF_ESTIMATE_LENGTH, )
+        intervals_1 = _rf_est_kernel(video_loader)
 
-        video_loader.reset(start_frame=start_frame + (total_frame - 100) // 2,
-                           iterations=100)
-        intervals_2 = _rf_est_kernel(video_loader, 100)
+        video_loader.reset(start_frame=start_frame +
+                           (iteration_frames - RF_ESTIMATE_LENGTH) // 2,
+                           end_frame=start_frame +
+                           (iteration_frames + RF_ESTIMATE_LENGTH) // 2)
+        intervals_2 = _rf_est_kernel(video_loader)
 
-        video_loader.reset(start_frame=start_frame + total_frame - 100,
-                           iterations=100)
-        intervals_3 = _rf_est_kernel(video_loader, 100)
-
+        video_loader.reset(start_frame=end_frame - RF_ESTIMATE_LENGTH,
+                           end_frame=end_frame)
+        intervals_3 = _rf_est_kernel(video_loader)
         intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
+
+    # 还原video_reader的相关设置
+    video_loader.exp_frame = raw_exp_frame
+    video_loader.reset(start_frame, end_frame)
+
     if len(intervals) == 0:
         return 1
+
     # 非常经验的取值方法...
     est_frames = np.round(
-        min(np.median(intervals), np.mean(sigma_clip(intervals))))
+        np.min([np.median(intervals),
+                np.mean(sigma_clip(intervals))]))
     return est_frames
 
 
-def init_exp_time(exp_time, video_loader, upper_bound):
+def init_exp_time(exp_time, video_loader, upper_bound) -> float:
     """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
     (SimpleStacker do not rely on this.)
 
@@ -267,8 +320,10 @@ def init_exp_time(exp_time, video_loader, upper_bound):
         exp_time: the exposure time in float.
     """
     # TODO: Rewrite this annotation.
+    # solve logger?
+    logger.info(f"Parsing \"exp_time\"={exp_time}")
     fps = video_loader.video.fps
-    logger.debug(f"Metainfo FPS = {fps:.2f}")
+    logger.info(f"Metainfo FPS = {fps:.2f}")
     assert isinstance(
         exp_time, (str, float, int)
     ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
@@ -303,11 +358,26 @@ def init_exp_time(exp_time, video_loader, upper_bound):
             )
             return 1 / fps
         return float(exp_time)
+    return 0
+
+
+def transpose_wh(size_mat) -> list:
+    """
+    Convert OpenCV style size (width, height, (channel)) to Numpy style size (height, width, (channel)), vice versa.
+    """
+    if len(size_mat) == 2:
+        return [size_mat[1], size_mat[0]]
+    elif len(size_mat) == 3:
+        x, y, c = size_mat
+        return [y, x, c]
+    raise Exception(
+        f"size list should have length of 2 or 3, got {len(size_mat)}.")
 
 
 def frame2ts(frame, fps):
     return datetime.datetime.strftime(
         datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
+
 
 def time2frame(time: str, fps: float) -> int:
     """Transfer a utc time string (format in `HH:MM:SS` or `HH:MM:SS.MS`) into the frame num.
@@ -329,13 +399,16 @@ def time2frame(time: str, fps: float) -> int:
     Example:
         time2frame("00:00:02.56",25) -> 64(=(2+(56/100))*25))
     """
-    assert time.count(":")==2, f"Invaild time string: \":\" in \"{time}\" should appear exactly 2 times."
+    assert time.count(
+        ":"
+    ) == 2, f"Invaild time string: \":\" in \"{time}\" should appear exactly 2 times."
     if "." in time:
         dt = datetime.datetime.strptime(time, "%H:%M:%S.%f")
     else:
         dt = datetime.datetime.strptime(time, "%H:%M:%S")
     dt_time = dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
     return int(dt_time * fps)
+
 
 def timestr2int(time: str) -> int:
     """A wrapper of `time2frame`, is mainly used to turn time-string to its corresponding integer in ms.
@@ -353,11 +426,10 @@ def timestr2int(time: str) -> int:
     Returns:
         int: corresponding integer in ms.
     """
-    if time==None:
-        return None
     if ":" in time:
         return time2frame(time, fps=1000)
     return int(time)
+
 
 def color_interpolater(color_list):
     # 用于创建跨越多种颜色的插值条
@@ -391,7 +463,7 @@ def drct_std(lines):
     drct_copy[drct_copy > np.pi / 2] -= np.pi
     std2 = np.std(
         np.sort(drct_copy)[:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
-    return min(std1, std2)
+    return np.min([std1, std2])
 
 
 def lineset_nms(lines, max_dist, drct_prob_func):
@@ -445,7 +517,8 @@ def lineset_nms(lines, max_dist, drct_prob_func):
             l2 = sin_lines[np.argmin(sin_lines[:, 1])]
             l3 = sin_lines[np.argmax(sin_lines[:, 2])]
             l4 = sin_lines[np.argmax(sin_lines[:, 3])]
-            cc = np.mean((sin_lines[:, :2] + sin_lines[:, 2:]) / 2, axis=0).astype(np.int16)
+            cc = np.mean((sin_lines[:, :2] + sin_lines[:, 2:]) / 2,
+                         axis=0).astype(np.int16)
             #print(l1,l2,l3,l4,cc)
             ret_list.append(
                 np.concatenate([l1, l2, l3, l4, cc], axis=0).reshape((-1, 2)))
@@ -510,3 +583,13 @@ def least_square_fit(pts):
     C = -np.sum(np.array([A, B]) * avg_xy)
     loss = np.mean(np.abs(np.einsum("a,ba->b", np.array([A, B]), pts) + C))
     return (A, B, C), loss
+
+
+def output_meteors(update_info):
+    # is this necessary?
+    logger = get_default_logger()
+    met_lst, drop_lst = update_info
+    for met in met_lst:
+        logger.meteor(met)
+    for met in drop_lst:
+        logger.dropped(met)

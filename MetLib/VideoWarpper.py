@@ -20,7 +20,7 @@ class BaseVideoWarpper(metaclass=ABCMeta):
 
     num_frames -> int # total num of frames
     
-    size -> Union[list, tuple] # size of each frame
+    size -> Union[list, tuple] # [width, height] of the video
     
     #### Method:
 

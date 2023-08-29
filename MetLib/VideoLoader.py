@@ -1,28 +1,80 @@
 import threading
 import time
+from abc import ABCMeta, abstractmethod
+from math import floor
+from typing import Union, Optional, Type
 
-from .utils import img_max, m3func, mix_max_median_stacker
+import numpy as np
 
-available_func = dict(max=img_max, m3func=m3func, mix=mix_max_median_stacker)
+from .utils import (init_exp_time, load_8bit_image, MergeFunction,
+                    parse_resize_param, timestr2int, transpose_wh, Transform)
+from .MetLog import get_default_logger
+
+UP_EXPOSURE_BOUND = 0.5
+DEFAULT_EXPOSURE_FRAME = 1
 
 
-class BaseVideoReader(object):
+class BaseVideoReader(metaclass=ABCMeta):
+    """TODO: Add note for this.
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    @abstractmethod
+    def start(self):
+        pass
+
+    @abstractmethod
+    def reset(self):
+        pass
+
+    @abstractmethod
+    def pop(self):
+        pass
+
+    @abstractmethod
+    def stop(self):
+        pass
+
+    @abstractmethod
+    def release(self):
+        pass
+
+    @property
+    @abstractmethod
+    def fps(self):
+        pass
+
+    @property
+    @abstractmethod
+    def video_total_frames(self):
+        pass
+
+    @property
+    @abstractmethod
+    def raw_size(self):
+        pass
+
+
+class VanillaVideoReader(BaseVideoReader):
     """ 
-    # BaseVideoReader
+    # VanillaVideoReader
     This class is used to load the video from the file.
 
     In this basic implementation, video are loaded every time .pop() method is called, 
     which is an block file IO implementation.
 
     ## Args:
-
-        video (Any): The video object that supports .read() method to load the next frame. 
-                    We recommend to use cv2.VideoCapture object.
-        iterations (int): The number of frames that are going to load.
-        pre_func (func): the preprocessing function that only takes frames[ndarray] 
-                    as the only arguments. You can use functools.partical to 
-                    construct such a function.
-        max_poolsize (int, optional): the max size of the frame buffer. Defaults to 30.
+        video_warpper (BaseVideoWarpper): The type of videowarpper.
+        video_name (str): The filename of the video.
+        start_frame (int): The start frame of the video.
+        iterations (int): The total number of frames that are going to load.
+        preprocess (Callable): the preprocessing function that only takes frames[ndarray] as the only argument. 
+                            You can use functools.partical to construct such a function.
+        exp_frame (int): _description_
+        merge_func (Callable): the preprocessing function that merges several frames to one frame. Take only 1 argument. 
+                            You can use functools.partical to construct such a function.
     
     ## Usage
 
@@ -30,68 +82,153 @@ class BaseVideoReader(object):
     utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
-    2. Pop the number of frames from its frame_pool with the .pop() method. e.g.: T.pop(num=5). 
+    2. Pop 1 frame from its frame_pool with the .pop() method.
     3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
 
     def __init__(self,
-                 video,
-                 start_frame,
-                 iterations,
-                 pre_func,
-                 exp_frame,
-                 merge_func,
-                 max_poolsize=30):
-        """    This class is used to load the video from the file.
-        Args:
-            video (Any): The video object that supports .read() method to load the next frame. 
-                         We recommend to use cv2.VideoCapture object.
-            iterations (int): The number of frames that are going to load.
-            pre_func (func): the preprocessing function that only takes frames[ndarray] as the only arguments. 
-                             You can use functools.partical to construct such a function.
-            max_poolsize (int, optional): the max size of the frame buffer. Defaults to 30.
-
+                 video_warpper: Type[BaseVideoReader],
+                 video_name: str,
+                 mask_name: Optional[str] = None,
+                 resize_option: Union[int, list, str, None] = None,
+                 start_time: Optional[str] = None,
+                 end_time: Optional[str] = None,
+                 grayscale: bool = False,
+                 exp_option: Union[int, float, str] = "auto",
+                 merge_func: str = None,
+                 **kwargs) -> None:
         """
-        self.video = video
-        self.pre_func = pre_func
-        self.iterations = iterations
-        self.start_frame = start_frame
-        self.max_poolsize = max_poolsize
+        VanillaVideoReader is a basic class that can be used to load a video.
+
+        ## Args:
+            video_warpper (BaseVideoWarpper): The type of videowarpper.
+            video_name (str): The filename of the video.
+            start_frame (int): The start frame of the video.
+            iterations (int): The total number of frames that are going to load.
+            exp_frame (int): _description_
+            merge_func (Callable): the preprocessing function that merges several frames to one frame. Take only 1 argument. 
+                             You can use functools.partical to construct such a function.
+
+        ## Raises:
+            NameError: Raised when asking for a undefined merge function.
+        """
+        self.video_name = video_name
+        self.mask_name = mask_name
+        self.grayscale = grayscale
+
+        # init necessary variables
+        self.logger = get_default_logger()
         self.status = True
-        self.stopped = False
-        self.exp_frame = exp_frame
+        self.stopped = True
         self.frame_pool = []
 
-        if not merge_func in available_func:
-            raise NameError(
-                f"Unsupported preprocessing merge function name: {merge_func}."
-            )
-        self.merge_func = available_func[merge_func]
+        # load video and mask
+        self.video = video_warpper(video_name)
+        self.runtime_size = parse_resize_param(resize_option, self.raw_size)
+        self.mask = self.load_mask(self.mask_name)
+
+        # init reader status (start and end time)
+        self.start_time = timestr2int(start_time) if start_time != None else 0
+        self.end_time = timestr2int(end_time) if end_time != None else (
+            self.video_total_frames / self.fps * 1000)
+        start_frame = int(self.start_time / 1000 * self.fps)
+        end_frame = int(self.end_time / 1000 * self.fps)
+        self.reset(start_frame, end_frame, exp_frame=DEFAULT_EXPOSURE_FRAME)
+
+        # construct merge function
+        # self.merge_func can be None, since it is not applied when exp_frame=1
+        if merge_func:
+            self.merge_func = getattr(MergeFunction, merge_func, None)
+            assert self.merge_func, NameError(
+                f"Unsupported merge function name: {merge_func}.")
+        else:
+            self.merge_func = None
+
+        # Generate preprocessing function
+        # Resize, Mask are Must-to-do things, while grayscale is selective.
+        preprocess = []
+        if self.raw_size != self.runtime_size:
+            preprocess.append(
+                Transform.opencv_resize(self.runtime_size, **kwargs))
+        if self.grayscale:
+            preprocess.append(Transform.opencv_BGR2GRAY())
+        preprocess.append(Transform.expand_3rd_channel(1))
+        if self.mask_name:
+            preprocess.append(Transform.mask_with(self.mask))  # type: ignore
+        self.preprocess = Transform.compose(preprocess)
+        # 计算曝光时间 & 曝光帧数
+        self.exp_time = init_exp_time(exp_option,
+                                      self,
+                                      upper_bound=UP_EXPOSURE_BOUND)
+        self.exp_frame = int(round(self.exp_time * self.fps))
+
+    def load_mask(self, mask_fname: Union[str, None]):
+        """从给定路径加载mask，并根据video尺寸及是否单色(grayscale)转换mask。
+
+        Args:
+            mask_fname (str): mask路径
+
+        Returns:
+            _type_: _description_
+        """
+        if mask_fname == None:
+            return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
+        mask = load_8bit_image(mask_fname)
+        mask_transforms = [Transform.opencv_resize(self.runtime_size)]
+        if mask_fname.lower().endswith(".jpg"):
+            mask_transforms.append(Transform.opencv_BGR2GRAY())
+        elif mask_fname.lower().endswith(".png"):
+            mask = mask[:, :, -1:]
+        mask_transforms.extend(
+            [Transform.opencv_binary(128, 1),
+             Transform.expand_3rd_channel(1)])  # type: ignore
+
+        return Transform.compose(mask_transforms)(mask)
 
     def start(self):
         self.cur_iter = self.iterations
+        self.stopped = False
         self.video.set_to(self.start_frame)
 
-    def reset(self, start_frame=None, iterations=None, exp_frame=None):
-        """重置并允许VideoLoader读取另一个片段。
+    # TODO: 名字也改一下
+    def reset(self,
+              start_frame: Union[int, None] = None,
+              end_frame: Union[int, None] = None,
+              exp_frame: Union[int, None] = None,
+              reset_time_attr: bool = False):
+        """设置VideoLoader的起始，结束时间帧及单次曝光持续帧数。
         Args:
             frame (_type_): _description_
         """
-        if iterations != None:
-            self.iterations = iterations
+        assert self.stopped, f"Cannot reset a running {self.__class__.__name__}."
+
         if start_frame != None:
-            self.start_frame = start_frame
+            self.start_frame = max(0, start_frame)
+        if end_frame != None:
+            self.end_frame = min(end_frame, self.video_total_frames)
+
+        assert 0 <= self.start_frame < self.end_frame, ValueError(
+            "Invalid start time or end time.")
+
         if exp_frame != None:
             self.exp_frame = exp_frame
-        self.stopped = False
+        if reset_time_attr:
+            self.start_time = self.start_frame / self.fps
+            self.end_time = self.end_frame / self.fps
+        self.iterations = self.end_frame - self.start_frame
+        self.stopped = True
+
+        self.logger.debug(
+            f"set start_frame to {self.start_frame}; end_frame to {self.end_frame}."
+        )
 
     def pop(self):
         self.frame_pool = []
         for _ in range(self.exp_frame):
             status, frame = self.video.read()
             if status:
-                self.frame_pool.append(self.pre_func(frame))
+                self.frame_pool.append(self.preprocess(frame))
             else:
                 self.stop()
                 break
@@ -103,21 +240,61 @@ class BaseVideoReader(object):
         return self.merge_func(self.frame_pool)
 
     def stop(self):
+        self.logger.debug("Video stop triggered.")
         self.stopped = True
 
+    def release(self):
+        self.video.release()
 
-class ThreadVideoReader(BaseVideoReader):
+    @property
+    def fps(self):
+        return self.video.fps
+
+    @property
+    def video_total_frames(self):
+        return self.video.num_frames
+
+    @property
+    def raw_size(self):
+        """The size of the input video in [w, h] format.
+        """
+        return self.video.size
+
+    @property
+    def eq_fps(self):
+        return 1 / self.exp_time
+
+    @property
+    def eq_int_fps(self):
+        return floor(self.eq_fps)
+
+    def summary(self):
+        return f"{self.__class__.__name__} summary:\n"+\
+            f"    Video path: \"{self.video_name}\";"+\
+            (f" Mask path: \"{self.mask_name}\";" if self.mask_name else "Mask: None")+ "\n" +\
+            f"    Video frames = {self.video_total_frames}; Apply grayscale = {self.grayscale};\n"+\
+            f"    Raw resolution = {self.raw_size}; Running-time resolution = {self.runtime_size};\n"+\
+            f"Apply exposure time of {self.exp_time:.2f}s."+\
+            f"(MinTimeFlag = {1000 * self.exp_frame * self.eq_int_fps / self.fps})\n" +\
+            f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self.frame_pool) == 0
+
+
+class ThreadVideoReader(VanillaVideoReader):
     """ 
     # ThreadVideoReader
-    This class is used to load the video from the file with an independent thread.  
-    On average, ThreadVideoReader provides about 50% speedup.
+    This class is used to load the video from the file with an independent subthread.  
+    ThreadVideoReader can partly solve I/O blocking and provide speedup.
 
     ## Args:
 
         video (Any): The video object that supports .read() method to load the next frame. 
                     We recommend to use cv2.VideoCapture object.
         iterations (int): The number of frames that are going to load.
-        pre_func (func): the preprocessing function that only takes frames[ndarray] 
+        preprocess (func): the preprocessing function that only takes frames[ndarray] 
                     as the only arguments. You can use functools.partical to 
                     construct such a function.
         max_poolsize (int, optional): the max size of the frame buffer. Defaults to 30.
@@ -128,70 +305,61 @@ class ThreadVideoReader(BaseVideoReader):
     utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
-    2. Pop the number of frames from its frame_pool with the .pop() method. e.g.: T.pop(num=5). 
+    2. Pop 1 frame from its frame_pool with the .pop() method. 
     3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
 
     def __init__(self,
-                 video,
-                 start_frame,
-                 iterations,
-                 pre_func,
-                 exp_frame,
-                 merge_func,
-                 max_poolsize=30) -> None:
-        super().__init__(video, start_frame, iterations, pre_func, exp_frame,
-                         merge_func, max_poolsize)
-        self.wait_interval = 0.02
-        self.lock = threading.Lock()
-
-    @property
-    def is_empty(self) -> bool:
-        return len(self.frame_pool) == 0
+                 video_warpper: Type[BaseVideoReader],
+                 video_name: str,
+                 mask_name: Optional[str] = None,
+                 resize_option: Union[int, list, str, None] = None,
+                 start_time: Optional[str] = None,
+                 end_time: Optional[str] = None,
+                 grayscale: bool = False,
+                 exp_option: Union[int, float, str] = "auto",
+                 merge_func: str = None,
+                 max_poolsize: int = 32,
+                 **kwargs) -> None:
+        self.max_poolsize = max_poolsize
+        self.lock_write = threading.Lock()
+        self.lock_read = threading.Lock()
+        super().__init__(video_warpper, video_name, mask_name, resize_option,
+                         start_time, end_time, grayscale, exp_option,
+                         merge_func)
 
     def start(self):
         self.frame_pool = []
         self.stopped = False
         self.status = True
         self.video.set_to(self.start_frame)
+        self.lock_read.acquire()
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.setDaemon(True)
         self.thread.start()
         return self
 
-    def reset(self, start_frame=None, iterations=None, exp_frame=None):
-        if isinstance(start_frame, int) and start_frame >= 0:
-            self.start_frame = start_frame
-            self.video.set_to(start_frame)
-        super().reset(iterations=iterations, exp_frame=exp_frame)
-
-    def is_popable(self, num):
-        """是否能够提供num个帧。
-        1. 如果被锁（某线程试图更新池）或池中完全没有新帧，则False。
-        2. 剩余池中帧数有但小于num，同时已经读取完毕，则True。
-        3. 其他情况一定能提供需要的帧数。
-        """
+    def pop(self):
         if (len(self.frame_pool) == 0 and self.stopped):
-            # TODO: 当video替换为原始video名称时，此处需要做对应改动（所有正常结束区域应当释放）
+            # this is abnormal. so the video file will be released here.
             self.video.release()
             self.thread.join()
-            raise TimeoutError(
-                "ReadError: Attempt to read frame(s) from an ended VideoReader object."
+            raise Exception(
+                f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
             )
-        if len(self.frame_pool) == 0:
-            return False
-        if (len(self.frame_pool) < num and (not self.stopped)):
-            return False
-        return True
 
-    def pop(self):
-        while (not self.is_popable(self.exp_frame)):
-            time.sleep(self.wait_interval)
-        self.lock.acquire()
+        # 仅在读取未结束时需要读取锁
+        if not self.stopped:
+            self.lock_read.acquire()
+        # 缓冲区满时不需要获取写入锁
+        if len(self.frame_pool) <= self.max_poolsize:
+            self.lock_write.acquire()
+
         ret = self.frame_pool[:self.exp_frame]
         self.frame_pool = self.frame_pool[self.exp_frame:]
-        self.lock.release()
+
+        self.lock_write.release()
 
         if self.exp_frame == 1:
             return ret[0]
@@ -203,11 +371,22 @@ class ThreadVideoReader(BaseVideoReader):
         Returns:
             bool : status code. 1 for success operation, 0 for failure.
         """
-        self.status, frame = self.video.read()
+        self.status, self.cur_frame = self.video.read()
         if self.status:
-            self.lock.acquire()
-            self.frame_pool.append(self.pre_func(frame))
-            self.lock.release()
+            self.processed_frame = self.preprocess(self.cur_frame)
+
+            # 缓冲区已满时禁止写入
+            if len(self.frame_pool) > self.max_poolsize and (not self.stopped):
+                self.lock_write.acquire()
+            self.lock_write.acquire()
+
+            self.frame_pool.append(self.processed_frame)
+
+            # 缓冲区已有足够帧数时释放读取锁
+            self.lock_write.release()
+            if self.lock_read.locked() and len(
+                    self.frame_pool) >= self.exp_frame:
+                self.lock_read.release()
             return True
         else:
             self.stop()
@@ -216,54 +395,19 @@ class ThreadVideoReader(BaseVideoReader):
     def videoloop(self):
         try:
             for i in range(self.iterations):
-                # wait until frame_pool is not full.
-                while len(self.frame_pool) > self.max_poolsize and (
-                        not self.stopped):
-                    time.sleep(self.wait_interval)
+
                 if self.stopped or not self.status: break
                 if not self.load_a_frame():
                     break
         finally:
             self.stop()
 
-
-# TODO: 异步是一种更优雅的实现 但由于目前的实现在编解码步骤依赖ffmpeg/opencv，不能完全解决文件IO时阻塞的问题。
-# 目前情况下使用异步视频读取时，效率相比阻塞读取没有明显的提升。该部分代码目前暂时弃置不更新。
-
-
-class AsyncVideoReader(BaseVideoReader):
-
-    def __init__(self, video, iterations, pre_func, batch=1) -> None:
-        super().__init__(video, iterations, pre_func)
-        self.batch = batch
-        self.cur_iter = 0
-        self.last_batch = None
-
-    def preprocessing_pool(self):
-        self.frame_pool.extend(self.temp_pool)
-
-    def start(self):
-        self.last_batch = self.read_a_batch()
-
-    async def pop(self, num):
-        await self.last_batch
-        while (len(self.frame_pool) < num) and (not self.stopped):
-            await self.read_a_batch()
-        ret = self.frame_pool[:num]
-        self.frame_pool = self.frame_pool[num:]
+    def stop(self):
         if not self.stopped:
-            self.last_batch = self.read_a_batch()
-        # TODO: this should not be return.....
-        return ret
+            super().stop()
 
-    async def read_a_batch(self):
-        if (self.cur_iter > self.iterations) or (len(self.frame_pool) >
-                                                 self.max_poolsize):
-            return
-        self.cur_iter += self.batch
-        for n in range(self.batch):
-            self.status, frame = self.video.read()
-            if not self.status:
-                self.stop()
-                break
-            self.frame_pool.append(self.pre_func(frame))
+        # unlock
+        if self.lock_read.locked():
+            self.lock_read.release()
+        if self.lock_write.locked():
+            self.lock_write.release()

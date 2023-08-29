@@ -3,27 +3,17 @@ import argparse
 import json
 import time
 from functools import partial
-from math import floor
 
 import cv2
 from easydict import EasyDict
 import tqdm
 
+from MetLib import OpenCVVideoWarpper
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.utils import (init_exp_time, load_video_and_mask, preprocessing,
-                          timestr2int)
-from MetLib.VideoLoader import ThreadVideoReader
-
-
-def output_meteors(update_info):
-    logger = get_default_logger()
-    met_lst, drop_lst = update_info
-    for met in met_lst:
-        logger.meteor(met)
-    for met in drop_lst:
-        logger.dropped(met)
+from MetLib.utils import transpose_wh, output_meteors
+from MetLib.VideoLoader import ThreadVideoReader, VanillaVideoReader
 
 
 def detect_video(video_name,
@@ -41,83 +31,44 @@ def detect_video(video_name,
     try:
         t0 = time.time()
 
-        # deprecated warning
-        if getattr(cfg, "exp_time", None) or getattr(cfg, "resize_param",
-                                                     None):
-            logger.warning(
-                """\"exp_time\" and \"resize_param\" will be moved to \"preprocessing\" in the future.
-            Config \"exp_time\", \"resize_param\" and \"merge_func\" in \"preprocessing\" instead."""
-            )
-
-        if getattr(cfg, "stacker_cfg", None) or getattr(cfg, "stacker", None):
-            logger.warning(
-                """\"stacker\" and \"stacker_cfg\" will be deprecated in the future.
-            Use \"exp_time\"=\"auto\" and \"merge_func\" instead.""")
-
         # parse preprocessing params
-        resize_option = cfg.preprocessing.resize_param
-        exp_option = cfg.preprocessing.exp_time
-        merge_func = cfg.preprocessing.merge_func
+        resize_option = cfg.loader.resize_param
+        exp_option = cfg.loader.exp_time
+        merge_func = cfg.loader.merge_func
 
-        # load video, init video_reader
-        video, mask = load_video_and_mask(video_name, mask_name, resize_option)
-        resize_param = list(reversed(mask.shape))
-        logger.info(
-            f"Raw resolution = {video.size}; apply running-time resolution = {resize_param}."
-        )
-
-        # get accurate start_frame and end_frame according to the input arguments.
-        total_frame, fps = video.num_frames, video.fps
-        start_frame, end_frame = 0, video.num_frames
+        # Init VideoReader
+        # Since v2.0.0, VideoReader will control most video-related varibles and functions.
         start_time, end_time = time_range
-        if start_time != None:
-            start_frame = max(0, int(start_time / 1000 * fps))
-        if end_time != None:
-            end_frame = min(int(end_time / 1000 * fps), total_frame)
-        if not 0 <= start_frame < end_frame:
-            raise ValueError("Invalid start time or end time.")
-
-        # Init videoReader
-        video_reader = ThreadVideoReader(video,
-                                         start_frame=start_frame,
-                                         iterations=end_frame - start_frame,
-                                         pre_func=partial(
-                                             preprocessing,
-                                             mask=mask,
-                                             resize_param=resize_param),
-                                         exp_frame=1,
+        video_warpper = OpenCVVideoWarpper
+        video_reader = ThreadVideoReader(video_warpper,
+                                         video_name,
+                                         mask_name,
+                                         resize_option,
+                                         start_time=start_time,
+                                         end_time=end_time,
+                                         grayscale=True,
+                                         exp_option=exp_option,
                                          merge_func=merge_func)
+        logger.info(video_reader.summary())
 
-        # Acquire exposure time and eqirvent FPS(eq_fps)
-        # SimpleStacker is left only for compatibility.
-        if getattr(cfg, "stacker", None) == "SimpleStacker":
-            logger.warning(
-                "Ignore the option \"exp_time\" when appling \"SimpleStacker\"."
-            )
-            exp_time, exp_frame, eq_fps, eq_int_fps = 1 / fps, 1, fps, int(fps)
-        else:
-            logger.info("Parsing \"exp_time\"=%s" % (exp_option))
-            exp_time = init_exp_time(exp_option, video_reader, upper_bound=0.5)
-            exp_frame, eq_fps, eq_int_fps = int(round(
-                exp_time * fps)), 1 / exp_time, floor(1 / exp_time)
+        # get properties of VideoReader
+        resize_param = transpose_wh(video_reader.runtime_size)
+        start_frame, end_frame = video_reader.start_frame, video_reader.end_frame
+        fps, exp_frame, eq_fps, eq_int_fps, exp_time = (
+            video_reader.fps, video_reader.exp_frame, video_reader.eq_fps,
+            video_reader.eq_int_fps, video_reader.exp_time)
 
-        min_time_flag = 1000 * exp_frame * eq_int_fps / fps
-        logger.info(
-            f"Apply exposure time of {exp_time:.2f}s. (MinTimeFlag = {min_time_flag})"
-        )
-        logger.info("Total frames = %d ; FPS = %.2f (rFPS = %.2f)" %
-                    (end_frame - start_frame, fps, eq_fps))
+        # wait for logger clear
+        while not logger.is_empty:
+            continue
+
         logger.info(
             f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
-        # Reset video reader for main progress.
-        video_reader.reset(start_frame=start_frame,
-                           iterations=end_frame - start_frame,
-                           exp_frame=exp_frame)
 
         # Init detector
         if cfg.detect_cfg.bi_cfg.sensitivity == "high":
             cfg.detect_cfg.max_gap = 10
-        cfg.detect_cfg.img_mask=mask
+        cfg.detect_cfg.img_mask = video_reader.mask
         detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
 
         # Init meteor collector
@@ -131,7 +82,7 @@ def detect_video(video_name,
 
         # TODO: alias, which is not elegant.
         # To be removed in the near future.
-        if meteor_cfg.get("pos_threshold",None):
+        if meteor_cfg.get("pos_threshold", None):
             meteor_cfg.det_thre = meteor_cfg.pos_threshold
             del meteor_cfg["pos_threshold"]
 
@@ -139,7 +90,7 @@ def detect_video(video_name,
                                   eframe=exp_frame,
                                   fps=fps,
                                   runtime_size=resize_param,
-                                  raw_size=video.size)
+                                  raw_size=video_reader.raw_size)
 
         # Init main iterator
         main_iterator = range(start_frame, end_frame, exp_frame)
@@ -182,8 +133,8 @@ def detect_video(video_name,
         logger.info('Video EOF detected.')
     finally:
         video_reader.stop()
+        video_reader.release()
         output_meteors(main_mc.clear())
-        video.release()
         cv2.destroyAllWindows()
         logger.info("Time cost: %.4ss." % (time.time() - t0))
         logger.stop()
@@ -192,9 +143,9 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V1.2.4')
-
-    parser.add_argument('target', help="input H264 video.")
+    parser = argparse.ArgumentParser(description='Meteor Detector V2.0.0')
+    # TODO: Add More Details.
+    parser.add_argument('target', help="input video. Support H264, HEVC, etc.")
     parser.add_argument('--cfg',
                         '-C',
                         help="Config file.",
@@ -265,21 +216,12 @@ if __name__ == "__main__":
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = EasyDict(json.load(f))
 
-    # 通过从旧配置生成preprocessing项，将旧风格的配置文件转换到新格式，实现兼容。
-    # convert old-style config to new format by adding preprocessing automatically.
-    if getattr(cfg, "preprocessing", None) == None:
-        cfg.preprocessing = dict(
-            exp_time=cfg.exp_time,
-            resize_param=cfg.resize_param,
-            merge_func=getattr(cfg, "stacker_cfg", dict()).get("pfunc", None),
-        )
-
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
     # replace config value
     if exp_time:
-        cfg.preprocessing.exp_time = exp_time
+        cfg.loader.exp_time = exp_time
     if resize_param:
-        cfg.preprocessing.resize_param = resize_param
+        cfg.loader.resize_param = resize_param
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."
@@ -290,8 +232,6 @@ if __name__ == "__main__":
         cfg.detect_cfg.bi_cfg.init_value = bi_thre
 
     # Preprocess start_time and end_time to int
-    start_time = timestr2int(start_time)
-    end_time = timestr2int(end_time)
 
     detect_video(video_name,
                  mask_name,

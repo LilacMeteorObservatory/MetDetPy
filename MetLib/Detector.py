@@ -28,6 +28,8 @@ def init_detector(name, detect_cfg, fps):
         window_size = int(detect_cfg["window_sec"] * fps)
         return M3Detector(window_size, detect_cfg)
 
+    raise NotImplementedError(f"Unimplement Detector: {name}")
+
 
 def DrawHist(src, mask, hist_num=256, threshold=0):
     """使用Opencv给给定的图像上绘制直方图。绘制的直方图大小和输入图像尺寸相当。
@@ -44,7 +46,7 @@ def DrawHist(src, mask, hist_num=256, threshold=0):
     src = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
     hist = cv2.calcHist([src], [0], mask, [hist_num],
                         [0, hist_num - 1])[:, 0] / np.sum(mask)
-    h, w = src.shape
+    h, w, c = src.shape
     bw = w / hist_num
     canvas = np.zeros_like(src, dtype=np.uint8)
     i = threshold
@@ -66,9 +68,9 @@ class RefEMA(EMA):
 
     def __init__(self, n, ref_mask, area=0) -> None:
         super().__init__(n)
-        h, w = ref_mask.shape
+        h, w, c = ref_mask.shape
         self.ref_img = np.zeros_like(ref_mask, dtype=float)
-        self.img_stack = np.zeros((n, h, w), dtype=np.uint8)
+        self.img_stack = np.zeros((n, h, w, c), dtype=np.uint8)
         self.std_interval = 2 * n
         self.timer = 0
         self.noise = 0
@@ -117,7 +119,7 @@ class RefEMA(EMA):
             _type_: _description_
         """
 
-        h, w = mask.shape
+        h, w, c = mask.shape
         sub_rate = area**(1 / 2)
         sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
         x1, y1 = 0, (w - sub_w) // 2
@@ -171,7 +173,7 @@ class StdMultiAreaEMA(EMA):
         return super().update(np.median(stds))
 
     def select_topk_subarea(self, mask, area, topk=1):
-        h, w = mask.shape
+        h, w, c = mask.shape
         sub_rate = area**(1 / 2)
         slide_n = np.floor(1 / sub_rate)
         best_cor = (slide_n - 1) / 2
@@ -268,7 +270,10 @@ class BaseDetector(object):
 
 
 class ClassicDetector(BaseDetector):
-    '''基于日本人版本实现的检测器类别。'''
+    '''[uzanka-based detector](https://github.com/uzanka/MeteorDetector), in python.
+
+    by: uzanka(https://github.com/uzanka)
+    '''
 
     # 必须包含的参数
     # bi_threshold line_threshold self.max_gap
@@ -365,12 +370,14 @@ class M3Detector(BaseDetector):
         diff_img = cv2.medianBlur(diff_img, 3)
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
-        
+
         # 以前曾用过下列两个函数改善误检情况，现因效果不明显，暂时转为弃用。
         #dst = cv2.medianBlur(dst, 3)
         #dst = cv2.morphologyEx(dst, cv2.MORPH_OPEN, self.cv_op)
-        
+
         dst = cv2.morphologyEx(dst, cv2.MORPH_CLOSE, self.cv_op)
+        # TODO: 加入通道维之后需要修正dst
+        if len(dst.shape) == 2: dst = dst[:, :, None]
 
         # if "dynamic_mask" is applied, stack and mask dst
         if self.dynamic_mask:
@@ -383,13 +390,14 @@ class M3Detector(BaseDetector):
                        dtype=np.uint8), self.dy_mask_list.length - 1, 1,
                 cv2.THRESH_BINARY_INV)[-1]
             dy_mask = cv2.erode(dy_mask, self.cv_op)
+            # TODO: 加入通道维之后需要修正
+            if len(dy_mask.shape) == 2: dy_mask = dy_mask[:, :, None]
             dst = dy_mask * dst
 
         # 曾使用dilate放大微弱检测。
         # 有助于改善暗弱流星的检测，但可能会引起更多误报。
         #dst = cv2.dilate(dst, self.cv_op)
-        
-        
+
         # dynamic_gap机制
         # 根据产生的响应比例适量减少gap
         # 一定程度上能够改善对低信噪比场景的误检
@@ -407,9 +415,9 @@ class M3Detector(BaseDetector):
 
         # 如果产生的响应数目非常多（按照经验取值500），忽略该帧
         lines_num = len(linesp)
-        if lines_num > 500: 
+        if lines_num > 500:
             linesp = np.array([])
-        
+
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
         # 这一步骤会造成一些暗弱流星的丢失。
         if len(linesp) > 0:
@@ -423,7 +431,7 @@ class M3Detector(BaseDetector):
             #    print(dst[line_pt[1], line_pt[0]])
             linesp = linesp[line_score > self.fill_thre]
             lines_num = len(linesp)
-        
+
         texts = [(f"Line num: {lines_num}", (0, 255, 0)),
                  (f"Diff Area: {dst_sum:.2f}%", (0, 255, 0))]
         if lines_num > 10:
