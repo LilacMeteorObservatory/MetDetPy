@@ -82,6 +82,10 @@ class Transform(object):
 class MergeFunction(object):
 
     @classmethod
+    def not_merge(cls, image_stack):
+        return image_stack[0]
+
+    @classmethod
     def max(cls, image_stack):
         return np.max(image_stack, axis=0, keepdims=True)[0]
 
@@ -156,17 +160,15 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int], raw_wh: list):
     if isinstance(tgt_wh, str):
         try:
             # if str, tgt_wh is from args.
-            if ":" in tgt_wh or "x" in tgt_wh.lower():
-                if ":" in tgt_wh:
-                    tgt_wh = list(map(int, tgt_wh.split(":")))
-                else:
-                    tgt_wh = list(map(int, tgt_wh.lower().split("x")))
+            if "x" in tgt_wh.lower():
+                tgt_wh = list(map(int, tgt_wh.lower().split("x")))
             else:
                 tgt_wh = int(tgt_wh)
         except Exception as e:
-            raise e("Unexpected values for argument \"--resize\".\
-                 Input should be either one integer or two integers separated by \":\"(to be deprecated) or \"x\"."
-                    % tgt_wh)
+            raise Exception(
+                f"{e}: unexpected values for argument \"--resize\".\
+                 Input should be either one integer or two integers separated by \"x\"."
+                % tgt_wh)
     if isinstance(tgt_wh, int):
         tgt_wh = [tgt_wh, -1] if w > h else [-1, tgt_wh]
     if isinstance(tgt_wh, (list)):

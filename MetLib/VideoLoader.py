@@ -1,14 +1,16 @@
+import queue
 import threading
 import time
 from abc import ABCMeta, abstractmethod
 from math import floor
-from typing import Union, Optional, Type
+from typing import Optional, Type, Union
 
 import numpy as np
 
-from .utils import (init_exp_time, load_8bit_image, MergeFunction,
-                    parse_resize_param, timestr2int, transpose_wh, Transform)
 from .MetLog import get_default_logger
+from .utils import (MergeFunction, Transform, init_exp_time, load_8bit_image,
+                    parse_resize_param, timestr2int, transpose_wh)
+from .VideoWarpper import BaseVideoWarpper
 
 UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
@@ -26,7 +28,7 @@ class BaseVideoReader(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def reset(self):
+    def reset(self, start_frame=None, end_frame=None):
         pass
 
     @abstractmethod
@@ -88,7 +90,7 @@ class VanillaVideoReader(BaseVideoReader):
     """
 
     def __init__(self,
-                 video_warpper: Type[BaseVideoReader],
+                 video_warpper: Type[BaseVideoWarpper],
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list, str, None] = None,
@@ -96,7 +98,7 @@ class VanillaVideoReader(BaseVideoReader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  exp_option: Union[int, float, str] = "auto",
-                 merge_func: str = None,
+                 merge_func: str = "not_merge",
                  **kwargs) -> None:
         """
         VanillaVideoReader is a basic class that can be used to load a video.
@@ -120,8 +122,7 @@ class VanillaVideoReader(BaseVideoReader):
         # init necessary variables
         self.logger = get_default_logger()
         self.status = True
-        self.stopped = True
-        self.frame_pool = []
+        self.read_stopped = True
 
         # load video and mask
         self.video = video_warpper(video_name)
@@ -137,13 +138,9 @@ class VanillaVideoReader(BaseVideoReader):
         self.reset(start_frame, end_frame, exp_frame=DEFAULT_EXPOSURE_FRAME)
 
         # construct merge function
-        # self.merge_func can be None, since it is not applied when exp_frame=1
-        if merge_func:
-            self.merge_func = getattr(MergeFunction, merge_func, None)
-            assert self.merge_func, NameError(
-                f"Unsupported merge function name: {merge_func}.")
-        else:
-            self.merge_func = None
+        self.merge_func = getattr(MergeFunction, merge_func, None)
+        assert self.merge_func is not None, NameError(
+            f"Unsupported merge function name: {merge_func}.")
 
         # Generate preprocessing function
         # Resize, Mask are Must-to-do things, while grayscale is selective.
@@ -162,6 +159,10 @@ class VanillaVideoReader(BaseVideoReader):
                                       self,
                                       upper_bound=UP_EXPOSURE_BOUND)
         self.exp_frame = int(round(self.exp_time * self.fps))
+
+        assert not (
+            self.merge_func == MergeFunction.not_merge and self.exp_frame != 1
+        ), "Cannot \"not_merge\" frames when num of exposure frames > 1. Please specify a merge function."
 
     def load_mask(self, mask_fname: Union[str, None]):
         """从给定路径加载mask，并根据video尺寸及是否单色(grayscale)转换mask。
@@ -188,7 +189,7 @@ class VanillaVideoReader(BaseVideoReader):
 
     def start(self):
         self.cur_iter = self.iterations
-        self.stopped = False
+        self.read_stopped = False
         self.video.set_to(self.start_frame)
 
     # TODO: 名字也改一下
@@ -198,10 +199,13 @@ class VanillaVideoReader(BaseVideoReader):
               exp_frame: Union[int, None] = None,
               reset_time_attr: bool = False):
         """设置VideoLoader的起始，结束时间帧及单次曝光持续帧数。
+        
+        需要注意的是，仅在VideoReader.start()之后才真正对输入视频设置位置。
+
         Args:
             frame (_type_): _description_
         """
-        assert self.stopped, f"Cannot reset a running {self.__class__.__name__}."
+        assert self.read_stopped, f"Cannot reset a running {self.__class__.__name__}."
 
         if start_frame != None:
             self.start_frame = max(0, start_frame)
@@ -217,18 +221,18 @@ class VanillaVideoReader(BaseVideoReader):
             self.start_time = self.start_frame / self.fps
             self.end_time = self.end_frame / self.fps
         self.iterations = self.end_frame - self.start_frame
-        self.stopped = True
+        self.read_stopped = True
 
         self.logger.debug(
             f"set start_frame to {self.start_frame}; end_frame to {self.end_frame}."
         )
 
     def pop(self):
-        self.frame_pool = []
+        frame_pool = []
         for _ in range(self.exp_frame):
             status, frame = self.video.read()
             if status:
-                self.frame_pool.append(self.preprocess(frame))
+                frame_pool.append(self.preprocess(frame))
             else:
                 self.stop()
                 break
@@ -236,18 +240,23 @@ class VanillaVideoReader(BaseVideoReader):
         if self.cur_iter <= 0: self.stop()
 
         if self.exp_frame == 1:
-            return self.frame_pool[0]
-        return self.merge_func(self.frame_pool)
+            return frame_pool[0]
+        return self.merge_func(frame_pool)
 
     def stop(self):
         self.logger.debug("Video stop triggered.")
-        self.stopped = True
+        # 原始实现是非异步的，因此stopped触发时必定已经结束
+        self.read_stopped = True
 
     def release(self):
         self.video.release()
 
     @property
-    def fps(self):
+    def stopped(self) -> bool:
+        return self.read_stopped
+
+    @property
+    def fps(self) -> float:
         return self.video.fps
 
     @property
@@ -278,10 +287,6 @@ class VanillaVideoReader(BaseVideoReader):
             f"(MinTimeFlag = {1000 * self.exp_frame * self.eq_int_fps / self.fps})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
-    @property
-    def is_empty(self) -> bool:
-        return len(self.frame_pool) == 0
-
 
 class ThreadVideoReader(VanillaVideoReader):
     """ 
@@ -297,7 +302,7 @@ class ThreadVideoReader(VanillaVideoReader):
         preprocess (func): the preprocessing function that only takes frames[ndarray] 
                     as the only arguments. You can use functools.partical to 
                     construct such a function.
-        max_poolsize (int, optional): the max size of the frame buffer. Defaults to 30.
+        maxsize (int, optional): the max size of the frame buffer. Defaults to 30.
     
     ## Usage
 
@@ -311,7 +316,7 @@ class ThreadVideoReader(VanillaVideoReader):
     """
 
     def __init__(self,
-                 video_warpper: Type[BaseVideoReader],
+                 video_warpper: Type[BaseVideoWarpper],
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list, str, None] = None,
@@ -319,50 +324,42 @@ class ThreadVideoReader(VanillaVideoReader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  exp_option: Union[int, float, str] = "auto",
-                 merge_func: str = None,
-                 max_poolsize: int = 32,
+                 merge_func: str = "not_merge",
+                 maxsize: int = 32,
                  **kwargs) -> None:
-        self.max_poolsize = max_poolsize
-        self.lock_write = threading.Lock()
-        self.lock_read = threading.Lock()
+        # 对于ThreadVideoReader，使用Queue管理
+        self.maxsize = maxsize
+        self.frame_pool = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_warpper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, exp_option,
                          merge_func)
 
+    def clear_frame_pool(self):
+        while not self.frame_pool.empty():
+            self.frame_pool.get()
+
     def start(self):
-        self.frame_pool = []
-        self.stopped = False
+        self.clear_frame_pool()
+        self.read_stopped = False
         self.status = True
         self.video.set_to(self.start_frame)
-        self.lock_read.acquire()
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.setDaemon(True)
         self.thread.start()
         return self
 
     def pop(self):
-        if (len(self.frame_pool) == 0 and self.stopped):
+        if self.stopped:
             # this is abnormal. so the video file will be released here.
             self.video.release()
             self.thread.join()
             raise Exception(
                 f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
             )
-
-        # 仅在读取未结束时需要读取锁
-        if not self.stopped:
-            self.lock_read.acquire()
-        # 缓冲区满时不需要获取写入锁
-        if len(self.frame_pool) <= self.max_poolsize:
-            self.lock_write.acquire()
-
-        ret = self.frame_pool[:self.exp_frame]
-        self.frame_pool = self.frame_pool[self.exp_frame:]
-
-        self.lock_write.release()
-
-        if self.exp_frame == 1:
-            return ret[0]
+        ret = []
+        for i in range(self.exp_frame):
+            if self.stopped: break
+            ret.append(self.frame_pool.get(timeout=2))
         return self.merge_func(ret)
 
     def load_a_frame(self):
@@ -374,19 +371,7 @@ class ThreadVideoReader(VanillaVideoReader):
         self.status, self.cur_frame = self.video.read()
         if self.status:
             self.processed_frame = self.preprocess(self.cur_frame)
-
-            # 缓冲区已满时禁止写入
-            if len(self.frame_pool) > self.max_poolsize and (not self.stopped):
-                self.lock_write.acquire()
-            self.lock_write.acquire()
-
-            self.frame_pool.append(self.processed_frame)
-
-            # 缓冲区已有足够帧数时释放读取锁
-            self.lock_write.release()
-            if self.lock_read.locked() and len(
-                    self.frame_pool) >= self.exp_frame:
-                self.lock_read.release()
+            self.frame_pool.put(self.processed_frame, timeout=2)
             return True
         else:
             self.stop()
@@ -395,19 +380,21 @@ class ThreadVideoReader(VanillaVideoReader):
     def videoloop(self):
         try:
             for i in range(self.iterations):
-
-                if self.stopped or not self.status: break
+                if self.read_stopped or not self.status: break
                 if not self.load_a_frame():
                     break
         finally:
             self.stop()
 
     def stop(self):
-        if not self.stopped:
+        if not self.read_stopped:
             super().stop()
 
-        # unlock
-        if self.lock_read.locked():
-            self.lock_read.release()
-        if self.lock_write.locked():
-            self.lock_write.release()
+    @property
+    def stopped(self) -> bool:
+        """当已经读取完毕时触发。
+        """
+        return self.read_stopped and self.frame_pool.empty()
+
+    def is_empty(self):
+        return self.frame_pool.empty()

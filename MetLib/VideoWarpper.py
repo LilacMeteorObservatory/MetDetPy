@@ -6,7 +6,7 @@ VideoWarpper对读取视频的API进行初步包装, 使VideoLoader能够使用�
 """
 
 import cv2
-#import acapture
+from typing import Union
 from abc import ABCMeta, abstractmethod
 
 class BaseVideoWarpper(metaclass=ABCMeta):
@@ -32,33 +32,33 @@ class BaseVideoWarpper(metaclass=ABCMeta):
 
     """
 
-    def __init__(self) -> None:
+    def __init__(self, video_name) -> None:
         pass
 
     @property
     @abstractmethod
-    def fps(self):
+    def fps(self)->float:
         pass
 
     @property
     @abstractmethod
-    def num_frames(self):
+    def num_frames(self)->int:
         pass
 
     @property
     @abstractmethod
-    def size(self):
+    def size(self)->list:
         pass
 
     @abstractmethod
-    def set_to(self):
+    def set_to(self, frame):
         pass
 
     def release(self):
         pass
 
     @abstractmethod
-    def read(self):
+    def read(self)->Union[tuple, list]:
         pass
 
 

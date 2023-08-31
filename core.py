@@ -109,8 +109,7 @@ def detect_video(video_name,
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
                 logger.processing(int(1000 * i / fps))
-
-            if video_reader.stopped and video_reader.is_empty:
+            if video_reader.stopped:
                 break
 
             detector.update(video_reader.pop())
@@ -215,7 +214,7 @@ if __name__ == "__main__":
     resize_param = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = EasyDict(json.load(f))
-
+        
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
     # replace config value
     if exp_time:

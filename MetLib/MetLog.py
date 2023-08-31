@@ -2,6 +2,7 @@
 """
 import time
 import threading
+import queue
 
 level_header = ("Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor")
 
@@ -57,17 +58,17 @@ class ThreadMetLog(BaseMetLog):
     def __init__(self, pipe=print,flush=True, log_level=LV_INFO) -> None:
         self.log_level = log_level
         self.print = pipe
-        self.log_pool = []
+        self.log_pool = queue.Queue()
         self.thread = threading.Thread(target=self.log_loop, args=())
         self.stopped = True
         # how to support other stdout func?
         # TODO: fix this.
         self.flush=flush
         self.wait_interval = 0.02
-        self.lock = threading.Lock()
+
     @property
     def is_empty(self):
-        return len(self.log_pool) == 0
+        return self.log_pool.empty()
 
     @property
     def is_stopped(self):
@@ -76,18 +77,14 @@ class ThreadMetLog(BaseMetLog):
     def log_loop(self):
         while not (self.stopped and self.is_empty):
             time.sleep(self.wait_interval)
-            while len(self.log_pool) > 0:
-                self.lock.acquire()
-                cur_log = self.log_pool.pop(0)
-                self.lock.release()
-                lv, string = cur_log
-                self.print(f"{level_header[lv]}: {string}",flush=self.flush)
+            cur_log = self.log_pool.get()
+            lv, string = cur_log
+            self.print(f"{level_header[lv]}: {string}",flush=self.flush)
+        self.log_pool.task_done()
 
     def log(self, level, string):
         if level >= self.log_level:
-            self.lock.acquire()
-            self.log_pool.append([level, string])
-            self.lock.release()
+            self.log_pool.put([level, string])
 
     def start(self):
         self.stopped = False
