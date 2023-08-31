@@ -56,7 +56,7 @@ def main():
         "--png-compressing",
         type=int,
         help=
-        "the compressing of generated png image. It should be int ranged Z \in [0,9];\
+        "the compressing of generated png image. It should be int ranged Z in [0,9];\
             By default, it is 3.",
         default=3)
 
@@ -64,7 +64,7 @@ def main():
         "--jpg-quality",
         type=int,
         help=
-        "the quality of generated jpg image. It should be int ranged Z \in [0,100];\
+        "the quality of generated jpg image. It should be int ranged Z in [0,100];\
             By default, it is 95.",
         default=95)
 

@@ -285,7 +285,7 @@ class ClassicDetector(BaseDetector):
     def detect(self):
         # 短于4帧时不进行判定
         if len(self.stack) < self.stack_maxsize:
-            return False, [], self.stack[-1]
+            return [], self.stack[-1]
         # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
         diff23 = cv2.absdiff(self.stack[2], self.stack[3])
         _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
