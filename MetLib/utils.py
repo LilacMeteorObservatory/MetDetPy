@@ -1,7 +1,7 @@
 import datetime
 import warnings
 from functools import partial
-from typing import Union, List, Callable
+from typing import Union, List, Callable, Any
 
 import cv2
 import numpy as np
@@ -26,24 +26,24 @@ class Transform(object):
     """
 
     @classmethod
-    def opencv_resize(cls, dsize, **kwargs):
+    def opencv_resize(cls, dsize, **kwargs) -> Callable:
         interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
         return partial(cv2.resize, dsize=dsize, interpolation=interpolation)
 
     @classmethod
-    def mask_with(cls, mask):
+    def mask_with(cls, mask) -> Callable:
         return lambda img: img * mask
 
     @classmethod
-    def opencv_BGR2GRAY(cls):
+    def opencv_BGR2GRAY(cls) -> Callable:
         return partial(cv2.cvtColor, code=cv2.COLOR_BGR2GRAY)
 
     @classmethod
-    def opencv_RGB2GRAY(cls):
+    def opencv_RGB2GRAY(cls) -> Callable:
         return partial(cv2.cvtColor, code=cv2.COLOR_RGB2GRAY)
 
     @classmethod
-    def expand_3rd_channel(cls, num):
+    def expand_3rd_channel(cls, num) -> Callable:
         """将单通道灰度图像通过Repeat方式映射到多通道图像。
         """
         assert isinstance(num, int)
@@ -52,7 +52,7 @@ class Transform(object):
         return lambda img: np.repeat(img[:, :, None], num, axis=-1)
 
     @classmethod
-    def opencv_binary(cls, threshold, maxval=255, inv=False):
+    def opencv_binary(cls, threshold, maxval=255, inv=False) -> Callable:
 
         def opencv_threshold_1ret(img):
             return cv2.threshold(
@@ -64,7 +64,7 @@ class Transform(object):
         return opencv_threshold_1ret
 
     @classmethod
-    def compose(cls, trans_func: List[Callable]):
+    def compose(cls, trans_func: List[Callable]) -> Callable:
         """接受一个函数的列表，返回一个compose的函数，顺序执行指定的变换。
 
         Args:
@@ -151,7 +151,8 @@ def sigma_clip(sequence, sigma=3.00):
         mean, std = updated_mean, updated_std
 
 
-def parse_resize_param(tgt_wh: Union[None, list, str, int], raw_wh: list):
+def parse_resize_param(tgt_wh: Union[None, list, str, int],
+                       raw_wh: Union[list, tuple]):
     # (该函数返回的wh是OpenCV风格的，即w, h)
     #TODO: fix poor English
     if tgt_wh == None:

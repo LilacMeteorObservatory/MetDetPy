@@ -2,7 +2,7 @@
     "loader": {
         "name":"ThreadVideoReader",
         "warpper":"OpenCVVideoWarpper",
-        "resize_param": 960,
+        "resize": 960,
         "exp_time": "auto",
         "merge_func": "max"
     },

@@ -16,8 +16,66 @@ UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
 
 
-class BaseVideoReader(metaclass=ABCMeta):
-    """TODO: Add note for this.
+class BaseVideoLoader(metaclass=ABCMeta):
+    """ 
+    # BaseVideoLoader
+
+    BaseVideoLoader is an abstract base class of VideoLoader. You can inherit BaseVideoLoader to implement your VideoLoader.
+
+    VideoLoader class handles the whole video-to-frame process, which should include: 
+    1. mask loading; 
+    2. running-time video resolution option parsing; 
+    3. preprocessing pipeline building; 
+    4. exposure time estimation.
+
+    notice: It is advised to use a VideoWarpper to load video,\
+        since all VideoWarpper(s) share the same basic APIs \
+        (so that it is easy to support other kinds of video sources by replacing VideoWarpper).
+
+    ## What VideoLoader should support
+    ### Property
+    #### video attributes
+        video_total_frames ([int]): num of total frames of the video.
+        raw_size (Union[list, tuple]): the raw image/video resolution, in [w, h] order.
+        runntime_size (Union[list, tuple]): the running image/video resolution, in [w, h] order.
+        fps (float): fps of the video. 
+    
+    #### reading attributes
+        start_time (int): the time (in ms) that VideoReader starts reading.
+        end_time (int): the time (in ms) that VideoReader ends reading.
+        start_frame (int): the start frame that is corresponding to the start_time.
+        end_frame (int): the end frame that is corresponding to the end_time.
+        iterations (int): the number of frames that is to be read.
+
+    #### equivalent exposure time and equivalent fps
+        exp_time (float): calculated exposure time (or is set through exp_option).
+        exp_frame (int): the number of continuous frames that can be considered as the same frame that lasts.
+        eq_fps (float): equivalent fps (based on exp_time instead of fps from metadata).
+        eq_int_fps (int): integer of eq_fps.
+    
+    #### others
+        mask (np.ndarray): the mask used in reading.
+        cur_frame (np.ndarray): The last frame being read out.
+        stopped (bool): return True if all frames are read, otherwise False.
+
+    #### Method
+        start(): start video loading.
+        stop(): end video loading.
+        reset(start_frame=None, end_frame=None): reset reading status of VideoLoader(include the start frame, \
+                                                the end frame, the num of exposure frames, etc.)
+        pop(): return a processed frame that can be directly used for detection.
+        release(): release the video. Triggered when the program finishes.
+        summary(): return the basic information about the VideoLoader.
+    
+    ## Usage
+
+    All of VideoLoader (take T=VideoLoader(args,kwargs) as an example) classes should be designed and 
+    utilized following these instructions:
+    
+    1. Call .start() method before using it. eg. : T.start()
+    2. Pop 1 frame from its frame_pool with the .pop() method.
+    3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
+       Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
 
     def __init__(self) -> None:
@@ -59,29 +117,29 @@ class BaseVideoReader(metaclass=ABCMeta):
         pass
 
 
-class VanillaVideoReader(BaseVideoReader):
+class VanillaVideoLoader(BaseVideoLoader):
     """ 
-    # VanillaVideoReader
-    This class is used to load the video from the file.
+    # VanillaVideoLoader
+    VanillaVideoLoader is a basic implementation that loads the video from the file.
 
-    In this basic implementation, video are loaded every time .pop() method is called, 
-    which is an block file IO implementation.
-
+    In this implementation, the video is only read when the pop method is called,\
+        which can suffer from file IO blocking.
     ## Args:
-        video_warpper (BaseVideoWarpper): The type of videowarpper.
-        video_name (str): The filename of the video.
-        start_frame (int): The start frame of the video.
-        iterations (int): The total number of frames that are going to load.
-        preprocess (Callable): the preprocessing function that only takes frames[ndarray] as the only argument. 
-                            You can use functools.partical to construct such a function.
-        exp_frame (int): _description_
-        merge_func (Callable): the preprocessing function that merges several frames to one frame. Take only 1 argument. 
-                            You can use functools.partical to construct such a function.
-    
+        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_name (str): the filename of the video.
+        mask_name (Optional[str]): the filename of the mask. The default is None.
+        resize_option (Union[int, list, str, None]): resize option from input. The default is None.
+        start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
+        exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
+        **kwargs: compatibility design to support other arguments. 
+            VanilliaVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
+
     ## Usage
 
-    All of VideoReader (take T=VideoReader(args,kwargs) as an example) classes should be designed and 
-    utilized following these instructions:
+    VanillaVideoLoader can be utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
     2. Pop 1 frame from its frame_pool with the .pop() method.
@@ -101,25 +159,33 @@ class VanillaVideoReader(BaseVideoReader):
                  merge_func: str = "not_merge",
                  **kwargs) -> None:
         """
-        VanillaVideoReader is a basic class that can be used to load a video.
+        # VanillaVideoLoader
+        VanillaVideoLoader is a basic implementation that loads the video from the file.
+
+        In this implementation, the video is only read when the pop method is called,\
+            which can suffer from file IO blocking.
 
         ## Args:
-            video_warpper (BaseVideoWarpper): The type of videowarpper.
-            video_name (str): The filename of the video.
-            start_frame (int): The start frame of the video.
-            iterations (int): The total number of frames that are going to load.
-            exp_frame (int): _description_
-            merge_func (Callable): the preprocessing function that merges several frames to one frame. Take only 1 argument. 
-                             You can use functools.partical to construct such a function.
+            video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+            video_name (str): the filename of the video.
+            mask_name (Optional[str]): the filename of the mask. The default is None.
+            resize_option (Union[int, list, str, None]): resize option from input. The default is None.
+            start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+            end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+            grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
+            exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+            merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
+            **kwargs: compatibility design to support other arguments. 
+                VanilliaVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
 
         ## Raises:
             NameError: Raised when asking for a undefined merge function.
         """
+
+        # init necessary variables
         self.video_name = video_name
         self.mask_name = mask_name
         self.grayscale = grayscale
-
-        # init necessary variables
         self.logger = get_default_logger()
         self.status = True
         self.read_stopped = True
@@ -154,7 +220,8 @@ class VanillaVideoReader(BaseVideoReader):
         if self.mask_name:
             preprocess.append(Transform.mask_with(self.mask))  # type: ignore
         self.preprocess = Transform.compose(preprocess)
-        # 计算曝光时间 & 曝光帧数
+
+        # init exposure time (exp_time) and exposure frame (exp_frame)
         self.exp_time = init_exp_time(exp_option,
                                       self,
                                       upper_bound=UP_EXPOSURE_BOUND)
@@ -164,14 +231,14 @@ class VanillaVideoReader(BaseVideoReader):
             self.merge_func == MergeFunction.not_merge and self.exp_frame != 1
         ), "Cannot \"not_merge\" frames when num of exposure frames > 1. Please specify a merge function."
 
-    def load_mask(self, mask_fname: Union[str, None]):
-        """从给定路径加载mask，并根据video尺寸及是否单色(grayscale)转换mask。
+    def load_mask(self, mask_fname: Union[str, None]) -> np.ndarray:
+        """Load mask from the given path `mask_fname` and rescale it.
 
         Args:
-            mask_fname (str): mask路径
+            mask_fname (str): path to the mask.
 
         Returns:
-            _type_: _description_
+            np.ndarray: the resized mask.
         """
         if mask_fname == None:
             return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
@@ -183,7 +250,7 @@ class VanillaVideoReader(BaseVideoReader):
             mask = mask[:, :, -1:]
         mask_transforms.extend(
             [Transform.opencv_binary(128, 1),
-             Transform.expand_3rd_channel(1)])  # type: ignore
+             Transform.expand_3rd_channel(1)])
 
         return Transform.compose(mask_transforms)(mask)
 
@@ -192,18 +259,20 @@ class VanillaVideoReader(BaseVideoReader):
         self.read_stopped = False
         self.video.set_to(self.start_frame)
 
-    # TODO: 名字也改一下
     def reset(self,
               start_frame: Union[int, None] = None,
               end_frame: Union[int, None] = None,
               exp_frame: Union[int, None] = None,
-              reset_time_attr: bool = False):
-        """设置VideoLoader的起始，结束时间帧及单次曝光持续帧数。
+              reset_time_attr: bool = True):
+        """set `start_frame`, `end_frame`, and `exp_frame` of VideoReader.
         
-        需要注意的是，仅在VideoReader.start()之后才真正对输入视频设置位置。
+        Notice: `reset` is a lazy method. The start position is reset when the `start` method is called.
 
         Args:
-            frame (_type_): _description_
+            start_frame (Union[int, None], optional): the start frame of the video. Defaults to None.
+            end_frame (Union[int, None], optional): the end frame of the video. Defaults to None.
+            exp_frame (Union[int, None], optional): the exposure frame of the video. Defaults to None.
+            reset_time_attr (bool, optional): whether to reset time attributes of VideoLoader. Defaults to True.
         """
         assert self.read_stopped, f"Cannot reset a running {self.__class__.__name__}."
 
@@ -227,12 +296,17 @@ class VanillaVideoReader(BaseVideoReader):
             f"set start_frame to {self.start_frame}; end_frame to {self.end_frame}."
         )
 
-    def pop(self):
+    def pop(self) -> np.ndarray:
+        """pop a frame that can be used for detection.
+
+        Returns:
+            np.ndarray: processed frame.
+        """
         frame_pool = []
         for _ in range(self.exp_frame):
-            status, frame = self.video.read()
+            status, self.cur_frame = self.video.read()
             if status:
-                frame_pool.append(self.preprocess(frame))
+                frame_pool.append(self.preprocess(self.cur_frame))
             else:
                 self.stop()
                 break
@@ -245,7 +319,6 @@ class VanillaVideoReader(BaseVideoReader):
 
     def stop(self):
         self.logger.debug("Video stop triggered.")
-        # 原始实现是非异步的，因此stopped触发时必定已经结束
         self.read_stopped = True
 
     def release(self):
@@ -260,24 +333,22 @@ class VanillaVideoReader(BaseVideoReader):
         return self.video.fps
 
     @property
-    def video_total_frames(self):
+    def video_total_frames(self) -> int:
         return self.video.num_frames
 
     @property
-    def raw_size(self):
-        """The size of the input video in [w, h] format.
-        """
+    def raw_size(self) -> Union[list, tuple]:
         return self.video.size
 
     @property
-    def eq_fps(self):
+    def eq_fps(self) -> float:
         return 1 / self.exp_time
 
     @property
-    def eq_int_fps(self):
+    def eq_int_fps(self) -> int:
         return floor(self.eq_fps)
 
-    def summary(self):
+    def summary(self) -> str:
         return f"{self.__class__.__name__} summary:\n"+\
             f"    Video path: \"{self.video_name}\";"+\
             (f" Mask path: \"{self.mask_name}\";" if self.mask_name else "Mask: None")+ "\n" +\
@@ -288,25 +359,29 @@ class VanillaVideoReader(BaseVideoReader):
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
 
-class ThreadVideoReader(VanillaVideoReader):
+class ThreadVideoLoader(VanillaVideoLoader):
     """ 
-    # ThreadVideoReader
+    # ThreadVideoLoader
     This class is used to load the video from the file with an independent subthread.  
-    ThreadVideoReader can partly solve I/O blocking and provide speedup.
+    ThreadVideoLoader can partly solve I/O blocking and provide speedup.
 
     ## Args:
-
-        video (Any): The video object that supports .read() method to load the next frame. 
-                    We recommend to use cv2.VideoCapture object.
-        iterations (int): The number of frames that are going to load.
-        preprocess (func): the preprocessing function that only takes frames[ndarray] 
-                    as the only arguments. You can use functools.partical to 
-                    construct such a function.
-        maxsize (int, optional): the max size of the frame buffer. Defaults to 30.
+        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_name (str): the filename of the video.
+        mask_name (Optional[str]): the filename of the mask. The default is None.
+        resize_option (Union[int, list, str, None]): resize option from input. The default is None.
+        start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
+        exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
+        maxsize (int): the maxsize of the video buffer queue. The default is 32.
+        **kwargs: compatibility design to support other arguments. 
+            ThreadVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
     
     ## Usage
 
-    All of VideoReader (take T=VideoReader(args,kwargs) as an example) classes should be designed and 
+    All of VideoLoader (take T=VideoLoader(args,kwargs) as an example) classes should be designed and 
     utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
@@ -327,14 +402,17 @@ class ThreadVideoReader(VanillaVideoReader):
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
                  **kwargs) -> None:
-        # 对于ThreadVideoReader，使用Queue管理
+        # Queue is used in ThreadVideoReader to manage frame_pool
+        # TODO: maybe I should change a name...?
         self.maxsize = maxsize
         self.frame_pool = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_warpper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, exp_option,
-                         merge_func)
+                         merge_func, **kwargs)
 
     def clear_frame_pool(self):
+        """clear queue.
+        """
         while not self.frame_pool.empty():
             self.frame_pool.get()
 
@@ -350,7 +428,7 @@ class ThreadVideoReader(VanillaVideoReader):
 
     def pop(self):
         if self.stopped:
-            # this is abnormal. so the video file will be released here.
+            # this is abnormal. so the video file will be released manuly here.
             self.video.release()
             self.thread.join()
             raise Exception(
@@ -392,8 +470,6 @@ class ThreadVideoReader(VanillaVideoReader):
 
     @property
     def stopped(self) -> bool:
-        """当已经读取完毕时触发。
-        """
         return self.read_stopped and self.frame_pool.empty()
 
     def is_empty(self):

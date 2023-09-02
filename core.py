@@ -13,7 +13,7 @@ from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.utils import transpose_wh, output_meteors
-from MetLib.VideoLoader import ThreadVideoReader, VanillaVideoReader
+from MetLib.VideoLoader import ThreadVideoLoader, VanillaVideoLoader
 
 
 def detect_video(video_name,
@@ -32,15 +32,15 @@ def detect_video(video_name,
         t0 = time.time()
 
         # parse preprocessing params
-        resize_option = cfg.loader.resize_param
+        resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
         merge_func = cfg.loader.merge_func
 
-        # Init VideoReader
-        # Since v2.0.0, VideoReader will control most video-related varibles and functions.
+        # Init VideoLoader
+        # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         start_time, end_time = time_range
         video_warpper = OpenCVVideoWarpper
-        video_reader = ThreadVideoReader(video_warpper,
+        video_reader = ThreadVideoLoader(video_warpper,
                                          video_name,
                                          mask_name,
                                          resize_option,
@@ -51,8 +51,7 @@ def detect_video(video_name,
                                          merge_func=merge_func)
         logger.info(video_reader.summary())
 
-        # get properties of VideoReader
-        resize_param = transpose_wh(video_reader.runtime_size)
+        # get properties of VideoLoader
         start_frame, end_frame = video_reader.start_frame, video_reader.end_frame
         fps, exp_frame, eq_fps, eq_int_fps, exp_time = (
             video_reader.fps, video_reader.exp_frame, video_reader.eq_fps,
@@ -89,7 +88,7 @@ def detect_video(video_name,
         main_mc = MeteorCollector(**meteor_cfg,
                                   eframe=exp_frame,
                                   fps=fps,
-                                  runtime_size=resize_param,
+                                  runtime_size=video_reader.runtime_size,
                                   raw_size=video_reader.raw_size)
 
         # Init main iterator
@@ -211,7 +210,7 @@ if __name__ == "__main__":
     start_time = args.start_time
     end_time = args.end_time
     exp_time = args.exp_time
-    resize_param = args.resize
+    resize = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg = EasyDict(json.load(f))
         
@@ -219,8 +218,8 @@ if __name__ == "__main__":
     # replace config value
     if exp_time:
         cfg.loader.exp_time = exp_time
-    if resize_param:
-        cfg.loader.resize_param = resize_param
+    if resize:
+        cfg.loader.resize = resize
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."
