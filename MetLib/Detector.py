@@ -435,5 +435,5 @@ class M3Detector(BaseDetector):
         texts = [(f"Line num: {lines_num}", (0, 255, 0)),
                  (f"Diff Area: {dst_sum:.2f}%", (0, 255, 0))]
         if lines_num > 10:
-            texts.append((f"WARNING: TOO MANY LINES!", (0, 0, 255)))
+            texts.append(("WARNING: TOO MANY LINES!", (0, 0, 255)))
         return linesp, self.draw_light_on_bg(light_img, dst, extra_info=texts)

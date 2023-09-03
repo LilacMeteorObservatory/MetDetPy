@@ -4,7 +4,7 @@ import os
 import cv2
 
 from MetLib.Stacker import max_stacker, all_stacker
-from MetLib.utils import save_img, save_video, time2frame
+from MetLib.utils import save_img, save_video, ts2frame
 from MetLib.VideoLoader import ThreadVideoReader
 from MetLib.VideoWarpper import OpenCVVideoWarpper
 from MetLib.MetLog import get_default_logger
@@ -135,8 +135,8 @@ def main():
                 continue
 
             full_path = os.path.join(save_path, tgt_name)
-            video_loader.reset(time2frame(start_time, video_loader.fps),
-                               time2frame(end_time, video_loader.fps))
+            video_loader.reset(ts2frame(start_time, video_loader.fps),
+                               ts2frame(end_time, video_loader.fps))
 
             if cur_mode == "image":
                 results = max_stacker(video_loader)

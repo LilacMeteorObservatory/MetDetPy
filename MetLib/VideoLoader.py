@@ -1,15 +1,32 @@
+"""
+VideoLoader handles the whole video-to-frame process, which includes: 
+    1. mask loading; 
+    2. running-time video resolution option parsing; 
+    3. preprocessing pipeline building; 
+    4. exposure time estimation.
+    5. get processed image.
+
+VideoLoader 提供了从原始视频到处理后帧图像的流程控制，主要包含：
+    1. 加载掩模；
+    2. 解析尺寸选项；
+    3. 构建预处理管线；
+    4. 估算曝光时间；
+    5. 获取处理后图像.
+    
+"""
+
 import queue
 import threading
-import time
 from abc import ABCMeta, abstractmethod
 from math import floor
-from typing import Optional, Type, Union
+from typing import Optional, Type, Union, Any
 
 import numpy as np
 
 from .MetLog import get_default_logger
 from .utils import (MergeFunction, Transform, init_exp_time, load_8bit_image,
-                    parse_resize_param, timestr2int, transpose_wh)
+                    parse_resize_param, timestr2int, transpose_wh, time2frame,
+                    frame2time)
 from .VideoWarpper import BaseVideoWarpper
 
 UP_EXPOSURE_BOUND = 0.5
@@ -196,16 +213,16 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.mask = self.load_mask(self.mask_name)
 
         # init reader status (start and end time)
-        self.start_time = timestr2int(start_time) if start_time != None else 0
-        self.end_time = timestr2int(end_time) if end_time != None else (
-            self.video_total_frames / self.fps * 1000)
-        start_frame = int(self.start_time / 1000 * self.fps)
-        end_frame = int(self.end_time / 1000 * self.fps)
+        start_frame = time2frame(timestr2int(start_time),
+                                 self.fps) if start_time != None else 0
+        end_frame = time2frame(
+            timestr2int(end_time),
+            self.fps) if end_time != None else self.video_total_frames
         self.reset(start_frame, end_frame, exp_frame=DEFAULT_EXPOSURE_FRAME)
 
         # construct merge function
-        self.merge_func = getattr(MergeFunction, merge_func, None)
-        assert self.merge_func is not None, NameError(
+        self.merge_func: Any = getattr(MergeFunction, merge_func, None)
+        assert callable(self.merge_func), NameError(
             f"Unsupported merge function name: {merge_func}.")
 
         # Generate preprocessing function
@@ -355,7 +372,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             f"    Video frames = {self.video_total_frames}; Apply grayscale = {self.grayscale};\n"+\
             f"    Raw resolution = {self.raw_size}; Running-time resolution = {self.runtime_size};\n"+\
             f"Apply exposure time of {self.exp_time:.2f}s."+\
-            f"(MinTimeFlag = {1000 * self.exp_frame * self.eq_int_fps / self.fps})\n" +\
+            f"(MinTimeFlag = {frame2time(self.exp_frame * self.eq_int_fps, self.fps)})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
 

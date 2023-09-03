@@ -2,18 +2,17 @@
 import argparse
 import json
 import time
-from functools import partial
+from typing import Any
 
 import cv2
-from easydict import EasyDict
 import tqdm
+from easydict import EasyDict
 
-from MetLib import OpenCVVideoWarpper
+from MetLib import get_loader, get_warpper
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.utils import transpose_wh, output_meteors
-from MetLib.VideoLoader import ThreadVideoLoader, VanillaVideoLoader
+from MetLib.utils import frame2time, output_meteors
 
 
 def detect_video(video_name,
@@ -32,23 +31,24 @@ def detect_video(video_name,
         t0 = time.time()
 
         # parse preprocessing params
+        video_loader = get_loader(cfg.loader.name)
+        video_warpper = get_warpper(cfg.loader.warpper)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
         merge_func = cfg.loader.merge_func
+        start_time, end_time = time_range
 
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
-        start_time, end_time = time_range
-        video_warpper = OpenCVVideoWarpper
-        video_reader = ThreadVideoLoader(video_warpper,
-                                         video_name,
-                                         mask_name,
-                                         resize_option,
-                                         start_time=start_time,
-                                         end_time=end_time,
-                                         grayscale=True,
-                                         exp_option=exp_option,
-                                         merge_func=merge_func)
+        video_reader = video_loader(video_warpper,
+                                    video_name,
+                                    mask_name,
+                                    resize_option,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    grayscale=True,
+                                    exp_option=exp_option,
+                                    merge_func=merge_func)
         logger.info(video_reader.summary())
 
         # get properties of VideoLoader
@@ -107,7 +107,7 @@ def detect_video(video_name,
             # Logging for backend only.
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
-                logger.processing(int(1000 * i / fps))
+                logger.processing(frame2time(i, fps))
             if video_reader.stopped:
                 break
 
@@ -212,8 +212,8 @@ if __name__ == "__main__":
     exp_time = args.exp_time
     resize = args.resize
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
-        cfg = EasyDict(json.load(f))
-        
+        cfg: Any = EasyDict(json.load(f))
+
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
     # replace config value
     if exp_time:

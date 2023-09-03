@@ -382,7 +382,7 @@ def frame2ts(frame, fps):
         datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
 
 
-def time2frame(time: str, fps: float) -> int:
+def ts2frame(time: str, fps: float) -> int:
     """Transfer a utc time string (format in `HH:MM:SS` or `HH:MM:SS.MS`) into the frame num.
     
     I implement this only because `datetime.timestamp() `
@@ -400,7 +400,7 @@ def time2frame(time: str, fps: float) -> int:
         int: the corresponding frame num of the input time.
         
     Example:
-        time2frame("00:00:02.56",25) -> 64(=(2+(56/100))*25))
+        ts2frame("00:00:02.56",25) -> 64(=(2+(56/100))*25))
     """
     assert time.count(
         ":"
@@ -413,8 +413,34 @@ def time2frame(time: str, fps: float) -> int:
     return int(dt_time * fps)
 
 
+def time2frame(time: int, fps: float) -> int:
+    """convert time (in ms) to the frame num.
+
+    Args:
+        time (int): time in ms.
+        fps (float): video fps
+
+    Returns:
+        int: the frame num.
+    """
+    return int(time / 1000 * fps)
+
+
+def frame2time(frame: int, fps: float) -> int:
+    """convert time (in ms) to the frame num.
+
+    Args:
+        time (int): time in ms.
+        fps (float): video fps
+
+    Returns:
+        int: the frame num.
+    """
+    return int(frame * 1000 / fps)
+
+
 def timestr2int(time: str) -> int:
-    """A wrapper of `time2frame`, is mainly used to turn time-string to its corresponding integer in ms.
+    """A wrapper of `ts2frame`, is mainly used to turn time-string to its corresponding integer in ms.
     
     It supports input like:
         'NoneType' -> return 'NoneType' as well.
@@ -430,7 +456,7 @@ def timestr2int(time: str) -> int:
         int: corresponding integer in ms.
     """
     if ":" in time:
-        return time2frame(time, fps=1000)
+        return ts2frame(time, fps=1000)
     return int(time)
 
 

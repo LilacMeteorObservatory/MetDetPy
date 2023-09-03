@@ -6,7 +6,7 @@ from collections import namedtuple
 import numpy as np
 
 from core import detect_video
-from MetLib.utils import Munch, time2frame
+from MetLib.utils import Munch, ts2frame
 from MetLib.VideoWarpper import OpenCVVideoWarpper
 from ClipToolkit import stack_and_save_img
 
@@ -39,10 +39,10 @@ def resize_gt_coord(gts, anno_size, detect_size):
     return gts
 
 
-def batch_time2frame(meteors, fps):
+def batch_ts2frame(meteors, fps):
     for meteor in meteors:
-        meteor["start_frame"] = time2frame(meteor["start_time"], fps)
-        meteor["end_frame"] = time2frame(meteor["end_time"], fps)
+        meteor["start_frame"] = ts2frame(meteor["start_time"], fps)
+        meteor["end_frame"] = ts2frame(meteor["end_time"], fps)
     return meteors
 
 
@@ -183,8 +183,8 @@ if args.metrics:
         "Metrics can only be applied when \"anno_size\" and \"meteors\" are provided!"
     gt_meteors = resize_gt_coord(video_dict.meteors, anno_size, raw_size)
     results = resize_gt_coord(results, [960, 540], raw_size)
-    gt_meteors = batch_time2frame(gt_meteors, fps)
-    results = batch_time2frame(results, fps)
+    gt_meteors = batch_ts2frame(gt_meteors, fps)
+    results = batch_ts2frame(results, fps)
     # 主要指标
     # True Positive / False Positive（误报） / False Negative（漏报）
     tp, fp, fn = 0, 0, 0

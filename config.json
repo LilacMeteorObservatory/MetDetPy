@@ -1,6 +1,6 @@
 {
     "loader": {
-        "name":"ThreadVideoReader",
+        "name":"ThreadVideoLoader",
         "warpper":"OpenCVVideoWarpper",
         "resize": 960,
         "exp_time": "auto",
