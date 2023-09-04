@@ -4,13 +4,15 @@
 
 import argparse
 import os
-import pathlib
 import shutil
 import subprocess
 import sys
-import functools
 import time
 import zipfile
+from functools import partial
+from pathlib import Path
+
+from MetLib.utils import VERSION
 
 # alias
 join_path = os.path.join
@@ -75,7 +77,7 @@ def file_to_zip(path_original, z):
      参数一：压缩文件的位置
      参数二：压缩后的压缩包
     '''
-    f_list = list(pathlib.Path(path_original).glob("**/*"))
+    f_list = list(Path(path_original).glob("**/*"))
     for f in f_list:
         z.write(f, str(f)[len(path_original):])
 
@@ -99,8 +101,7 @@ argparser.add_argument("--tool",
 argparser.add_argument(
     "--mingw64",
     action="store_true",
-    help=
-    "Use mingw64 as compiler. This option only works for nuitka under Windows.",
+    help="Use mingw64 as compiler. This option only works for nuitka under Windows.",
     default=False)
 argparser.add_argument(
     "--apply-upx",
@@ -112,19 +113,16 @@ argparser.add_argument(
     action="store_true",
     help="Generate .zip files after packaging.",
 )
-argparser.add_argument("--version",
-                       type=str,
-                       help="Software version.",
-                       default="1.3.0_beta")
 
 args = argparser.parse_args()
 compile_tool = args.tool
-release_version = args.version
+release_version = VERSION
 apply_upx = args.apply_upx
 apply_zip = args.apply_zip
 
 # 根据平台决定确定编译/打包后的程序后缀
 platform = platform_mapping[sys.platform]
+python_version = sys.version[0]
 exec_suffix = ""
 if (platform == "win"):
     exec_suffix = ".exe"
@@ -139,11 +137,11 @@ if compile_tool == "nuitka":
     print("Use nuitka as package tools.")
 
     # 检查python版本 必要时启用alias python3
-    version = "3" if (sys.version[0] == "3" and platform != "win") else ""
-    compile_tool = [f"python{version}", "-m", "nuitka"]
+    #version = "3" if (python_version == "3" and platform != "win") else ""
+    compile_tool = [f"python{python_version}", "-m", "nuitka"]
 
     # 将header作为偏函数打包，简化后续传参
-    nuitka_compile = functools.partial(nuitka_compile, compile_tool)
+    nuitka_compile = partial(nuitka_compile, compile_tool)
 
     # 构建共用的打包选项，根据编译平台选择是否启用mingw64
     nuitka_base = {
@@ -162,17 +160,17 @@ if compile_tool == "nuitka":
             nuitka_base["--upx-binary"] = upx_cmd.stdout
 
     # 打包编译MetLib库为pyd文件
-    #metlib_cfg = {
+    # metlib_cfg = {
     #    "--module": True,
     #    "--output-dir": join_path(compile_path, "MetLib")
-    #}
-    #metlib_cfg.update(nuitka_base)
-    #metlib_path = join_path(work_path, "MetLib")
-    #metlib_filelist = [
+    # }
+    # metlib_cfg.update(nuitka_base)
+    # metlib_path = join_path(work_path, "MetLib")
+    # metlib_filelist = [
     #    join_path(metlib_path, x) for x in os.listdir(metlib_path)
     #    if x.endswith(".py")
-    #]
-    #for filename in metlib_filelist:
+    # ]
+    # for filename in metlib_filelist:
     #    if filename.endswith("__init__.py"): continue
     #    nuitka_compile(options=metlib_cfg, target=filename)
 
@@ -199,7 +197,7 @@ if compile_tool == "nuitka":
     # 编译视频叠加工具ClipToolkit.py
     nuitka_compile(stack_cfg, target=join_path(work_path, "ClipToolkit.py"))
 
-    ## postprocessing
+    # postprocessing
     # remove duplicate files of ClipToolkit
     print("Merging...", end="", flush=True)
     shutil.move(join_path(compile_path, "ClipToolkit.dist", f"ClipToolkit{exec_suffix}"),
@@ -207,7 +205,7 @@ if compile_tool == "nuitka":
     shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
     print("Done.")
     # rename executable file and folder
-    #shutil.move(join_path(compile_path, "MetLib"),
+    # shutil.move(join_path(compile_path, "MetLib"),
     #            join_path(compile_path, "core.dist", "MetLib"))
     print("Renaming executable files...", end="", flush=True)
     shutil.move(join_path(compile_path, "core.dist", f"core{exec_suffix}"),
@@ -226,7 +224,7 @@ else:
     pyinstaller_compile(spec='core.spec')
     pyinstaller_compile(spec='ClipToolkit.spec')
 
-    ## postprocessing
+    # postprocessing
     # remove build folder
     print("Removing build files...", end="", flush=True)
     shutil.rmtree(f"./build")

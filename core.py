@@ -12,7 +12,7 @@ from MetLib import get_loader, get_warpper
 from MetLib.Detector import init_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.utils import frame2time, output_meteors
+from MetLib.utils import frame2time, output_meteors, VERSION
 
 
 def detect_video(video_name,
@@ -141,7 +141,7 @@ def detect_video(video_name,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Meteor Detector V2.0.0')
+    parser = argparse.ArgumentParser(description=f'Meteor Detector {VERSION}')
     # TODO: Add More Details.
     parser.add_argument('target', help="input video. Support H264, HEVC, etc.")
     parser.add_argument('--cfg',

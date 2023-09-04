@@ -11,6 +11,7 @@ from .MetLog import get_default_logger
 eps = 1e-2
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
+VERSION = "V2.0.0_beta"
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
