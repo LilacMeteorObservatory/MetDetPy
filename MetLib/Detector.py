@@ -1,9 +1,7 @@
 import cv2
 import numpy as np
 
-from .utils import EMA, generate_group_interpolate
-
-pi = np.pi / 180.0
+from .utils import EMA, generate_group_interpolate, PI
 
 # version I
 sensi_func = {
@@ -271,8 +269,7 @@ class BaseDetector(object):
 
 class ClassicDetector(BaseDetector):
     '''[uzanka-based detector](https://github.com/uzanka/MeteorDetector), in python.
-
-    by: uzanka(https://github.com/uzanka)
+    inspired by uzanka(https://github.com/uzanka)
     '''
 
     # 必须包含的参数
@@ -307,7 +304,7 @@ class ClassicDetector(BaseDetector):
         )
         # 对0,1帧直线检测（即：在屏蔽了2,3帧变化的图上直线检测。为毛？）
         # 所以即使检出应该也是第一帧上面检出。
-        self.linesp = cv2.HoughLinesP(dst, 1, pi, 1, self.min_len,
+        self.linesp = cv2.HoughLinesP(dst, 1, PI, 1, self.min_len,
                                       self.max_gap)
 
         self.linesp = [] if self.linesp is None else self.linesp[0]
@@ -394,10 +391,6 @@ class M3Detector(BaseDetector):
             if len(dy_mask.shape) == 2: dy_mask = dy_mask[:, :, None]
             dst = dy_mask * dst
 
-        # 曾使用dilate放大微弱检测。
-        # 有助于改善暗弱流星的检测，但可能会引起更多误报。
-        #dst = cv2.dilate(dst, self.cv_op)
-
         # dynamic_gap机制
         # 根据产生的响应比例适量减少gap
         # 一定程度上能够改善对低信噪比场景的误检
@@ -407,7 +400,7 @@ class M3Detector(BaseDetector):
         # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
                                  rho=1,
-                                 theta=pi,
+                                 theta=PI,
                                  threshold=self.hough_threshold,
                                  minLineLength=self.min_len,
                                  maxLineGap=gap)

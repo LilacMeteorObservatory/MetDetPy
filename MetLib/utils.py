@@ -8,7 +8,8 @@ import numpy as np
 
 from .MetLog import get_default_logger
 
-eps = 1e-2
+EPS = 1e-2
+PI = np.pi / 180.0
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
 VERSION = "V2.0.0_beta"
@@ -265,7 +266,7 @@ def rf_estimator(video_loader):
     但目前没有做到很好的估计。
 
     Args:
-        video_loader (BaseVideoReader): 待确定曝光时间的VideoLoader。
+        video_loader (BaseVideoLoader): 待确定曝光时间的VideoLoader。
         mask (ndarray): the mask for the video.
     """
     start_frame, end_frame, = video_loader.start_frame, video_loader.end_frame,
@@ -473,7 +474,7 @@ def color_interpolater(color_list):
             (1 - x) * color_list[i] + x * color_list[i + 1], dtype=np.uint8))
 
     def color_interpolate_func(x):
-        i = max(int((x - eps) / gap), 0)
+        i = max(int((x - EPS) / gap), 0)
         dx = x / gap - i
         return list(map(int, inte_func[i](dx, i)))
 

@@ -58,8 +58,8 @@ class BaseVideoLoader(metaclass=ABCMeta):
         fps (float): fps of the video. 
     
     #### reading attributes
-        start_time (int): the time (in ms) that VideoReader starts reading.
-        end_time (int): the time (in ms) that VideoReader ends reading.
+        start_time (int): the time (in ms) that VideoLoader starts reading.
+        end_time (int): the time (in ms) that VideoLoader ends reading.
         start_frame (int): the start frame that is corresponding to the start_time.
         end_frame (int): the end frame that is corresponding to the end_time.
         iterations (int): the number of frames that is to be read.
@@ -281,7 +281,7 @@ class VanillaVideoLoader(BaseVideoLoader):
               end_frame: Union[int, None] = None,
               exp_frame: Union[int, None] = None,
               reset_time_attr: bool = True):
-        """set `start_frame`, `end_frame`, and `exp_frame` of VideoReader.
+        """set `start_frame`, `end_frame`, and `exp_frame` of VideoLoader.
         
         Notice: `reset` is a lazy method. The start position is reset when the `start` method is called.
 
@@ -419,7 +419,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
                  **kwargs) -> None:
-        # Queue is used in ThreadVideoReader to manage frame_pool
+        # Queue is used in ThreadVideoLoader to manage frame_pool
         # TODO: maybe I should change a name...?
         self.maxsize = maxsize
         self.frame_pool = queue.Queue(maxsize=self.maxsize)
