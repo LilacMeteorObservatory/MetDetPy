@@ -90,7 +90,7 @@ class BaseVideoLoader(metaclass=ABCMeta):
     utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
-    2. Pop 1 frame from its frame_pool with the .pop() method.
+    2. Pop 1 frame from its queue with the .pop() method.
     3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
@@ -159,7 +159,7 @@ class VanillaVideoLoader(BaseVideoLoader):
     VanillaVideoLoader can be utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
-    2. Pop 1 frame from its frame_pool with the .pop() method.
+    2. Pop 1 frame with the .pop() method.
     3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
@@ -319,11 +319,11 @@ class VanillaVideoLoader(BaseVideoLoader):
         Returns:
             np.ndarray: processed frame.
         """
-        frame_pool = []
+        frame_list = []
         for _ in range(self.exp_frame):
             status, self.cur_frame = self.video.read()
             if status:
-                frame_pool.append(self.preprocess(self.cur_frame))
+                frame_list.append(self.preprocess(self.cur_frame))
             else:
                 self.stop()
                 break
@@ -331,8 +331,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         if self.cur_iter <= 0: self.stop()
 
         if self.exp_frame == 1:
-            return frame_pool[0]
-        return self.merge_func(frame_pool)
+            return frame_list[0]
+        return self.merge_func(frame_list)
 
     def stop(self):
         self.logger.debug("Video stop triggered.")
@@ -402,7 +402,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
     utilized following these instructions:
     
     1. Call .start() method before using it. eg. : T.start()
-    2. Pop 1 frame from its frame_pool with the .pop() method. 
+    2. Pop 1 frame from its queue with the .pop() method. 
     3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
        Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
     """
@@ -419,22 +419,20 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
                  **kwargs) -> None:
-        # Queue is used in ThreadVideoLoader to manage frame_pool
-        # TODO: maybe I should change a name...?
         self.maxsize = maxsize
-        self.frame_pool = queue.Queue(maxsize=self.maxsize)
+        self.queue = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_warpper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, exp_option,
                          merge_func, **kwargs)
 
-    def clear_frame_pool(self):
+    def clear_queue(self):
         """clear queue.
         """
-        while not self.frame_pool.empty():
-            self.frame_pool.get()
+        while not self.queue.empty():
+            self.queue.get()
 
     def start(self):
-        self.clear_frame_pool()
+        self.clear_queue()
         self.read_stopped = False
         self.status = True
         self.video.set_to(self.start_frame)
@@ -454,7 +452,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         ret = []
         for i in range(self.exp_frame):
             if self.stopped: break
-            ret.append(self.frame_pool.get(timeout=2))
+            ret.append(self.queue.get(timeout=2))
         return self.merge_func(ret)
 
     def load_a_frame(self):
@@ -466,7 +464,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.status, self.cur_frame = self.video.read()
         if self.status:
             self.processed_frame = self.preprocess(self.cur_frame)
-            self.frame_pool.put(self.processed_frame, timeout=2)
+            self.queue.put(self.processed_frame, timeout=2)
             return True
         else:
             self.stop()
@@ -487,7 +485,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
 
     @property
     def stopped(self) -> bool:
-        return self.read_stopped and self.frame_pool.empty()
+        return self.read_stopped and self.queue.empty()
 
     def is_empty(self):
-        return self.frame_pool.empty()
+        return self.queue.empty()
