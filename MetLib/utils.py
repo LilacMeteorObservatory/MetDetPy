@@ -1,7 +1,7 @@
 import datetime
 import warnings
 from functools import partial
-from typing import Union, List, Callable, Any
+from typing import Union, List, Callable, Any, Optional, Type
 
 import cv2
 import numpy as np
@@ -108,29 +108,89 @@ class MergeFunction(object):
         return img_max
 
 
-class EMA(object):
-    """移动指数平均。
-    可用于对平稳序列的评估。
+class NumpySlidingWindow(object):
+    """ A sliding window manager.
+    You can use this to get average of... anything.
 
-    Args:
-        object (_type_): _description_
+    Support datastruct that can be supported by numpy (ndarray, int, float, etc.)
+    TODO: Fix poor English.
     """
 
-    def __init__(self, n) -> None:
+    def __init__(self,
+                 n: int,
+                 size: Union[list, tuple, np.ndarray],
+                 dtype: Type = int) -> None:
         self.n = n
-        self.ema_pool = []
+        self.timer = 0
+        self.cur_index = 0
+        # TODO: 需要确保sum_window不会溢出。但如果指定很大的dtype...
+        self.sum_window = np.zeros(size, dtype=float)
+        self.sliding_window = np.zeros(shape=(n, ) + tuple(size), dtype=dtype)
 
-    def update(self, num):
-        self.ema_pool.append(num)
-        self.ema_pool = self.ema_pool[-self.n:]
+    def update(self, new_frame):
+        self.timer += 1
+        self.cur_index = (self.timer - 1) % self.n
+
+        # 更新滑窗及维护求和值
+        if self.timer > self.n:
+            self.sum_window -= self.sliding_window[self.cur_index]
+        self.sliding_window[self.cur_index] = new_frame
+        self.sum_window += self.sliding_window[self.cur_index]
 
     @property
     def mean(self):
-        return np.mean(self.ema_pool) if len(self.ema_pool) > 0 else np.inf
+        return self.sum_window / self.length
 
     @property
-    def std(self):
-        return np.std(self.ema_pool) if len(self.ema_pool) > 0 else np.inf
+    def length(self):
+        return min(self.n, self.timer)
+
+    @property
+    def max(self):
+        return np.max(self.sliding_window, axis=0)
+
+
+class EMA(object):
+    """
+    ## 移动指数平均
+    可用于对平稳序列的评估。
+
+    Args:
+        momentum (float, optional): 移动指数平均的动量. Defaults to 0.99.
+        warmup (bool, optional): 是否对动量WARMUP. Defaults to True.
+    """
+
+    def __init__(self, momentum: float = 0.99, warmup: bool = True) -> None:
+        """
+        ## 移动指数平均
+        可用于对平稳序列的评估。
+
+        Args:
+            momentum (float, optional): 移动指数平均的动量. Defaults to 0.99.
+            warmup (bool, optional): 是否对动量WARMUP. Defaults to True.
+        """
+        assert 0 <= momentum <= 1, "momentum should be [0,1]"
+        self.init_momentum = momentum
+        self.adj_momentum = momentum / (1 - momentum)
+        self.cur_momentum = momentum
+        self.cur_value = 0
+        self.t = 0
+        self.warmup = warmup
+
+    def update(self, value: float) -> None:
+        if self.warmup:
+            self.adjust_weight()
+        self.cur_value = self.cur_momentum * self.cur_value + (
+            1 - self.cur_momentum) * value
+        self.t += 1
+
+    def adjust_weight(self) -> None:
+        self.cur_momentum = min(self.t,
+                                1 / self.init_momentum) * self.adj_momentum
+
+
+def identity(*args):
+    return args
 
 
 def sigma_clip(sequence, sigma=3.00):
@@ -208,7 +268,7 @@ def save_img(img, filename, quality, compressing):
                 filename,
                 mode='wb',
         ) as f:
-            f.write(buf)
+            f.write(buf)  # type: ignore
     else:
         raise Exception("imencode failed.")
 
@@ -217,9 +277,11 @@ def save_video(video_series, fps, video_path):
     cv_writer = None
     try:
         real_size = list(reversed(video_series[0].shape[:2]))
-        cv_writer = cv2.VideoWriter(video_path,
-                                    cv2.VideoWriter_fourcc(*"MJPG"), fps,
-                                    real_size)
+        cv_writer = cv2.VideoWriter(
+            video_path,
+            cv2.VideoWriter_fourcc(*"MJPG"),  # type: ignore
+            fps,  # type: ignore
+            real_size)
         for clip in video_series:
             p = cv_writer.write(clip)
     finally:
@@ -568,7 +630,7 @@ def generate_group_interpolate(lines):
     """
     dxys = lines[:, 2:] - lines[:, :2]
     nums = np.max(np.abs(dxys), axis=1)
-    coord_list = [None for i in range(len(lines))]
+    coord_list = [[] for i in range(len(lines))]
     for i, (num, line) in enumerate(zip(nums, lines)):
         step_x, step_y = float(line[2] - line[0]) / num, float(line[3] -
                                                                line[1]) / num
@@ -588,32 +650,6 @@ def generate_group_interpolate(lines):
         yy = yy[:shorter]
         coord_list[i] = [xx, yy]
     return coord_list
-
-
-def least_square_fit(pts):
-    """fit pts to the linear func Ax+By+C=0
-
-    Args:
-        pts (_type_): _description_
-
-    Returns:
-        tuple: parameters (A,B,C)
-        float: average loss
-    """
-    pts = np.array(pts)
-    avg_xy = np.mean(pts, axis=0)
-    dpts = pts - avg_xy
-    dxx, dyy = np.sum(dpts**2, axis=0)
-    dxy = np.sum(dpts[:, 0] * dpts[:, 1])
-    v, m = np.linalg.eig([[dxx, dxy], [dxy, dyy]])
-    A, B = m[np.argmin(v)]
-    # fixed
-    # TODO: this works fine now. but why??
-    B = -B
-
-    C = -np.sum(np.array([A, B]) * avg_xy)
-    loss = np.mean(np.abs(np.einsum("a,ba->b", np.array([A, B]), pts) + C))
-    return (A, B, C), loss
 
 
 def output_meteors(update_info):

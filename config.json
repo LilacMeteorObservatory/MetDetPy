@@ -20,9 +20,11 @@
             "min_len": 10,
             "max_gap": 10
         },
-        "dynamic_mask": true,
-        "dynamic_gap": 0.05,
-        "fill_thre": 0.6
+        "dynamic_cfg": {
+            "dy_mask": true,
+            "dy_gap": 0.05,
+            "fill_thre": 0.6
+        }
     },
     "meteor_cfg": {
         "min_len": 15,

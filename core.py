@@ -8,8 +8,7 @@ import cv2
 import tqdm
 from easydict import EasyDict
 
-from MetLib import get_loader, get_warpper
-from MetLib.Detector import init_detector
+from MetLib import get_loader, get_warpper, get_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.utils import frame2time, output_meteors, VERSION
@@ -66,9 +65,10 @@ def detect_video(video_name,
 
         # Init detector
         if cfg.detect_cfg.bi_cfg.sensitivity == "high":
-            cfg.detect_cfg.max_gap = 10
-        cfg.detect_cfg.img_mask = video_reader.mask
-        detector = init_detector(cfg.detector, cfg.detect_cfg, eq_fps)
+            cfg.detector.hough_cfg.max_gap = 10
+        cfg.detector.img_mask = video_reader.mask
+        cfg.detector.fps = eq_fps
+        detector = get_detector(cfg.detector)
 
         # Init meteor collector
         # TODO: To be renewed
