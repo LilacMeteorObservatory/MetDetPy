@@ -101,7 +101,8 @@ class BaseDetector(metaclass=ABCMeta):
 
 
 class LineDetector(BaseDetector):
-    """基于"二值化-Hough直线检测"的检测器类。
+    """基于"二值化-Hough直线检测"的检测器类。(作为抽象类，并不会产生检测结果)
+    （迭代中，该版本并不稳定）
 
     Args:
         window_sec (_type_): 检测器的窗口大小。

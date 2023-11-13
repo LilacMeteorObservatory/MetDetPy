@@ -1,7 +1,7 @@
 import datetime
 import warnings
 from functools import partial
-from typing import Union, List, Callable, Any, Optional, Type
+from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
 import numpy as np
@@ -10,8 +10,8 @@ from .MetLog import get_default_logger
 
 EPS = 1e-2
 PI = np.pi / 180.0
-SHORT_LENGTH_THRESHOLD = 300
-RF_ESTIMATE_LENGTH = 100
+
+
 VERSION = "V2.0.0_beta"
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
@@ -82,7 +82,8 @@ class Transform(object):
 
 
 class MergeFunction(object):
-
+    """图像变换方法的集合类。
+    """
     @classmethod
     def not_merge(cls, image_stack):
         return image_stack[0]
@@ -292,140 +293,6 @@ def save_video(video_series, fps, video_path):
 def load_8bit_image(filename):
     return cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
                         cv2.IMREAD_UNCHANGED)
-
-
-def _rf_est_kernel(video_loader):
-    try:
-        n_frames = video_loader.iterations
-        video_loader.start()
-        f_sum = np.zeros((n_frames, ), dtype=float)
-        for i in range(n_frames):
-            if not video_loader.stopped:
-                frame = video_loader.pop()
-                f_sum[i] = np.sum(frame)
-            else:
-                f_sum = f_sum[:i]
-                break
-
-        A0, A1, A2, A3 = f_sum[:-3], f_sum[1:-2], f_sum[2:-1], f_sum[3:]
-
-        diff_series = f_sum[1:] - f_sum[:-1]
-        rmax_pos = np.where((2 * A2 - (A1 + A3) > 0) & (2 * A1 - (A0 + A2) < 0)
-                            & (np.abs(diff_series[1:-1]) > 0.01))[0]
-        #plt.scatter(rmax_pos + 1, diff_series[rmax_pos + 1], s=30, c='r')
-        #plt.plot(diff_series, 'r')
-        #plt.show()
-    finally:
-        video_loader.stop()
-    return rmax_pos[1:] - rmax_pos[:-1]
-
-
-def rf_estimator(video_loader):
-    """用于为给定的视频估算实际的曝光时间。
-
-    部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
-    还原真实的单帧曝光时间可帮助更好的检测。
-    但目前没有做到很好的估计。
-
-    Args:
-        video_loader (BaseVideoLoader): 待确定曝光时间的VideoLoader。
-        mask (ndarray): the mask for the video.
-    """
-    start_frame, end_frame, = video_loader.start_frame, video_loader.end_frame,
-    iteration_frames = video_loader.iterations
-
-    # 估算时，将强制设置exp_frame=1以进行估算
-    raw_exp_frame = video_loader.exp_frame
-    video_loader.exp_frame = 1
-
-    if iteration_frames < SHORT_LENGTH_THRESHOLD:
-        # 若不超过300帧 则进行全局估算
-        intervals = _rf_est_kernel(video_loader)
-    else:
-        # 超过300帧的 从开头 中间 结尾各抽取100帧长度的视频进行估算。
-        video_loader.reset(end_frame=start_frame + RF_ESTIMATE_LENGTH, )
-        intervals_1 = _rf_est_kernel(video_loader)
-
-        video_loader.reset(start_frame=start_frame +
-                           (iteration_frames - RF_ESTIMATE_LENGTH) // 2,
-                           end_frame=start_frame +
-                           (iteration_frames + RF_ESTIMATE_LENGTH) // 2)
-        intervals_2 = _rf_est_kernel(video_loader)
-
-        video_loader.reset(start_frame=end_frame - RF_ESTIMATE_LENGTH,
-                           end_frame=end_frame)
-        intervals_3 = _rf_est_kernel(video_loader)
-        intervals = np.concatenate([intervals_1, intervals_2, intervals_3])
-
-    # 还原video_reader的相关设置
-    video_loader.exp_frame = raw_exp_frame
-    video_loader.reset(start_frame, end_frame)
-
-    if len(intervals) == 0:
-        return 1
-
-    # 非常经验的取值方法...
-    est_frames = np.round(
-        np.min([np.median(intervals),
-                np.mean(sigma_clip(intervals))]))
-    return est_frames
-
-
-def init_exp_time(exp_time, video_loader, upper_bound) -> float:
-    """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
-    (SimpleStacker do not rely on this.)
-
-    Args:
-        exp_time (int,float,str): value from config.json. It can be either a value or a specified string.
-        video (cv2.VideoCapture): the video.
-        mask (np.array): mask array.
-
-    Raises:
-        ValueError: raised if the exp_time is invalid.
-
-    Returns:
-        exp_time: the exposure time in float.
-    """
-    # TODO: Rewrite this annotation.
-    # solve logger?
-    logger.info(f"Parsing \"exp_time\"={exp_time}")
-    fps = video_loader.video.fps
-    logger.info(f"Metainfo FPS = {fps:.2f}")
-    assert isinstance(
-        exp_time, (str, float, int)
-    ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
-
-    if fps <= int(1 / upper_bound):
-        logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
-        return 1 / fps
-
-    if isinstance(exp_time, str):
-        if exp_time == "real-time":
-            return 1 / fps
-        if exp_time == "slow":
-            # TODO: Any better idea?
-            return 1 / 4
-        if exp_time == "auto":
-            rf = rf_estimator(video_loader)
-            if rf / fps >= upper_bound:
-                logger.warning(
-                    f"Unexpected exposuring time (too long):{rf/fps:.2f}s. Use {upper_bound:.2f}s instead."
-                )
-            return min(rf / fps, upper_bound)
-        try:
-            exp_time = float(exp_time)
-        except ValueError as E:
-            raise ValueError(
-                "Invalid exp_time string value: It should be selected from [float], [int], "
-                + "real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
-    if isinstance(exp_time, (float, int)):
-        if exp_time * fps < 1:
-            logger.warning(
-                f"Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
-            )
-            return 1 / fps
-        return float(exp_time)
-    return 0
 
 
 def transpose_wh(size_mat) -> list:
