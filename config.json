@@ -5,7 +5,7 @@
         "resize": 960,
         "exp_time": "auto",
         "merge_func": "max",
-        "grayscale": false
+        "grayscale": true
     },
     "detector": {
         "name": "M3Detector",
@@ -14,7 +14,8 @@
             "adaptive_bi_thre": true,
             "init_value": 5,
             "sensitivity": "normal",
-            "area": 0.1
+            "area": 0.1,
+            "interval":2
         },
         "hough_cfg": {
             "threshold": 10,
@@ -29,7 +30,7 @@
     },
     "meteor_cfg": {
         "min_len": 15,
-        "max_interval": 3,
+        "max_interval": 5,
         "time_range": [
             0,
             8
@@ -43,6 +44,6 @@
             0.5
         ],
         "det_thre": 0.5,
-        "thre2": 512
+        "thre2": 2048
     }
 }

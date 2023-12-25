@@ -12,6 +12,7 @@ from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.utils import frame2time, output_meteors, VERSION
 from MetLib.MetVisu import OpenCVMetVisu
+from MetLib.Detector import LineDetector
 
 def detect_video(video_name,
                  mask_name,
@@ -32,12 +33,14 @@ def detect_video(video_name,
         # parse preprocessing params
         VideoLoaderCls = get_loader(cfg.loader.name)
         VideoWarpperCls = get_warpper(cfg.loader.warpper)
+        DetectorCls = get_detector(cfg.detector.name)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
-
+        if issubclass(DetectorCls, LineDetector):
+            assert grayscale, "Require grayscale ON when using subclass of LineDetector."
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         video_loader = VideoLoaderCls(VideoWarpperCls,
@@ -70,8 +73,7 @@ def detect_video(video_name,
             cfg_det.hough_cfg.max_gap = 10
         cfg_det.img_mask = video_loader.mask
         cfg_det.fps = eq_fps
-        detector_cls = get_detector(cfg_det.name)
-        detector = detector_cls(window_sec=cfg_det.window_sec,
+        detector = DetectorCls(window_sec=cfg_det.window_sec,
                                 fps=cfg_det.fps,
                                 mask=cfg_det.img_mask,
                                 bi_cfg=cfg_det.bi_cfg,
@@ -115,9 +117,12 @@ def detect_video(video_name,
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
                 logger.processing(frame2time(i, fps))
-            if video_loader.stopped:
-                break
+
             x = video_loader.pop()
+
+            if (video_loader.stopped or x is None):
+                break
+
             detector.update(x)
             #TODO: Mask, visual
             lines, detect_info = detector.detect()
@@ -135,7 +140,8 @@ def detect_video(video_name,
                 break
         # 仅正常结束时（即 手动结束或视频读取完）打印。
         if not visual_manager.manual_stop:
-            logger.info('Video EOF detected.')
+            # TODO: 改下描述
+            logger.info('VideoLoader-stop detected.')
     except Exception as e:
         print(e)
         raise e
@@ -232,11 +238,11 @@ if __name__ == "__main__":
     if adaptive:
         assert adaptive in ["on", "off"
                             ], "adaptive_thre should be set \"on\" or \"off\"."
-        cfg.detect_cfg.adaptive_bi_thre = {"on": True, "off": False}[adaptive]
+        cfg.detector.bi_cfg.adaptive_bi_thre = {"on": True, "off": False}[adaptive]
     if sensitivity:
-        cfg.detect_cfg.bi_cfg.sensitivity = sensitivity
+        cfg.detector.bi_cfg.sensitivity = sensitivity
     if bi_thre:
-        cfg.detect_cfg.bi_cfg.init_value = bi_thre
+        cfg.detector.bi_cfg.init_value = bi_thre
 
     # Preprocess start_time and end_time to int
 

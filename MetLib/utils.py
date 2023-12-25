@@ -17,11 +17,10 @@ drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
                              (pt_len_xy(pts[0], pts[1]))**(1 / 2))
 drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
                                   (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
-
 logger = get_default_logger()
 
 
-def pt_offset(pt, offset) -> List:
+def pt_offset(pt, offset) -> list:
     assert len(pt) == len(offset)
     return [value + offs for value, offs in zip(pt, offset)]
 
@@ -113,24 +112,45 @@ class MergeFunction(object):
         return img_max
 
 
-class NpSlidingWindow(object):
-    """ A sliding window manager.
-    You can use this to get average of... anything.
-
-    Support datastruct that can be supported by numpy (ndarray, int, float, etc.)
-    TODO: Fix poor English.
+class SlidingWindow(object):
+    """ 
+    # SlidingWindow
+    
+    A sliding window manager, which also provides statistic for regular data struct (that are supported by numpy (ndarray, int, float, etc.)).
     """
 
     def __init__(self,
                  n: int,
                  size: Union[list, tuple, np.ndarray],
-                 dtype: Type = int) -> None:
+                 dtype: Type = int,
+                 force_int: bool = False,
+                 calc_std: bool = False) -> None:
+        """_summary_
+
+        Args:
+            n (int): _description_
+            size (Union[list, tuple, np.ndarray]): _description_
+            dtype (Type, optional): _description_. Defaults to int.
+            force_int (bool, optional): 启用强制整数运算加速. Defaults to False.
+            calc_std (bool, optional): _description_. Defaults to False.
+        """
         self.n = n
         self.timer = 0
+        self.size = size
         self.cur_index = 0
-        # TODO: 需要确保sum_window不会溢出。但如果指定很大的dtype...
-        self.sum_window = np.zeros(size, dtype=float)
-        self.sliding_window = np.zeros(shape=(n, ) + tuple(size), dtype=dtype)
+        self.dtype = dtype
+        self.force_int = force_int
+        self.calc_std = calc_std
+        sum_dtype = float
+        if self.force_int and dtype == np.uint8:
+            sum_dtype = np.uint32
+        self.sum = np.zeros(size, dtype=sum_dtype)
+
+        if calc_std:
+            self.square_sum = np.zeros(size, dtype=sum_dtype)
+
+        self.sliding_window = np.zeros(shape=(n, ) + tuple(size),
+                                       dtype=self.dtype)
 
     def update(self, new_frame):
         self.timer += 1
@@ -138,21 +158,44 @@ class NpSlidingWindow(object):
 
         # 更新滑窗及维护求和值
         if self.timer > self.n:
-            self.sum_window -= self.sliding_window[self.cur_index]
+            self.sum -= self.sliding_window[self.cur_index]
+            if self.calc_std:
+                self.square_sum -= np.square(
+                    self.sliding_window[self.cur_index], dtype=np.uint32)
+
         self.sliding_window[self.cur_index] = new_frame
-        self.sum_window += self.sliding_window[self.cur_index]
+        self.sum += self.sliding_window[self.cur_index]
+        if self.calc_std:
+            self.square_sum += np.square(self.sliding_window[self.cur_index],
+                                         dtype=np.uint32)
 
     @property
     def mean(self):
-        return self.sum_window / self.length
+        if self.force_int:
+            return np.array(self.sum // self.length, dtype=self.dtype)
+        return self.sum / self.length
 
     @property
     def length(self):
         return min(self.n, self.timer)
 
     @property
-    def max(self):
+    def max(self)->Union[int, float, np.ndarray]:
         return np.max(self.sliding_window, axis=0)
+
+    @property
+    def std(self):
+        # sqrt((∑x^2 - n*avg(x)^2)/n)
+        assert self.calc_std, "calc_std should be applied when initialized."
+        if self.force_int:
+            return np.sqrt(
+                np.mean(
+                    (self.square_sum - np.square(self.sum) // self.length) //
+                    self.length))
+        else:
+            return np.sqrt(
+                np.mean((self.square_sum - np.square(self.sum) / self.length) /
+                        self.length))
 
 
 class EMA(object):
@@ -165,41 +208,40 @@ class EMA(object):
         warmup (bool, optional): 是否对动量WARMUP. Defaults to True.
     """
 
-    def __init__(self, momentum: float = 0.99, warmup: bool = True) -> None:
+    def __init__(self,
+                 momentum: float = 0.99,
+                 warmup_speed: Union[int, float] = 1) -> None:
         """
         ## 移动指数平均
         可用于对平稳序列的评估。
 
         Args:
             momentum (float, optional): 移动指数平均的动量. Defaults to 0.99.
-            warmup (bool, optional): 是否对动量WARMUP. Defaults to True.
+            warmup (bool, optional): 是否对动量WARMUP. 设置为0时不进行warmup。
         """
         assert 0 <= momentum <= 1, "momentum should be [0,1]"
         self.init_momentum = momentum
         self.cur_momentum = momentum
         self.cur_value = 0
         self.t = 0
-        self.warmup = warmup
+        self.warmup_speed = warmup_speed
 
     def update(self, value: float) -> None:
-        if self.warmup:
+        if self.warmup_speed:
             self.adjust_weight()
         self.cur_value = self.cur_momentum * self.cur_value + (
             1 - self.cur_momentum) * value
         self.t += 1
 
     def adjust_weight(self) -> None:
-        if self.t * (1 - self.init_momentum) < 1:
-            self.cur_momentum = self.t * (
-                1 - self.init_momentum) * self.init_momentum
+        if self.t * (1 - self.init_momentum) * self.warmup_speed < 1:
+            self.cur_momentum = self.init_momentum * (
+                1 - (1 - self.t *
+                     (1 - self.init_momentum) * self.warmup_speed)**2)
         else:
             # 结束冷启动，关闭warmup
-            self.warmup = False
+            self.warmup_speed = 0
             self.cur_momentum = self.init_momentum
-
-
-def identity(*args):
-    return args
 
 
 def sigma_clip(sequence, sigma=3.00):
@@ -227,7 +269,7 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int],
     # (该函数返回的wh是OpenCV风格的，即w, h)
     #TODO: fix poor English
     if tgt_wh == None:
-        return raw_wh
+        return list(raw_wh)
     w, h = raw_wh
     if isinstance(tgt_wh, str):
         try:
@@ -249,11 +291,11 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int],
         if tgt_wh[0] <= 0 or tgt_wh[1] <= 0:
             if tgt_wh[0] <= 0 and tgt_wh[1] <= 0:
                 warnings.warn("Invalid param. Raw resolution will be used.")
-                return raw_wh
+                return list(raw_wh)
             idn = 0 if tgt_wh[0] <= 0 else 1
             idx = 1 - idn
             tgt_wh[idn] = int(raw_wh[idn] * tgt_wh[idx] / raw_wh[idx])
-        return tgt_wh
+        return list(tgt_wh)
     raise TypeError(
         "Unsupported arg type: it should be <int,str,list>, got %s" %
         type(tgt_wh))

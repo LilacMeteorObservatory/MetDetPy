@@ -1,6 +1,7 @@
 """This module is used to manage output stream.
 """
 import time
+import datetime
 import threading
 import queue
 
@@ -55,14 +56,14 @@ class ThreadMetLog(BaseMetLog):
         pipe must support `flush`.
     """
 
-    def __init__(self, pipe=print,flush=True, log_level=LV_INFO) -> None:
+    def __init__(self, pipe=print,flush=True, log_level=LV_INFO, with_strf=False) -> None:
+        # TODO: support other stdout func (like logging)
         self.log_level = log_level
         self.print = pipe
+        self.with_strf = with_strf
         self.log_pool = queue.Queue()
         self.thread = threading.Thread(target=self.log_loop, args=())
         self.stopped = True
-        # how to support other stdout func?
-        # TODO: fix this.
         self.flush=flush
         self.wait_interval = 0.02
 
@@ -78,13 +79,16 @@ class ThreadMetLog(BaseMetLog):
         while not (self.stopped and self.is_empty):
             time.sleep(self.wait_interval)
             cur_log = self.log_pool.get()
-            lv, string = cur_log
-            self.print(f"{level_header[lv]}: {string}",flush=self.flush)
+            strf, lv, string = cur_log
+            self.print(f"{strf}{level_header[lv]}: {string}",flush=self.flush)
         self.log_pool.task_done()
 
     def log(self, level, string):
         if level >= self.log_level:
-            self.log_pool.put([level, string])
+            time_head = ""
+            if self.with_strf:
+                time_head = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}] - "
+            self.log_pool.put([time_head,level, string])
 
     def start(self):
         self.stopped = False
@@ -108,6 +112,7 @@ def set_default_logger(debug_mode, work_mode):
         return -1
     if debug_mode:
         met_logger.log_level=LV_DROPPED
+        met_logger.with_strf=True
     elif work_mode=="backend":
         met_logger.flush=True
         met_logger.log_level=LV_DEBUG

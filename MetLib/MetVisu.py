@@ -10,7 +10,7 @@ from typing import Optional, Callable, Union
 from copy import deepcopy
 from .utils import pt_offset
 
-DEFAULT_VISUAL_DELAY = 400
+DEFAULT_VISUAL_DELAY = 200
 DEFAULT_INTERRUPT_KEY = "q"
 DEFAULT_COLOR = "white"
 
@@ -113,11 +113,12 @@ class OpenCVMetVisu(object):
     def display_a_frame(self, data: dict) -> bool:
         # 通过键盘中断时返回失败信号
         # 如果不渲染则固定返回成功
+        if not self.flag:
+            return True
+
         if (cv2.waitKey(self.visual_delay) & 0xff == self.interrupt_key):
             self.manual_stop = True
             return False
-        if not self.flag:
-            return True
 
         # 渲染图像并通过OpenCV句柄展示
         rendered_img = self.rend_frame(data)

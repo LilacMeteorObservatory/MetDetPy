@@ -33,7 +33,8 @@ UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
-SLOW_EXP_TIME = 1/4
+SLOW_EXP_TIME = 1 / 4
+
 
 class BaseVideoLoader(metaclass=ABCMeta):
     """ 
@@ -235,9 +236,8 @@ class VanillaVideoLoader(BaseVideoLoader):
                 Transform.opencv_resize(self.runtime_size, **kwargs))
         if self.grayscale:
             preprocess.append(Transform.opencv_BGR2GRAY())
-            preprocess.append(Transform.expand_3rd_channel(1))
         if self.mask_name:
-            preprocess.append(Transform.mask_with(self.mask))  # type: ignore
+            preprocess.append(Transform.mask_with(self.mask))
         self.preprocess = Transform.compose(preprocess)
 
         # init exposure time (exp_time) and exposure frame (exp_frame)
@@ -259,19 +259,22 @@ class VanillaVideoLoader(BaseVideoLoader):
             np.ndarray: the resized mask.
         """
         if mask_fname == None:
-            return np.ones(transpose_wh(self.runtime_size) + [
-                1,
-            ],
-                           dtype=np.uint8)
+            if self.grayscale:
+                return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
+            else:
+                return np.ones(transpose_wh(self.runtime_size+[3]), dtype=np.uint8)
         mask = load_8bit_image(mask_fname)
         mask_transforms = [Transform.opencv_resize(self.runtime_size)]
         if mask_fname.lower().endswith(".jpg"):
             mask_transforms.append(Transform.opencv_BGR2GRAY())
+            mask_transforms.append(Transform.opencv_binary(128, 1))
         elif mask_fname.lower().endswith(".png"):
-            mask = mask[:, :, -1:]
-        mask_transforms.extend(
-            [Transform.opencv_binary(128, 1),
-             Transform.expand_3rd_channel(1)])
+            # 对于png，仅取透明度层，且逻辑取反
+            mask = mask[:, :, -1]
+            mask_transforms.append(Transform.opencv_binary(128, 1, inv=True))
+
+        if not self.grayscale:
+           mask_transforms.append(Transform.expand_3rd_channel(3))
 
         return Transform.compose(mask_transforms)(mask)
 
@@ -287,7 +290,7 @@ class VanillaVideoLoader(BaseVideoLoader):
               reset_time_attr: bool = True):
         """set `start_frame`, `end_frame`, and `exp_frame` of VideoLoader.
         
-        Notice: `reset` is a lazy method. The start position is reset when the `start` method is called.
+        Notice: `reset` is a lazy method. The start position is truly reset when the `start` method is called.
 
         Args:
             start_frame (Union[int, None], optional): the start frame of the video. Defaults to None.
@@ -314,7 +317,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.read_stopped = True
 
         self.logger.debug(
-            f"set start_frame to {self.start_frame}; end_frame to {self.end_frame}."
+            f"Preset start_frame to {self.start_frame}; end_frame to {self.end_frame}."
         )
 
     def pop(self) -> np.ndarray:
@@ -383,7 +386,8 @@ class VanillaVideoLoader(BaseVideoLoader):
             f"(MinTimeFlag = {frame2time(self.exp_frame * self.eq_int_fps, self.fps)})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
-    def init_exp_time(self, exp_time: Union[int, float, str], upper_bound: float) -> float:
+    def init_exp_time(self, exp_time: Union[int, float, str],
+                      upper_bound: float) -> float:
         """Init exposure time. Return the exposure time.
 
         Args:
@@ -402,10 +406,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         fps = self.video.fps
         self.logger.info(f"Metainfo FPS = {fps:.2f}")
         assert isinstance(
-            exp_time,
-            (str, float,
-             int)), "exp_time should be either <str, float, int>, got %s" % (
-                 type(exp_time))
+            exp_time, (str, float, int)
+        ), f"exp_time should be either <str, float, int>, got {type(exp_time)}."
 
         if fps <= int(1 / upper_bound):
             self.logger.warning(
@@ -500,6 +502,8 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.clear_queue()
         self.read_stopped = False
         self.status = True
+        # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
+        # TODO 2: 对于不能set_to的，能否向后继续跳转？
         self.video.set_to(self.start_frame)
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.setDaemon(True)
@@ -515,9 +519,19 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
             )
         ret = []
-        for i in range(self.exp_frame):
-            if self.stopped: break
-            ret.append(self.queue.get(timeout=2))
+        try:
+            for i in range(self.exp_frame):
+                if self.stopped: break
+                ret.append(self.queue.get(timeout=2))
+        except Exception as e:
+            # handle the condition when there is no frame to read due to manual stop trigger or other exception.
+            if isinstance(e,queue.Empty) and self.read_stopped:
+                self.logger.info("Acceptable queue.Empty exception occured.")
+                pass
+            else:
+                raise e
+        if len(ret)==0:
+            return None
         return self.merge_func(ret)
 
     def load_a_frame(self):
@@ -538,9 +552,10 @@ class ThreadVideoLoader(VanillaVideoLoader):
     def videoloop(self):
         try:
             for i in range(self.iterations):
-                if self.read_stopped or not self.status: 
+                if self.read_stopped or not self.status:
                     break
                 if not self.load_a_frame():
+                    self.logger.warning(f"Load frame failed at {self.start_frame + i}")
                     break
         except Exception as e:
             raise e
@@ -590,7 +605,7 @@ def _rf_est_kernel(video_loader):
     return rmax_pos[1:] - rmax_pos[:-1]
 
 
-def rf_estimator(video_loader):
+def rf_estimator(video_loader)-> Union[float, int]:
     """用于为给定的视频估算实际的曝光时间。
 
     部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
@@ -635,7 +650,7 @@ def rf_estimator(video_loader):
         return 1
 
     # 非常经验的取值方法...
-    est_frames = np.round(
+    est_frames: np.floating = np.round(
         np.min([np.median(intervals),
                 np.mean(sigma_clip(intervals))]))
-    return est_frames
+    return est_frames # type: ignore
