@@ -10,9 +10,7 @@ from .MetLog import get_default_logger
 
 EPS = 1e-2
 PI = np.pi / 180.0
-
-
-VERSION = "V2.0.0_beta"
+VERSION = "V2.0.0_alpha"
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
@@ -21,6 +19,11 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
                                   (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 
 logger = get_default_logger()
+
+
+def pt_offset(pt, offset) -> List:
+    assert len(pt) == len(offset)
+    return [value + offs for value, offs in zip(pt, offset)]
 
 
 class Transform(object):
@@ -84,6 +87,7 @@ class Transform(object):
 class MergeFunction(object):
     """图像变换方法的集合类。
     """
+
     @classmethod
     def not_merge(cls, image_stack):
         return image_stack[0]
@@ -109,7 +113,7 @@ class MergeFunction(object):
         return img_max
 
 
-class NumpySlidingWindow(object):
+class NpSlidingWindow(object):
     """ A sliding window manager.
     You can use this to get average of... anything.
 
@@ -172,7 +176,6 @@ class EMA(object):
         """
         assert 0 <= momentum <= 1, "momentum should be [0,1]"
         self.init_momentum = momentum
-        self.adj_momentum = momentum / (1 - momentum)
         self.cur_momentum = momentum
         self.cur_value = 0
         self.t = 0
@@ -186,8 +189,13 @@ class EMA(object):
         self.t += 1
 
     def adjust_weight(self) -> None:
-        self.cur_momentum = min(self.t,
-                                1 / self.init_momentum) * self.adj_momentum
+        if self.t * (1 - self.init_momentum) < 1:
+            self.cur_momentum = self.t * (
+                1 - self.init_momentum) * self.init_momentum
+        else:
+            # 结束冷启动，关闭warmup
+            self.warmup = False
+            self.cur_momentum = self.init_momentum
 
 
 def identity(*args):

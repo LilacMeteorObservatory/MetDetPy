@@ -3,7 +3,7 @@ import json
 import cv2
 import numpy as np
 
-from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms, drct, drct_line
+from .utils import frame2ts, color_interpolater, pt_len_xy, lineset_nms, drct, drct_line, pt_offset
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
@@ -202,35 +202,45 @@ class MeteorCollector(object):
         # 整理完列表后对其进行坐标修正和序列化
         return self.list2json(final_list)
 
-    def draw_on_img(self, draw_img, frame_num):
+    def draw_on_img(self, frame_num):
         # add timestamp
-        h, w, _ = draw_img.shape
-        max_len = max(h, w)
-        draw_img = cv2.putText(draw_img, self.frame2ts(frame_num),
-                               (int(w * 0.01), int(h * 0.98)),
-                               cv2.FONT_HERSHEY_COMPLEX, max_len / 1920,
-                               (255, 255, 255), 1)
+        data_info = []
+        data_info.append([
+            "text", "left-bottom", {
+                "text": self.frame2ts(frame_num),
+                "color": "white"
+            }
+        ])
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             color = color_mapper(self.prob_meteor(ms))
-            first = np.where(
-                ms.coord_list.frame_num >= frame_num - self.max_acti_frame)[0]
-            first = len(
-                ms.coord_list.frame_num) if len(first) == 0 else first[0]
-            draw_img = cv2.rectangle(draw_img, pt1, pt2, color, 2)
-            for pts in ms.coord_list[first:]:
-                #print(pts)
-                pt_x, pt_y = pts
-                draw_img = cv2.circle(draw_img, (pt_x, pt_y), 2, color, -1)
+            data_info.append(["rectangle", (pt1, pt2), {"color": color}])
+            # 只打印最近的响应点
+            # 迭代中，不绘制最近响应点
+            #first = np.where(ms.coord_list.frame_num >= frame_num -
+            #                 self.max_acti_frame)[0]
+            #first = len(
+            #    ms.coord_list.frame_num) if len(first) == 0 else first[0]
+            #for pts in ms.coord_list[first:]:
+            #    pt_x, pt_y = pts
+            #    draw_img = cv2.circle(draw_img, (pt_x, pt_y), 2, color, -1)
+
             # print score
             pt1 = [min(pt1[0], pt2[0]), min(pt1[1], pt2[1])]
-            draw_img = cv2.rectangle(draw_img, pt1, (pt1[0] + 35, pt1[1] - 10),
-                                     color, -1)
-            draw_img = cv2.putText(draw_img, f"{self.prob_meteor(ms):.2f}",
-                                   pt1, cv2.FONT_HERSHEY_COMPLEX,
-                                   max_len / 1920, (255, 255, 255), 2)
+            data_info.append([
+                "rectangle", (pt1, pt_offset(pt1, (35, -10))), {
+                    "color": color,
+                    "thickness": -1
+                }
+            ])
+            data_info.append([
+                "text", pt1, {
+                    "text": f"{self.prob_meteor(ms):.2f}",
+                    "color": "white"
+                }
+            ])
 
-        return draw_img
+        return data_info
 
     def clear(self):
         """将当前时间更新至无穷久以后，清空列表。
@@ -293,7 +303,7 @@ class MeteorCollector(object):
                     drct_loss=met.drst_std,
                     score=self.prob_meteor(met))
 
-    def frame2ts(self, frame):
+    def frame2ts(self, frame: int) -> str:
         return frame2ts(frame, self.fps)
 
 
@@ -322,11 +332,11 @@ class MeteorSeries(object):
     def drst_std(self):
         if len(self.drct_list) == 0: return 0
         drct_copy = np.array(self.drct_list.copy())
-        std1 = np.std(np.sort(drct_copy)
-                      [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+        std1 = np.std(np.sort(drct_copy)[:-1]) if len(
+            drct_copy) >= 3 else np.std(drct_copy)
         drct_copy[drct_copy > np.pi / 2] -= np.pi
-        std2 = np.std(np.sort(drct_copy)
-                      [:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
+        std2 = np.std(np.sort(drct_copy)[:-1]) if len(
+            drct_copy) >= 3 else np.std(drct_copy)
         return min(std1, std2)
 
     @property
@@ -392,8 +402,8 @@ class MeteorSeries(object):
         #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
         #    return True
         # 策略二：近邻法（对于距离中间点近的，采取收入但不作为边界点策略）
-        first = np.where(
-            self.coord_list.frame_num >= cur_frame - self.max_acti_frame)[0]
+        first = np.where(self.coord_list.frame_num >= cur_frame -
+                         self.max_acti_frame)[0]
         first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
         for tgt_pt in self.box2coord(new_box):
             for in_pt in self.coord_list[first:]:

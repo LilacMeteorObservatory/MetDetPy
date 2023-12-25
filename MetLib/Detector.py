@@ -1,9 +1,4 @@
-import cv2
-import numpy as np
-from typing import Callable, Any
-from abc import abstractmethod, ABCMeta
-from .utils import NumpySlidingWindow, generate_group_interpolate, EMA, PI, identity
-r"""
+"""
 
 Relation of Detectors in MetDetPy:
 
@@ -13,9 +8,16 @@ BaseDetector--|                |--M3Detector
               |
               |----MLDetector-----YOLODetector
 """
+
+import cv2
+import numpy as np
+from typing import Callable, Any, Optional
+from abc import abstractmethod, ABCMeta
+from .utils import NpSlidingWindow, generate_group_interpolate, EMA, PI, identity
+
 NUM_LINES_TOOMUCH=500
 
-class SNRSlidingWindow(NumpySlidingWindow):
+class SNRSlidingWindow(NpSlidingWindow):
     """
     ## 带有snr评估的滑窗管理器
 
@@ -155,7 +157,7 @@ class LineDetector(BaseDetector):
     def detect(self) -> tuple[list, Callable]:
         return [], identity
 
-    def update(self, new_frame):
+    def update(self, new_frame: np.ndarray):
         self.stack.update(new_frame)
         if self.bi_cfg.adaptive_bi_thre and (self.stack.std != 0):
             self.bi_threshold = self.std2thre(self.stack.std)
@@ -298,16 +300,16 @@ class M3Detector(LineDetector):
             #    print(dst[line_pt[1], line_pt[0]])
             linesp = linesp[line_score > self.fill_thre]
             lines_num = len(linesp)
-
-        texts = [(f"Line num: {lines_num}", (0, 255, 0)),
-                 (f"Diff Area: {dst_sum:.2f}%", (0, 255, 0))]
+        
+        data_info = [["text", "left-top",{"text":f"Line num: {lines_num}","color":"green"}],
+                     ["text", "left-top",{"text":f"Diff Area: {dst_sum:.2f}%","color":"green"}]]
         if lines_num > 10:
-            texts.append(
-                ("WARNING: TOO MANY LINES!", (0, 0, 255)))  # type: ignore
-        return linesp, self.visu_closure(light_img, dst, extra_info=texts)
+            data_info.append(["text", "left-top",{"text":"WARNING: TOO MANY LINES!","color":"red"}])
 
-    def visu_closure(self, bg, light, extra_info=[]):
-        """ 简单实现的闭包式的绘图API，用于支持可视化
+        return linesp, self.visu_closure(light_img, dst, extra_info=data_info)
+
+    def visu_closure(self, bg, light, extra_info: Optional[list] = None)->dict:
+        """ 构造可视化时使用的
 
         Args:
             bg (np.array): 背景图像
@@ -320,25 +322,15 @@ class M3Detector(LineDetector):
             b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
             p[:, :, 0] = 0
             cb_img = cv2.addWeighted(b, 1, p, 0.5, 1)
-            text_h = 20
-            if getattr(self, "ref_ema", None):
-                x1, y1, x2, y2 = self.stack.std_roi
-                cb_img = cv2.rectangle(cb_img, (y1, x1), (y2, x2),
-                                       color=(128, 64, 128),
-                                       thickness=2)
-                cb_img = cv2.putText(cb_img, f"STD:{self.stack.std:.4f};",
-                                     (10, text_h), cv2.FONT_HERSHEY_COMPLEX,
-                                     0.5, (0, 255, 0), 1)
-                text_h += 20
-                cb_img = cv2.putText(cb_img,
-                                     f"Bi_Threshold: {self.bi_threshold:.2f}",
-                                     (10, text_h), cv2.FONT_HERSHEY_COMPLEX,
-                                     0.5, (0, 255, 0), 1)
-                text_h += 20
-            for (text, color) in extra_info:
-                cb_img = cv2.putText(cb_img, text, (10, text_h),
-                                     cv2.FONT_HERSHEY_COMPLEX, 0.5, color, 1)
-                text_h += 20
             return cb_img
+        data_info = []
+        # TODO: 似乎没有设置哪儿可以关闭这个。。
+        #if getattr(self, "ref_ema", None):
+        x1, y1, x2, y2 = self.stack.std_roi
+        data_info.append(["rectangle", [(y1,x1),(y2,x2)],{"color":"purple"}])
+        data_info.append(["text", "left-top",{"text":f"STD:{self.stack.std:.4f};","color":"green"}])
+        data_info.append(["text","left-top",{"text":f"Bi_Threshold: {self.bi_threshold:.2f}","color":"green"}])
+        if extra_info:
+            data_info.extend(extra_info)
 
-        return core_drawer
+        return {"bg": core_drawer, "info": data_info}

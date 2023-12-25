@@ -4,7 +4,8 @@
         "warpper": "OpenCVVideoWarpper",
         "resize": 960,
         "exp_time": "auto",
-        "merge_func": "max"
+        "merge_func": "max",
+        "grayscale": false
     },
     "detector": {
         "name": "M3Detector",
@@ -41,7 +42,7 @@
             0,
             0.5
         ],
-        "pos_threshold": 0.5,
+        "det_thre": 0.5,
         "thre2": 512
     }
 }

@@ -33,7 +33,7 @@ UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
-
+SLOW_EXP_TIME = 1/4
 
 class BaseVideoLoader(metaclass=ABCMeta):
     """ 
@@ -235,15 +235,14 @@ class VanillaVideoLoader(BaseVideoLoader):
                 Transform.opencv_resize(self.runtime_size, **kwargs))
         if self.grayscale:
             preprocess.append(Transform.opencv_BGR2GRAY())
-        preprocess.append(Transform.expand_3rd_channel(1))
+            preprocess.append(Transform.expand_3rd_channel(1))
         if self.mask_name:
             preprocess.append(Transform.mask_with(self.mask))  # type: ignore
         self.preprocess = Transform.compose(preprocess)
 
         # init exposure time (exp_time) and exposure frame (exp_frame)
         self.exp_time = self.init_exp_time(exp_option,
-                                      self,
-                                      upper_bound=UP_EXPOSURE_BOUND)
+                                           upper_bound=UP_EXPOSURE_BOUND)
         self.exp_frame = int(round(self.exp_time * self.fps))
 
         assert not (
@@ -260,7 +259,10 @@ class VanillaVideoLoader(BaseVideoLoader):
             np.ndarray: the resized mask.
         """
         if mask_fname == None:
-            return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
+            return np.ones(transpose_wh(self.runtime_size) + [
+                1,
+            ],
+                           dtype=np.uint8)
         mask = load_8bit_image(mask_fname)
         mask_transforms = [Transform.opencv_resize(self.runtime_size)]
         if mask_fname.lower().endswith(".jpg"):
@@ -341,6 +343,10 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.read_stopped = True
 
     def release(self):
+        """The `.stop()` function will be called before `.release()`.
+        """
+        if not self.stopped:
+            self.stop()
         self.video.release()
 
     @property
@@ -370,20 +376,18 @@ class VanillaVideoLoader(BaseVideoLoader):
     def summary(self) -> str:
         return f"{self.__class__.__name__} summary:\n"+\
             f"    Video path: \"{self.video_name}\";"+\
-            (f" Mask path: \"{self.mask_name}\";" if self.mask_name else "Mask: None")+ "\n" +\
+            (f" Mask path: \"{self.mask_name}\";" if self.mask_name else " Mask: None")+ "\n" +\
             f"    Video frames = {self.video_total_frames}; Apply grayscale = {self.grayscale};\n"+\
             f"    Raw resolution = {self.raw_size}; Running-time resolution = {self.runtime_size};\n"+\
             f"Apply exposure time of {self.exp_time:.2f}s."+\
             f"(MinTimeFlag = {frame2time(self.exp_frame * self.eq_int_fps, self.fps)})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
-    def init_exp_time(self,exp_time, video_loader, upper_bound) -> float:
-        """Init exposure time. Return the exposure time that gonna be used in MergeStacker.
-        (SimpleStacker do not rely on this.)
+    def init_exp_time(self, exp_time: Union[int, float, str], upper_bound: float) -> float:
+        """Init exposure time. Return the exposure time.
 
         Args:
             exp_time (int,float,str): value from config.json. It can be either a value or a specified string.
-            video (cv2.VideoCapture): the video.
             mask (np.array): mask array.
 
         Raises:
@@ -393,26 +397,28 @@ class VanillaVideoLoader(BaseVideoLoader):
             exp_time: the exposure time in float.
         """
         # TODO: Rewrite this annotation.
-        # solve logger?
+        # TODO 2: set `upbound` to json setting.
         self.logger.info(f"Parsing \"exp_time\"={exp_time}")
-        fps = video_loader.video.fps
+        fps = self.video.fps
         self.logger.info(f"Metainfo FPS = {fps:.2f}")
         assert isinstance(
-            exp_time, (str, float, int)
-        ), "exp_time should be either <str, float, int>, got %s" % (type(exp_time))
+            exp_time,
+            (str, float,
+             int)), "exp_time should be either <str, float, int>, got %s" % (
+                 type(exp_time))
 
         if fps <= int(1 / upper_bound):
-            self.logger.warning(f"Slow FPS detected. Use {1/fps:.2f}s directly.")
+            self.logger.warning(
+                f"Slow FPS detected. Use {1/fps:.2f}s directly.")
             return 1 / fps
 
         if isinstance(exp_time, str):
             if exp_time == "real-time":
                 return 1 / fps
             if exp_time == "slow":
-                # TODO: Any better idea?
-                return 1 / 4
+                return SLOW_EXP_TIME
             if exp_time == "auto":
-                rf = rf_estimator(video_loader)
+                rf = rf_estimator(self)
                 if rf / fps >= upper_bound:
                     self.logger.warning(
                         f"Unexpected exposuring time (too long):{rf/fps:.2f}s. Use {upper_bound:.2f}s instead."
@@ -423,7 +429,8 @@ class VanillaVideoLoader(BaseVideoLoader):
             except ValueError as E:
                 raise ValueError(
                     "Invalid exp_time string value: It should be selected from [float], [int], "
-                    + "real-time\",\"auto\" and \"slow\", got %s." % (exp_time))
+                    + "real-time\",\"auto\" and \"slow\", got %s." %
+                    (exp_time))
         if isinstance(exp_time, (float, int)):
             if exp_time * fps < 1:
                 self.logger.warning(
@@ -522,7 +529,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.status, self.cur_frame = self.video.read()
         if self.status:
             self.processed_frame = self.preprocess(self.cur_frame)
-            self.queue.put(self.processed_frame, timeout=2)
+            self.queue.put(self.processed_frame, timeout=10)
             return True
         else:
             self.stop()
@@ -531,9 +538,12 @@ class ThreadVideoLoader(VanillaVideoLoader):
     def videoloop(self):
         try:
             for i in range(self.iterations):
-                if self.read_stopped or not self.status: break
+                if self.read_stopped or not self.status: 
+                    break
                 if not self.load_a_frame():
                     break
+        except Exception as e:
+            raise e
         finally:
             self.stop()
 
@@ -541,12 +551,18 @@ class ThreadVideoLoader(VanillaVideoLoader):
         if not self.read_stopped:
             super().stop()
 
+    def release(self):
+        super().release()
+        if self.queue.not_empty:
+            self.clear_queue()
+
     @property
     def stopped(self) -> bool:
         return self.read_stopped and self.queue.empty()
 
     def is_empty(self):
         return self.queue.empty()
+
 
 def _rf_est_kernel(video_loader):
     try:
@@ -585,7 +601,7 @@ def rf_estimator(video_loader):
         video_loader (BaseVideoLoader): 待确定曝光时间的VideoLoader。
         mask (ndarray): the mask for the video.
     """
-    start_frame, end_frame, = video_loader.start_frame, video_loader.end_frame,
+    start_frame, end_frame = video_loader.start_frame, video_loader.end_frame
     iteration_frames = video_loader.iterations
 
     # 估算时，将强制设置exp_frame=1以进行估算
@@ -623,4 +639,3 @@ def rf_estimator(video_loader):
         np.min([np.median(intervals),
                 np.mean(sigma_clip(intervals))]))
     return est_frames
-
