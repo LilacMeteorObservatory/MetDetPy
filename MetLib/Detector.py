@@ -42,9 +42,8 @@ class SNR_SW(SlidingWindow):
                          calc_std=False)
         # 需要评估信噪比时，额外的子滑窗
         if self.est_snr:
-            self.noise_ema = EMA(momentum=noise_moment)
+            self.noise_ema = EMA(momentum=noise_moment,warmup_speed=n)
             self.std_interval = self.nz_interval * n
-            # TODO: area=0 的处置还没写
             self.get_subarea = self.select_subarea(mask, area=est_area)
             sub_h, sub_w = self.std_roi[2] - self.std_roi[0], self.std_roi[
                 3] - self.std_roi[1]
@@ -52,16 +51,20 @@ class SNR_SW(SlidingWindow):
                                         size=(sub_h, sub_w),
                                         dtype=np.uint8,
                                         force_int=True,
-                                        calc_std=True)
+                                        calc_std=False)
 
     def update(self, new_frame):
         super().update(new_frame)
+        self.sub_sw.update(self.get_subarea(new_frame))
+        # TODO: 经验公式：当每隔std_interval计算一次时，标准差会存在偏大的情况。结果可除以sqrt(std_interval)以修正数据值。
+        # TODO: 利用E(X^2)-E(X)^2的设计会造成10%-20%的性能下降，不符合预期。
+        # 在确定合适的经验公式和维护公式之前，不应用该更新。
         # 每std_interval时间更新一次std
-        # 经验公式：当每隔std_interval计算一次时，结果应当除以sqrt(std_interval)以修正数据范围。
         if self.est_snr and (self.timer % self.std_interval == 0):
-            self.subframe = self.get_subarea(new_frame)
-            self.sub_sw.update(self.subframe)
-            self.noise_ema.update(self.sub_sw.std / np.sqrt(self.std_interval))
+            # 避免把0更新进入队列
+            if self.timer // self.std_interval > 1:
+                #self.noise_ema.update(self.sub_sw.std)
+                self.noise_ema.update(np.std(self.sub_sw.sliding_window-np.array(self.sub_sw.mean,dtype=float)))
 
     def select_subarea(self, mask, area: float) -> Callable:
         """用于选择一个尽量好的子区域评估STD。
@@ -76,18 +79,18 @@ class SNR_SW(SlidingWindow):
         h, w = mask.shape[:2]
         if area == 0:
             self.std_roi = (h // 2, w // 2, 0, 0)
-            return lambda *args: 0
+            return lambda img: img
 
         sub_rate = area**(1 / 2)
         sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
         x1, y1 = (h - sub_h) // 2, (w - sub_w) // 2
-        area = (sub_h - 1) * (sub_w - 1)
+        area = sub_h * sub_w
         light_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
         while light_ratio < 1:
-            x1 += 10
+            x1 -= 10
             new_ratio = np.sum(mask[x1:x1 + sub_h, y1:y1 + sub_w]) / area
-            if new_ratio < light_ratio or x1 + sub_h < h:
-                x1 -= 10
+            if new_ratio < light_ratio or x1 < 0:
+                x1 += 10
                 break
             light_ratio = new_ratio
         self.std_roi = (x1, y1, x1 + sub_h, y1 + sub_w)

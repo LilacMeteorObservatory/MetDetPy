@@ -7,7 +7,7 @@ from MetLib.Stacker import max_stacker, all_stacker
 from MetLib.utils import save_img, save_video, ts2frame
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWarpper import OpenCVVideoWarpper
-from MetLib.MetLog import get_default_logger
+from MetLib.MetLog import get_default_logger, set_default_logger
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
@@ -68,11 +68,15 @@ def main():
             By default, it is 95.",
         default=95)
 
+    argparser.add_argument("--debug",
+                           action="store_true",
+                           help="apply debug mode.")
+
     args = argparser.parse_args()
 
     # basic option
-    video_name, json_str, mode, default_suffix, resize, save_path,  = \
-        args.target, args.json, args.mode, args.suffix, args.resize, args.save_path,
+    video_name, json_str, mode, default_suffix, resize, save_path, debug_mode  = \
+        args.target, args.json, args.mode, args.suffix, args.resize, args.save_path, args.debug
 
     # image option
     jpg_quality, png_compress = args.jpg_quality, args.png_compressing
@@ -80,7 +84,7 @@ def main():
     video_loader = ThreadVideoLoader(OpenCVVideoWarpper,
                                      video_name,
                                      resize_option=resize,
-                                     exp_option=1,
+                                     exp_option="real-time",
                                      resize_interpolation=cv2.INTER_LANCZOS4)
 
     # parse json argument
@@ -105,11 +109,10 @@ def main():
         if not os.path.isdir(save_path):
             save_path, filename = os.path.split(save_path)
             data[0]["filename"] = filename
-        data = [data]
 
     # 获取Logger
     logger = get_default_logger()
-
+    set_default_logger(debug_mode, work_mode="frontend")
     try:
         logger.start()
         for single_data in data:
@@ -145,7 +148,6 @@ def main():
                 video_series = all_stacker(video_loader)
                 save_video(video_series, video_loader.fps, full_path)
             logger.info(f"Saved: {full_path}")
-
     finally:
         logger.stop()
 

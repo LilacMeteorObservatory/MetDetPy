@@ -182,8 +182,8 @@ if compile_tool == "nuitka":
 
     core_cfg.update(nuitka_base)
 
-    # 编译主要检测器core.py
-    nuitka_compile(core_cfg, target=join_path(work_path, "core.py"))
+    # 编译主要检测器MetDetPy.py
+    nuitka_compile(core_cfg, target=join_path(work_path, "MetDetPy.py"))
 
     # 编译视频叠加工具ClipToolkit.py
     # 不能不编译MetLib相关文件，否则会出现非常奇怪的报错（找不到np，但直接调用MetLib所有函数都没问题）
@@ -218,7 +218,7 @@ else:
     # 使用pyinstaller作为打包工具
     print("Use pyinstaller as package tools.")
 
-    # 使用主要配置文件core.spec 打包主要检测器core.py
+    # 使用主要配置文件core.spec 打包主要检测器MetDetPy.py
     # pyinstaller打包后创建文件于dist/MetDetPy目录下
 
     pyinstaller_compile(spec='core.spec')
@@ -237,8 +237,8 @@ else:
 
 # shared postprocessing
 # copy configuration file
-print("Copy config json file...", end="", flush=True)
-shutil.copy("./config.json", "./dist/MetDetPy/")
+print("Copy config json folder...", end="", flush=True)
+shutil.copytree ("./config", "./dist/MetDetPy/")
 print("Done.")
 # package codes with zip(if applied).
 if apply_zip:

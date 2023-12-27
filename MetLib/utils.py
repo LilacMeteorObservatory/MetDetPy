@@ -180,7 +180,7 @@ class SlidingWindow(object):
         return min(self.n, self.timer)
 
     @property
-    def max(self)->Union[int, float, np.ndarray]:
+    def max(self) -> Union[int, float, np.ndarray]:
         return np.max(self.sliding_window, axis=0)
 
     @property

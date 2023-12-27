@@ -162,7 +162,7 @@ if __name__ == "__main__":
     parser.add_argument('--cfg',
                         '-C',
                         help="Config file.",
-                        default="./config.json")
+                        default="./config/config.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
 
     parser.add_argument('--start-time',
