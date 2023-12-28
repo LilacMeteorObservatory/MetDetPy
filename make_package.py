@@ -137,9 +137,9 @@ if compile_tool == "nuitka":
     print("Use nuitka as package tools.")
 
     # 检查python版本 必要时启用alias python3
-    #version = "3" if (python_version == "3" and platform != "win") else ""
-    compile_tool = [f"python{python_version}", "-m", "nuitka"]
-
+    # 这一项还需要确认...python默认名称与平台/安装方式等均有关系
+    version = "3" if (python_version == "3" and platform != "win") else ""
+    compile_tool = [f"python{version}", "-m", "nuitka"]
     # 将header作为偏函数打包，简化后续传参
     nuitka_compile = partial(nuitka_compile, compile_tool)
 
@@ -174,16 +174,16 @@ if compile_tool == "nuitka":
     #    if filename.endswith("__init__.py"): continue
     #    nuitka_compile(options=metlib_cfg, target=filename)
 
-    # nuitka编译的结果产生在dist/core.dist路径下
-    core_cfg = {
+    # nuitka编译的结果产生在dist/MetDetPy.dist路径下
+    met_cfg = {
         "--standalone": True,
         "--output-dir": compile_path,
     }
 
-    core_cfg.update(nuitka_base)
+    met_cfg.update(nuitka_base)
 
     # 编译主要检测器MetDetPy.py
-    nuitka_compile(core_cfg, target=join_path(work_path, "MetDetPy.py"))
+    nuitka_compile(met_cfg, target=join_path(work_path, "MetDetPy.py"))
 
     # 编译视频叠加工具ClipToolkit.py
     # 不能不编译MetLib相关文件，否则会出现非常奇怪的报错（找不到np，但直接调用MetLib所有函数都没问题）
@@ -201,16 +201,14 @@ if compile_tool == "nuitka":
     # remove duplicate files of ClipToolkit
     print("Merging...", end="", flush=True)
     shutil.move(join_path(compile_path, "ClipToolkit.dist", f"ClipToolkit{exec_suffix}"),
-                join_path(compile_path, "core.dist"))
+                join_path(compile_path, "MetDetPy.dist"))
     shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
     print("Done.")
     # rename executable file and folder
     # shutil.move(join_path(compile_path, "MetLib"),
-    #            join_path(compile_path, "core.dist", "MetLib"))
+    #            join_path(compile_path, "MetDetPy.dist", "MetLib"))
     print("Renaming executable files...", end="", flush=True)
-    shutil.move(join_path(compile_path, "core.dist", f"core{exec_suffix}"),
-                join_path(compile_path, "core.dist", f"MetDetPy{exec_suffix}"))
-    shutil.move(join_path(compile_path, "core.dist"),
+    shutil.move(join_path(compile_path, "MetDetPy.dist"),
                 join_path(compile_path, "MetDetPy"))
     print("Done.")
 
@@ -218,10 +216,10 @@ else:
     # 使用pyinstaller作为打包工具
     print("Use pyinstaller as package tools.")
 
-    # 使用主要配置文件core.spec 打包主要检测器MetDetPy.py
+    # 使用主要配置文件 MetDetPy.spec 打包主要检测器MetDetPy.py
     # pyinstaller打包后创建文件于dist/MetDetPy目录下
 
-    pyinstaller_compile(spec='core.spec')
+    pyinstaller_compile(spec='MetDetPy.spec')
     pyinstaller_compile(spec='ClipToolkit.spec')
 
     # postprocessing
@@ -238,7 +236,7 @@ else:
 # shared postprocessing
 # copy configuration file
 print("Copy config json folder...", end="", flush=True)
-shutil.copytree ("./config", "./dist/MetDetPy/")
+shutil.copytree("./config", "./dist/MetDetPy/config")
 print("Done.")
 # package codes with zip(if applied).
 if apply_zip:

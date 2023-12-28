@@ -166,7 +166,7 @@ class MeteorCollector(object):
                              met_type=met_type))
         return met_list, drop_list
 
-    def list2json(self, meteor_list):
+    def list2json(self, meteor_list: list)->list[str]:
         """将流星列表转化为JSON-string列表.
 
         Args:
@@ -182,21 +182,28 @@ class MeteorCollector(object):
     def jsonize_waiting_meteor(self):
         output_dict = dict()
         final_list = []
+        # sort meteors in ASC order
+        self.waiting_meteor.sort(key=lambda ms: ms.start_frame)
         for ms in self.waiting_meteor:
             ms_attrbutes = self.get_met_attr(ms)
             if len(output_dict) == 0:
                 output_dict = init_output_dict(ms_attrbutes,
                                                size=self.raw_size)
                 continue
+            # TODO: 这个max_interval似乎存在复用的歧义性。后续可以考虑独立开来
+            # 片段的 end_time 最终由end_frame计算得到
             if ms.start_frame < output_dict['end_frame'] + self.max_interval:
-                output_dict.update(end_time=ms_attrbutes['end_time'],
-                                   end_frame=ms.end_frame)
+                if ms.end_frame>output_dict["end_frame"]:
+                    output_dict["end_frame"] = ms.end_frame
                 output_dict["target"].append(ms_attrbutes)
             else:
+                # 上一片段已经结束（最大间隔超过max_interval）
+                output_dict["end_time"] = self.frame2ts(output_dict["end_frame"])
                 final_list.append(output_dict)
                 output_dict = init_output_dict(ms_attrbutes,
                                                size=self.raw_size)
         if len(output_dict) != 0:
+            output_dict["end_time"] = self.frame2ts(output_dict["end_frame"])
             final_list.append(output_dict)
 
         # 整理完列表后对其进行坐标修正和序列化

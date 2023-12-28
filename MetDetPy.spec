@@ -3,7 +3,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['core.py'],
+    ['MetDetPy.py'],
     pathex=[],
     binaries=[],
     datas=[],
