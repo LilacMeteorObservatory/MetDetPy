@@ -4,6 +4,7 @@
 
 import argparse
 import os
+import platform as pf
 import shutil
 import subprocess
 import sys
@@ -120,12 +121,17 @@ release_version = VERSION
 apply_upx = args.apply_upx
 apply_zip = args.apply_zip
 
-# 根据平台决定确定编译/打包后的程序后缀
+# 根据平台/版本决定确定编译/打包后的程序后缀
+
 platform = platform_mapping[sys.platform]
-python_version = sys.version[0]
 exec_suffix = ""
 if (platform == "win"):
     exec_suffix = ".exe"
+if (platform == "macos"):
+    mac_main_ver = int(pf.mac_ver()[0].split(".")[0])
+    if mac_main_ver>=13:
+        exec_suffix = ".bin"
+        platform += "13+"
 
 # 设置工作路径，避免出现相对路径引用错误
 work_path = os.path.dirname(os.path.abspath(__file__))
@@ -137,9 +143,7 @@ if compile_tool == "nuitka":
     print("Use nuitka as package tools.")
 
     # 检查python版本 必要时启用alias python3
-    # 这一项还需要确认...python默认名称与平台/安装方式等均有关系
-    version = "3" if (python_version == "3" and platform != "win") else ""
-    compile_tool = [f"python{version}", "-m", "nuitka"]
+    compile_tool = [sys.executable, "-m", "nuitka"]
     # 将header作为偏函数打包，简化后续传参
     nuitka_compile = partial(nuitka_compile, compile_tool)
 
