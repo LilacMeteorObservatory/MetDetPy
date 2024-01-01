@@ -19,14 +19,15 @@ import queue
 import threading
 from abc import ABCMeta, abstractmethod
 from math import floor
-from typing import Optional, Type, Union, Any
+from multiprocess import Process, RawArray, Queue as MQueue # type: ignore
+from typing import Any, Optional, Type, Union
 
 import numpy as np
 
 from .MetLog import get_default_logger
-from .utils import (MergeFunction, Transform, load_8bit_image,
-                    parse_resize_param, timestr2int, transpose_wh, time2frame,
-                    frame2time, sigma_clip)
+from .utils import (MergeFunction, Transform, frame2time, load_8bit_image,
+                    parse_resize_param, sigma_clip, time2frame, timestr2int,
+                    transpose_wh)
 from .VideoWarpper import BaseVideoWarpper
 
 UP_EXPOSURE_BOUND = 0.5
@@ -203,6 +204,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         """
 
         # init necessary variables
+        self.video_warpper = video_warpper
         self.video_name = video_name
         self.mask_name = mask_name
         self.grayscale = grayscale
@@ -228,17 +230,15 @@ class VanillaVideoLoader(BaseVideoLoader):
         assert callable(self.merge_func), NameError(
             f"Unsupported merge function name: {merge_func}.")
 
-        # Generate preprocessing function
+        # Construct preprocessing pipeline(?)
         # Resize, Mask are Must-to-do things, while grayscale is selective.
-        preprocess = []
+        self.preprocess = Transform()
         if self.raw_size != self.runtime_size:
-            preprocess.append(
-                Transform.opencv_resize(self.runtime_size, **kwargs))
+            self.preprocess.opencv_resize(self.runtime_size, **kwargs)
         if self.grayscale:
-            preprocess.append(Transform.opencv_BGR2GRAY())
+            self.preprocess.opencv_BGR2GRAY()
         if self.mask_name:
-            preprocess.append(Transform.mask_with(self.mask))
-        self.preprocess = Transform.compose(preprocess)
+            self.preprocess.mask_with(self.mask)
 
         # init exposure time (exp_time) and exposure frame (exp_frame)
         self.exp_time = self.init_exp_time(exp_option,
@@ -262,21 +262,23 @@ class VanillaVideoLoader(BaseVideoLoader):
             if self.grayscale:
                 return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
             else:
-                return np.ones(transpose_wh(self.runtime_size+[3]), dtype=np.uint8)
+                return np.ones(transpose_wh(self.runtime_size + [3]),
+                               dtype=np.uint8)
         mask = load_8bit_image(mask_fname)
-        mask_transforms = [Transform.opencv_resize(self.runtime_size)]
+        mask_transformer = Transform()
+        mask_transformer.opencv_resize(self.runtime_size)
         if mask_fname.lower().endswith(".jpg"):
-            mask_transforms.append(Transform.opencv_BGR2GRAY())
-            mask_transforms.append(Transform.opencv_binary(128, 1))
+            mask_transformer.opencv_BGR2GRAY()
+            mask_transformer.opencv_binary(128, 1)
         elif mask_fname.lower().endswith(".png"):
             # 对于png，仅取透明度层，且逻辑取反
             mask = mask[:, :, -1]
-            mask_transforms.append(Transform.opencv_binary(128, 1, inv=True))
+            mask_transformer.opencv_binary(128, 1, inv=True)
 
         if not self.grayscale:
-           mask_transforms.append(Transform.expand_3rd_channel(3))
+            mask_transformer.expand_3rd_channel(3)
 
-        return Transform.compose(mask_transforms)(mask)
+        return mask_transformer.exec_transform(mask)
 
     def start(self):
         self.cur_iter = self.iterations
@@ -330,7 +332,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         for _ in range(self.exp_frame):
             status, self.cur_frame = self.video.read()
             if status:
-                frame_list.append(self.preprocess(self.cur_frame))
+                frame_list.append(
+                    self.preprocess.exec_transform(self.cur_frame))
             else:
                 self.stop()
                 break
@@ -525,37 +528,29 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 ret.append(self.queue.get(timeout=2))
         except Exception as e:
             # handle the condition when there is no frame to read due to manual stop trigger or other exception.
-            if isinstance(e,queue.Empty) and self.read_stopped:
+            if isinstance(e, queue.Empty) and self.read_stopped:
                 self.logger.info("Acceptable queue.Empty exception occured.")
                 pass
             else:
                 raise e
-        if len(ret)==0:
+        if len(ret) == 0:
             return None
         return self.merge_func(ret)
-
-    def load_a_frame(self):
-        """Load a frame from the video object.
-
-        Returns:
-            bool : status code. 1 for success operation, 0 for failure.
-        """
-        self.status, self.cur_frame = self.video.read()
-        if self.status:
-            self.processed_frame = self.preprocess(self.cur_frame)
-            self.queue.put(self.processed_frame, timeout=10)
-            return True
-        else:
-            self.stop()
-            return False
 
     def videoloop(self):
         try:
             for i in range(self.iterations):
                 if self.read_stopped or not self.status:
                     break
-                if not self.load_a_frame():
-                    self.logger.warning(f"Load frame failed at {self.start_frame + i}")
+                self.status, self.cur_frame = self.video.read()
+                if self.status:
+                    self.processed_frame = self.preprocess.exec_transform(
+                        self.cur_frame)
+                    self.queue.put(self.processed_frame, timeout=10)
+                else:
+                    self.stop()
+                    self.logger.warning(
+                        f"Load frame failed at {self.start_frame + i}")
                     break
         except Exception as e:
             raise e
@@ -575,8 +570,161 @@ class ThreadVideoLoader(VanillaVideoLoader):
     def stopped(self) -> bool:
         return self.read_stopped and self.queue.empty()
 
-    def is_empty(self):
-        return self.queue.empty()
+
+class ProcessVideoLoader(VanillaVideoLoader):
+    """ 
+    # ProcessVideoLoader
+    This class is used to load the video from the file with an independent subthread.  
+    ProcessVideoLoader can partly solve I/O blocking and provide speedup.
+
+    ## Args:
+        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_name (str): the filename of the video.
+        mask_name (Optional[str]): the filename of the mask. The default is None.
+        resize_option (Union[int, list, str, None]): resize option from input. The default is None.
+        start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
+        grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
+        exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
+        maxsize (int): the maxsize of the video buffer queue. The default is 32.
+        **kwargs: compatibility design to support other arguments. 
+            ThreadVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
+    
+    ## Usage
+
+    All of VideoLoader (take T=VideoLoader(args,kwargs) as an example) classes should be designed and 
+    utilized following these instructions:
+    
+    1. Call .start() method before using it. eg. : T.start()
+    2. Pop 1 frame from its queue with the .pop() method. 
+    3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
+       Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
+    """
+
+    def __init__(self,
+                 video_warpper: Type[BaseVideoWarpper],
+                 video_name: str,
+                 mask_name: Optional[str] = None,
+                 resize_option: Union[int, list, str, None] = None,
+                 start_time: Optional[str] = None,
+                 end_time: Optional[str] = None,
+                 grayscale: bool = False,
+                 exp_option: Union[int, float, str] = "auto",
+                 merge_func: str = "not_merge",
+                 maxsize: int = 32,
+                 **kwargs) -> None:
+        self.maxsize = maxsize
+        self.notify_queue = MQueue(maxsize=self.maxsize - 1)
+        super().__init__(video_warpper, video_name, mask_name, resize_option,
+                         start_time, end_time, grayscale, exp_option,
+                         merge_func, **kwargs)
+
+    def start(self):
+        w, h = self.runtime_size
+        c = 1 if self.grayscale else 3
+        self.read_stopped = False
+        self.clear_queue()
+        self.status = True
+        self.buffer = RawArray(
+            np.dtype("uint8").char, self.maxsize * w * h * c)
+        self.buffer_shape = (self.maxsize, h,
+                             w) if self.grayscale else (self.maxsize, h, w, 3)
+        # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
+        # TODO 2: 对于不能set_to的，能否向后继续跳转？
+        #self.video.set_to(self.start_frame)
+        del self.video
+        self.subprocess = Process(target=self.videoloop, daemon=True)
+        self.subprocess.start()
+        # a hack way
+        self.video = self.video_warpper(self.video_name)
+
+    def clear_queue(self):
+        while self.notify_queue.qsize() > 0:
+            self.notify_queue.get()
+
+    def pop(self):
+        """消费者调起接口。
+
+        Raises:
+            Exception: _description_
+            e: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        if self.stopped:
+            # this is abnormal. so the video file will be released manuly here.
+            self.video.release()
+            self.subprocess.join()
+            raise Exception(
+                f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
+            )
+        np_buffer = np.frombuffer(self.buffer,
+                                  dtype=np.uint8).reshape(self.buffer_shape)
+        ret = []
+        try:
+            for i in range(self.exp_frame):
+                if self.stopped: break
+                x = self.notify_queue.get(timeout=2)
+                if x == "STOPPED":
+                    self.read_stopped = True
+                    break
+                ret.append(x)
+        except queue.Empty as e:
+            # handle the condition when there is no frame to read due to manual stop trigger or other exception.
+            if self.read_stopped:
+                self.logger.info("Acceptable queue.Empty exception occured.")
+
+        if len(ret) == 0:
+            return None
+        return self.merge_func(np_buffer[ret])
+
+    def videoloop(self):
+        # TODO: 此处硬编码了类型。后续应该做调整。
+        self.video = self.video_warpper(self.video_name)
+        self.video.set_to(self.start_frame)
+
+        np_buffer = np.frombuffer(self.buffer,
+                                  dtype=np.uint8).reshape(self.buffer_shape)
+        self.cur_pos = 0
+        try:
+            for i in range(self.iterations):
+                if self.read_stopped or not self.status:
+                    break
+                self.status, self.cur_frame = self.video.read()
+                # Load frame failed.
+                if not self.status:
+                    self.stop()
+                    self.logger.warning(
+                        f"Load frame failed at {self.start_frame + i}")
+                    break
+                self.cur_frame = self.preprocess.exec_transform(self.cur_frame)
+                np_buffer[self.cur_pos] = self.cur_frame
+                self.cur_pos = (self.cur_pos + 1) % self.maxsize
+                # TODO: timeout均为硬编码，应当参数化。
+                self.notify_queue.put(self.cur_pos, timeout=10)
+
+        except Exception as e:
+            raise e
+        finally:
+            self.stop()
+
+    def stop(self):
+        if not self.read_stopped:
+            super().stop()
+            self.stop()
+            try:
+                self.notify_queue.put("STOPPED", timeout=10)
+            except queue.Full as e:
+                pass
+
+    def release(self):
+        super().release()
+
+    @property
+    def stopped(self) -> bool:
+        return self.read_stopped and self.notify_queue.qsize == 0
 
 
 def _rf_est_kernel(video_loader):
@@ -605,7 +753,7 @@ def _rf_est_kernel(video_loader):
     return rmax_pos[1:] - rmax_pos[:-1]
 
 
-def rf_estimator(video_loader)-> Union[float, int]:
+def rf_estimator(video_loader) -> Union[float, int]:
     """用于为给定的视频估算实际的曝光时间。
 
     部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
@@ -653,4 +801,4 @@ def rf_estimator(video_loader)-> Union[float, int]:
     est_frames: np.floating = np.round(
         np.min([np.median(intervals),
                 np.mean(sigma_clip(intervals))]))
-    return est_frames # type: ignore
+    return est_frames  # type: ignore

@@ -64,7 +64,8 @@ class SNR_SW(SlidingWindow):
             # 避免把0更新进入队列
             if self.timer // self.std_interval > 1:
                 #self.noise_ema.update(self.sub_sw.std)
-                self.noise_ema.update(np.std(self.sub_sw.sliding_window-np.array(self.sub_sw.mean,dtype=float)))
+                self.noise_cur_value: np.floating = np.std(self.sub_sw.sliding_window-np.array(self.sub_sw.mean,dtype=float))
+                self.noise_ema.update(self.noise_cur_value)
 
     def select_subarea(self, mask, area: float) -> Callable:
         """用于选择一个尽量好的子区域评估STD。
@@ -284,12 +285,13 @@ class M3Detector(LineDetector):
         # Preprocessing
         # Mainly calculate diff_img (which basically equals to max-mid)
         light_img = self.stack.max
-        diff_img = (light_img - self.stack.mean).astype(dtype=np.uint8)
+        diff_img = light_img - self.stack.mean
         diff_img = cv2.medianBlur(diff_img, 3)
 
-        # Post-processing后处理
+        # Post-processing后处理：二值化 + 闭运算
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
                                cv2.THRESH_BINARY)
+        #dst = cv2.morphologyEx(dst, cv2.MORPH_OPEN, self.cv_op)
         dst = cv2.morphologyEx(dst, cv2.MORPH_CLOSE, self.cv_op)
 
         # dynamic_mask 机制

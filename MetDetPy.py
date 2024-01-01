@@ -17,7 +17,8 @@ from MetLib.Detector import LineDetector
 def detect_video(video_name,
                  mask_name,
                  cfg,
-                 debug_mode,
+                 debug_mode=False,
+                 visual_mode=False,
                  work_mode="frontend",
                  time_range=(None, None)):
 
@@ -98,7 +99,7 @@ def detect_video(video_name,
         # TODO: 参数暂未完全支持参数化设置。
         visual_manager = OpenCVMetVisu(exp_time=exp_time,
                                        resolution=video_loader.runtime_size,
-                                       flag=debug_mode)
+                                       flag=visual_mode)
         # Init main iterator
         main_iterator = range(start_frame, end_frame, exp_frame)
         if work_mode == 'frontend':
@@ -110,6 +111,7 @@ def detect_video(video_name,
         raise e
     # MAIN DETECTION PART
     t1 = time.time()
+    tot_get_time = 0
     try:
         video_loader.start()
         for i in main_iterator:
@@ -117,9 +119,9 @@ def detect_video(video_name,
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
                 logger.processing(frame2time(i, fps))
-
+            t0 = time.time()
             x = video_loader.pop()
-
+            tot_get_time += (time.time()-t0)
             if (video_loader.stopped or x is None):
                 break
 
@@ -150,6 +152,7 @@ def detect_video(video_name,
         output_meteors(main_mc.clear())
         visual_manager.stop()
         logger.info("Time cost: %.4ss." % (time.time() - t1))
+        logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
         logger.stop()
 
     return main_mc.ended_meteor
@@ -185,6 +188,12 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
+    
+    parser.add_argument('--visual',
+                        '-V',
+                        action='store_true',
+                        help="Apply Visual Mode",
+                        default=False)
 
     parser.add_argument('--resize',
                         help="Running-time resolution",
@@ -218,6 +227,7 @@ if __name__ == "__main__":
     cfg_filename = args.cfg
     mask_name = args.mask
     debug_mode = args.debug
+    visual_mode = args.visual
     sensitivity = args.sensitivity
     bi_thre = args.bi_thre
     adaptive = args.adaptive_thre
@@ -250,5 +260,6 @@ if __name__ == "__main__":
                  mask_name,
                  cfg,
                  debug_mode,
+                 visual_mode,
                  work_mode,
                  time_range=(start_time, end_time))

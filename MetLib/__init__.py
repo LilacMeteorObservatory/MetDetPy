@@ -1,6 +1,6 @@
 from typing import Callable, Any, Type
 
-from .VideoLoader import ThreadVideoLoader, VanillaVideoLoader
+from .VideoLoader import ThreadVideoLoader, VanillaVideoLoader, ProcessVideoLoader
 from .VideoWarpper import OpenCVVideoWarpper
 from .Detector import M3Detector, ClassicDetector
 
@@ -16,7 +16,7 @@ def get_xxx(name, all) -> Callable[[str],Type]:
     return core
 
 
-available_loaders = [VanillaVideoLoader, ThreadVideoLoader]
+available_loaders = [VanillaVideoLoader, ThreadVideoLoader,ProcessVideoLoader]
 available_warppers = [OpenCVVideoWarpper]
 available_detectors = [M3Detector, ClassicDetector]
 

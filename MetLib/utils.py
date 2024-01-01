@@ -1,6 +1,5 @@
 import datetime
 import warnings
-from functools import partial
 from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
@@ -10,7 +9,7 @@ from .MetLog import get_default_logger
 
 EPS = 1e-2
 PI = np.pi / 180.0
-VERSION = "V2.0.0_alpha"
+VERSION = "V2.0.0_alpha0"
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
@@ -24,64 +23,55 @@ def pt_offset(pt, offset) -> list:
     assert len(pt) == len(offset)
     return [value + offs for value, offs in zip(pt, offset)]
 
-
 class Transform(object):
-    """图像变换方法的集合类。
+    """图像变换方法的集合类，及一个用于执行集成变换的方法。
     """
+    MASK_FLAG = "MASK"
+    def __init__(self) -> None:
+        self.transform = []
 
-    @classmethod
-    def opencv_resize(cls, dsize, **kwargs) -> Callable:
+    def opencv_resize(self, dsize, **kwargs):
         interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
-        return partial(cv2.resize, dsize=dsize, interpolation=interpolation)
+        self.transform.append([cv2.resize,dict(dsize=dsize, interpolation=interpolation)])
 
-    @classmethod
-    def mask_with(cls, mask) -> Callable:
-        return lambda img: img * mask
+    def opencv_BGR2GRAY(self):
+        self.transform.append([cv2.cvtColor,dict(code=cv2.COLOR_BGR2GRAY)])
 
-    @classmethod
-    def opencv_BGR2GRAY(cls) -> Callable:
-        return partial(cv2.cvtColor, code=cv2.COLOR_BGR2GRAY)
+    def opencv_RGB2GRAY(self):
+        self.transform.append([cv2.cvtColor,dict(code=cv2.COLOR_RGB2GRAY)])
 
-    @classmethod
-    def opencv_RGB2GRAY(cls) -> Callable:
-        return partial(cv2.cvtColor, code=cv2.COLOR_RGB2GRAY)
+    def mask_with(self, mask):
+        self.transform.append([self.MASK_FLAG, dict(mask=mask)])
 
-    @classmethod
-    def expand_3rd_channel(cls, num) -> Callable:
+    def expand_3rd_channel(self, num):
         """将单通道灰度图像通过Repeat方式映射到多通道图像。
         """
-        assert isinstance(num, int)
-        if num == 1:
-            return lambda img: img[:, :, None]
-        return lambda img: np.repeat(img[:, :, None], num, axis=-1)
+        assert isinstance(num, int) and num>0, f"num invalid! expect int>0, got {num} with dtype={type(num)}."
+        self.transform.append([np.expand_dims,dict(axis=-1)])
+        if num>1:
+            self.transform.append([np.repeat, dict(repeats=num, axis=-1)])
 
-    @classmethod
-    def opencv_binary(cls, threshold, maxval=255, inv=False) -> Callable:
-
-        def opencv_threshold_1ret(img):
-            return cv2.threshold(
-                img,
-                thresh=threshold,
-                maxval=maxval,
-                type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)[-1]
-
-        return opencv_threshold_1ret
-
-    @classmethod
-    def compose(cls, trans_func: List[Callable]) -> Callable:
-        """接受一个函数的列表，返回一个compose的函数，顺序执行指定的变换。
+    def opencv_binary(self, threshold, maxval=255, inv=False):
+        self.transform.append([cv2.threshold,dict(thresh=threshold, maxval=maxval,type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)])
+    
+    def exec_transform(self,img:np.ndarray)->np.ndarray:
+        """按顺序执行给定的变换。
 
         Args:
-            trans_func (List[Callable]): _description_
+            img (np.ndarray): _description_
+            transform_dict (dict[Callable, dict[str,Any]]): _description_
+
+        Returns:
+            np.ndarray: _description_
         """
-
-        def transform_img(img):
-            for func in trans_func:
-                img = func(img)
-            return img
-
-        return transform_img
-
+        for [transform,kwargs] in self.transform:
+            if transform==self.MASK_FLAG:
+                img = img * kwargs["mask"]
+            elif transform==cv2.threshold:
+                img = transform(img,**kwargs)[-1]
+            else:
+                img = transform(img,**kwargs)
+        return img
 
 class MergeFunction(object):
     """图像变换方法的集合类。
@@ -226,7 +216,7 @@ class EMA(object):
         self.t = 0
         self.warmup_speed = warmup_speed
 
-    def update(self, value: float) -> None:
+    def update(self, value) -> None:
         if self.warmup_speed:
             self.adjust_weight()
         self.cur_value = self.cur_momentum * self.cur_value + (
