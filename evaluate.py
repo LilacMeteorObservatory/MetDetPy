@@ -4,11 +4,10 @@ import os
 from collections import namedtuple
 
 import numpy as np
-
-from core import detect_video
-from MetLib.utils import Munch, ts2frame
+from easydict import EasyDict
+from MetDetPy import detect_video
+from MetLib.utils import ts2frame
 from MetLib.VideoWarpper import OpenCVVideoWarpper
-from ClipToolkit import stack_and_save_img
 
 # 正样本阈值：默认0.5
 # 匹配要求：TIoU threshold=0.3(??) & IoU threshold=0.3 且具有唯一性(?)
@@ -130,10 +129,10 @@ args = parser.parse_args()
 ## Load video and config
 
 with open(args.video_json, mode='r', encoding='utf-8') as f:
-    video_dict = Munch(json.load(f))
+    video_dict = EasyDict(json.load(f))
 
 with open('config.json', mode='r', encoding='utf-8') as f:
-    cfg = Munch(json.load(f))
+    cfg = EasyDict(json.load(f))
 
 ##  我想了下。。感觉大多数微调检测参数的指令也需要带着。。
 ##  有关Argparse的部分大概会写的很混沌吧。

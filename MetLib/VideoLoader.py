@@ -19,7 +19,7 @@ import queue
 import threading
 from abc import ABCMeta, abstractmethod
 from math import floor
-from multiprocess import Process, RawArray, Queue as MQueue # type: ignore
+from multiprocess import freeze_support, Process, RawArray, Queue as MQueue  # type: ignore
 from typing import Any, Optional, Type, Union
 
 import numpy as np
@@ -35,6 +35,8 @@ DEFAULT_EXPOSURE_FRAME = 1
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
 SLOW_EXP_TIME = 1 / 4
+
+freeze_support()
 
 
 class BaseVideoLoader(metaclass=ABCMeta):

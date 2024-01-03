@@ -133,7 +133,7 @@ def main():
             if suffix in support_image_suffix: cur_mode = "image"
             elif suffix in support_video_suffix: cur_mode = "video"
             else:
-                print(
+                logger.error(
                     f"Unsupport suffix: {suffix}. Ignore error and continue.")
                 continue
 
