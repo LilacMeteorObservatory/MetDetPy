@@ -50,7 +50,7 @@ def create_prob_func(range):
 
 class MeteorCollector(object):
     """
-    全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列。
+    全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列，执行必要的重校验。
     """
 
     def __init__(self, min_len, max_interval, det_thre, time_range,
@@ -125,7 +125,7 @@ class MeteorCollector(object):
                     no_prob_met = False
                     break
             if no_prob_met:
-                met_list = self.jsonize_waiting_meteor()
+                met_list = self.export_waiting_meteor()
                 self.waiting_meteor.clear()
 
         # 对新的line进行判断
@@ -179,7 +179,7 @@ class MeteorCollector(object):
                 meteor["pt2"] = scale_to(meteor["pt2"], self.rescale_ratio)
         return [json.dumps(x) for x in meteor_list]
 
-    def jsonize_waiting_meteor(self):
+    def export_waiting_meteor(self):
         output_dict = dict()
         final_list = []
         # sort meteors in ASC order
