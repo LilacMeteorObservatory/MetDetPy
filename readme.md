@@ -1,7 +1,7 @@
 <div align="center">
   <img src="imgs/banner.png"/>
 
-![version](https://img.shields.io/badge/version-v1.2.4-success) [![license](https://img.shields.io/badge/license-LGPL2.1-success)](./LICENSE) 
+![version](https://img.shields.io/badge/version-v2.0.0-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
@@ -44,6 +44,7 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 * tqdm>=4.0.0
 * easydict>=1.0
 * multiprocess>=0.70.0
+* onnxruntime-gpu>=1.16.0
 
 You can install these packages using:
 

@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def all_stacker(video_loader, start_frame=None, end_frame=None):
+def all_stacker(video_loader, start_frame=None, end_frame=None)->list:
     """Load all frames to a mat(list, actually).
 
     Args:
@@ -25,7 +25,7 @@ def all_stacker(video_loader, start_frame=None, end_frame=None):
     return mat
 
 
-def max_stacker(video_loader, start_frame=None, end_frame=None):
+def max_stacker(video_loader, start_frame=None, end_frame=None)->np.ndarray:
     if start_frame != None or end_frame != None:
         video_loader.reset(start_frame=start_frame, end_frame=end_frame)
     try:
