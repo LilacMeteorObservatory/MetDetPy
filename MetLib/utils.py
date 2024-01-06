@@ -11,7 +11,7 @@ from .MetLog import get_default_logger
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
-VERSION = "V2.0.0_alpha0"
+VERSION = "V2.0.0_alpha1"
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /

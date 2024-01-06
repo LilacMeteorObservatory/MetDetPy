@@ -3,4 +3,4 @@ opencv_python>=4.7.0
 tqdm>=4.0.0
 easydict>=1.0
 multiprocess>=0.70.0
-onnxruntime-gpu>=1.16.0
+onnxruntime>=1.16.0

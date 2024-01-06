@@ -97,7 +97,7 @@ argparser.add_argument("--tool",
                        "-T",
                        help="Use nuitka or pyinstaller",
                        choices=['nuitka', 'pyinstaller'],
-                       default="pyinstaller",
+                       required=True,
                        type=str)
 argparser.add_argument(
     "--mingw64",
