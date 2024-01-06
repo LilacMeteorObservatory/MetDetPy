@@ -242,6 +242,9 @@ else:
 print("Copy config json folder...", end="", flush=True)
 shutil.copytree("./config", "./dist/MetDetPy/config")
 print("Done.")
+print("Copy weights folder...", end="", flush=True)
+shutil.copytree("./weights", "./dist/MetDetPy/weights")
+print("Done.")
 # package codes with zip(if applied).
 if apply_zip:
     zip_fname = join_path(compile_path,
