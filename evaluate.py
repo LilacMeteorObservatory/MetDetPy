@@ -6,16 +6,15 @@ from collections import namedtuple
 import numpy as np
 from easydict import EasyDict
 from MetDetPy import detect_video
-from MetLib.utils import ts2frame
+from MetLib.utils import ts2frame, calculate_area_iou
 from MetLib.VideoWarpper import OpenCVVideoWarpper
+from typing import Any
 
 # 正样本阈值：默认0.5
 # 匹配要求：TIoU threshold=0.3(??) & IoU threshold=0.3 且具有唯一性(?)
 pos_thre = 0.5
 tiou = 0.05
 aiou = 0.3
-
-box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 
 
 def resize_gt_coord(gts, anno_size, detect_size):
@@ -45,21 +44,10 @@ def batch_ts2frame(meteors, fps):
     return meteors
 
 
-def met2xyxy(met):
-    """将met的字典转换为xyxy形式的坐标。
-
-    Args:
-        met (_type_): _description_
-    """
-    (x1, y1), (x2, y2) = met["pt1"], met["pt2"]
-    x1, x2 = min(x1, x2), max(x1, x2)
-    y1, y2 = min(y1, y2), max(y1, y2)
-    return box(x1, y1, x2, y2)
-
-
 def calculate_time_iou(met_a, met_b):
-    if (met_a["start_frame"] >= met_b["end_frame"]) or (met_a["end_frame"] <=
-                                                        met_b["start_frame"]):
+    if (met_a["start_frame"]
+            >= met_b["end_frame"]) or (met_a["end_frame"]
+                                       <= met_b["start_frame"]):
         return 0
     t = sorted([
         met_a["start_frame"], met_a["end_frame"], met_b["start_frame"],
@@ -67,33 +55,6 @@ def calculate_time_iou(met_a, met_b):
     ],
                reverse=True)
     return (t[1] - t[2]) / (t[0] - t[3])
-
-
-def calculate_area_iou(met_a, met_b):
-    """用于计算面积的iou。
-
-    Args:
-        met_a (_type_): _description_
-        met_b (_type_): _description_
-    """
-    mat1 = met2xyxy(met_a)
-    mat2 = met2xyxy(met_b)
-    print(mat1, mat2)
-    # 若无交集即为0
-    if (mat1.x1 >= mat2.x2 or mat1.x2 <= mat2.x1) or (mat1.y1 >= mat2.y2
-                                                      or mat1.y2 <= mat2.y1):
-        return 0
-
-    # 计算交集面积
-    i_xx = sorted([mat1.x1, mat1.x2, mat2.x1, mat2.x2], reverse=True)[1:-1]
-    i_yy = sorted([mat1.y1, mat1.y2, mat2.y1, mat2.y2], reverse=True)[1:-1]
-    area_i = (i_xx[1] - i_xx[0]) * (i_yy[1] - i_yy[0])
-
-    # 分别计算面积
-    area_a = (mat1.x2 - mat1.x1) * (mat1.y2 - mat1.y1)
-    area_b = (mat2.x2 - mat2.x1) * (mat2.y2 - mat2.y1)
-    print(area_i, area_a, area_b)
-    return area_i / (area_a + area_b - area_i)
 
 
 parser = argparse.ArgumentParser(description='MetDetPy Evaluater.')
@@ -129,7 +90,7 @@ args = parser.parse_args()
 ## Load video and config
 
 with open(args.video_json, mode='r', encoding='utf-8') as f:
-    video_dict = EasyDict(json.load(f))
+    video_dict: Any = EasyDict(json.load(f))
 
 with open('config.json', mode='r', encoding='utf-8') as f:
     cfg = EasyDict(json.load(f))
@@ -154,7 +115,7 @@ end_time = getattr(video_dict, "end_time", None)
 shared_path = os.path.split(args.video_json)[0]
 if os.path.split(video_name)[0] == "":
     video_name = os.path.join(shared_path, video_name)
-if (mask_name!="") and (os.path.split(mask_name)[0] == ""):
+if (mask_name != "") and (os.path.split(mask_name)[0] == ""):
     mask_name = os.path.join(shared_path, mask_name)
 
 if args.load:
@@ -214,7 +175,7 @@ if args.metrics:
             if gt_label[cur_id] == 0 and (calculate_time_iou(
                     instance, gt_meteors[cur_id]) >= tiou):
                 # and calculate_area_iou(
-                #        instance, gt_meteors[cur_id]) >= aiou
+                #        met2xyxy(instance), met2xyxy(gt_meteors[cur_id])) >= aiou
                 match_flag = True
                 tp += 1
                 gt_label[cur_id] = 1

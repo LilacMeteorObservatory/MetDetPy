@@ -1,5 +1,5 @@
 import numpy as np
-
+import threading
 
 def all_stacker(video_loader, start_frame=None, end_frame=None)->list:
     """Load all frames to a mat(list, actually).
@@ -33,6 +33,8 @@ def max_stacker(video_loader, start_frame=None, end_frame=None)->np.ndarray:
         # Load first frame as the base frame.
         base_frame = video_loader.pop()
         for i in range(video_loader.iterations - 1):
+            if video_loader.stopped:
+                break
             new_frame = video_loader.pop()
             base_frame = np.max([base_frame, new_frame], axis=0)
         return base_frame

@@ -2,18 +2,21 @@
 
 Relation of Detectors in MetDetPy:
 
-                               |--ClassicDetector
-              |--LineDetector--|
-BaseDetector--|                |--M3Detector
-              |
-              |----MLDetector-----YOLODetector
+                                    |--ClassicDetector
+                   |--LineDetector--|
+BaseDetector(ABC)--|                |--M3Detector
+                   |
+                   |--MLDetector
 """
+
+from abc import ABCMeta, abstractmethod
+from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
-from typing import Callable, Any, Optional
-from abc import abstractmethod, ABCMeta
-from .utils import SlidingWindow, generate_group_interpolate, EMA, PI
+
+from .Model import init_model
+from .utils import EMA, PI, SlidingWindow, generate_group_interpolate
 
 NUM_LINES_TOOMUCH = 100
 
@@ -33,6 +36,7 @@ class SNR_SW(SlidingWindow):
                  noise_moment=0.99,
                  nz_interval=1) -> None:
         self.est_snr = est_snr
+        self.n = n
         self.nz_interval = nz_interval
         # 主滑窗，维护图像
         super().__init__(n,
@@ -42,7 +46,7 @@ class SNR_SW(SlidingWindow):
                          calc_std=False)
         # 需要评估信噪比时，额外的子滑窗
         if self.est_snr:
-            self.noise_ema = EMA(momentum=noise_moment,warmup_speed=n)
+            self.noise_ema = EMA(momentum=noise_moment, warmup_speed=n)
             self.std_interval = self.nz_interval * n
             self.get_subarea = self.select_subarea(mask, area=est_area)
             sub_h, sub_w = self.std_roi[2] - self.std_roi[0], self.std_roi[
@@ -59,12 +63,18 @@ class SNR_SW(SlidingWindow):
         # TODO: 经验公式：当每隔std_interval计算一次时，标准差会存在偏大的情况。结果可除以sqrt(std_interval)以修正数据值。
         # TODO: 利用E(X^2)-E(X)^2的设计会造成10%-20%的性能下降，不符合预期。
         # 在确定合适的经验公式和维护公式之前，不应用该更新。
+        # 添加了更快启动的机制。
         # 每std_interval时间更新一次std
-        if self.est_snr and (self.timer % self.std_interval == 0):
-            # 避免把0更新进入队列
-            if self.timer // self.std_interval > 1:
-                #self.noise_ema.update(self.sub_sw.std)
-                self.noise_cur_value: np.floating = np.std(self.sub_sw.sliding_window-np.array(self.sub_sw.mean,dtype=float))
+        if self.est_snr:
+            if self.timer > self.n and self.timer % self.std_interval == 0:
+                self.noise_cur_value: np.floating = np.std(
+                    self.sub_sw.sliding_window -
+                    np.array(self.sub_sw.mean, dtype=float))
+                self.noise_ema.update(self.noise_cur_value)
+            elif 1< self.timer <= self.n:
+                self.noise_cur_value: np.floating = np.std(
+                    self.sub_sw.sliding_window[:self.timer] -
+                    np.array(self.sub_sw.mean, dtype=float))
                 self.noise_ema.update(self.noise_cur_value)
 
     def select_subarea(self, mask, area: float) -> Callable:
@@ -151,20 +161,21 @@ class LineDetector(BaseDetector):
     """
     # version I
     sensitivity_func = {
-        "low": lambda x: 1.5 * x**2 + 4.2,
+        #"low": lambda x: 1.5 * x**2 + 4.2, # not sure, unstable update, needs more sample to validate.
+        "low": lambda x: 2.0 * x**2 + 4.4,
         "normal": lambda x: 1.2 * x**2 + 3.6,
         "high": lambda x: 0.9 * x**2 + 3,
     }
-    abs_sensitivity = {"high": 3, "normal": 5, "low": 7, "very_low": 10}
+    abs_sensitivity = {"high": 3, "normal": 5, "low": 7}
     cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-    def __init__(self, window_sec, fps, mask, bi_cfg, hough_cfg, dynamic_cfg):
+    def __init__(self, window_sec, fps, mask, cfg, logger):
         self.mask = mask
         self.mask_area = np.sum(self.mask)
         # cfg
-        self.bi_cfg = bi_cfg
-        self.hough_cfg = hough_cfg
-        self.dynamic_cfg = dynamic_cfg
+        self.bi_cfg = cfg.binary
+        self.hough_cfg = cfg.hough_line
+        self.dynamic_cfg = cfg.dynamic
         # stack
         self.stack_maxsize = int(window_sec * fps)
         self.stack = SNR_SW(n=self.stack_maxsize,
@@ -176,6 +187,7 @@ class LineDetector(BaseDetector):
         if self.bi_cfg.adaptive_bi_thre:
             self.std2thre = self.sensitivity_func[self.bi_cfg.sensitivity]
             self.bi_threshold = self.abs_sensitivity[self.bi_cfg.sensitivity]
+            self.bi_threshold_float = self.bi_threshold
 
         # 如果启用动态蒙版（dynamic mask），在此处构建另一个滑窗管理
         if self.dynamic_cfg.dy_mask:
@@ -189,13 +201,14 @@ class LineDetector(BaseDetector):
             self.max_allow_gap = self.dynamic_cfg.dy_gap
             self.fill_thre = self.dynamic_cfg.fill_thre
 
-    def detect(self) -> tuple[list, dict[str, Any]]:
-        return [], {}
+    def detect(self) -> tuple[list, list, dict[str, Any]]:
+        return [], [], {}
 
     def update(self, new_frame: np.ndarray):
         self.stack.update(new_frame)
         if self.bi_cfg.adaptive_bi_thre and (self.stack.snr != 0):
-            self.bi_threshold = self.std2thre(self.stack.snr)
+            self.bi_threshold_float = self.std2thre(self.stack.snr)
+            self.bi_threshold = round(self.bi_threshold_float)
 
     def visu(self) -> dict:
         return super().visu()
@@ -219,10 +232,10 @@ class ClassicDetector(LineDetector):
     '''
     classic_max_size = 4
 
-    def __init__(self, window_sec, fps, mask, bi_cfg, hough_cfg, dynamic_cfg):
+    def __init__(self, window_sec, fps, mask, cfg, logger):
         # 4帧窗口（硬编码）
         window_sec = self.classic_max_size / fps
-        super().__init__(window_sec, fps, mask, bi_cfg, hough_cfg, dynamic_cfg)
+        super().__init__(window_sec, fps, mask, cfg, logger)
 
     def detect(self):
         id3, id2, id1, id0 = [
@@ -257,7 +270,7 @@ class ClassicDetector(LineDetector):
                                       maxLineGap=self.hough_cfg.max_gap)
 
         self.linesp = [] if self.linesp is None else self.linesp[0]
-        return self.linesp, self.visu(sw[id3], dst)
+        return self.linesp, [], self.visu(sw[id3], dst)
 
     def visu(self, img, dst):
         raise NotImplementedError
@@ -268,7 +281,7 @@ class M3Detector(LineDetector):
 
     主要工作原理： 以X帧为窗口的帧差法 （最大值-中值）。
     
-    20221109：Update：利用更大的滑窗范围（滑窗中值法）和简化的最大值-阈值方法提升精度与速度
+    利用更大的滑窗范围（滑窗中值法）和简化的最大值-阈值方法提升精度与速度
     
     采取了相比原算法更激进的阈值和直线检测限，将假阳性样本通过排除记录流星的算法移除。
 
@@ -352,8 +365,11 @@ class M3Detector(LineDetector):
                     "color": "red"
                 }
             ])
-
-        return linesp, self.visu(light_img, dst, extra_info=data_info)
+        # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
+        return linesp, np.ones(
+            (lines_num, ), dtype=int) * (-1), self.visu(light_img,
+                                                        dst,
+                                                        extra_info=data_info)
 
     def visu(self, bg, light, extra_info: Optional[list] = None) -> dict:
         """ 构造可视化时使用的
@@ -389,7 +405,8 @@ class M3Detector(LineDetector):
         ])
         data_info.append([
             "text", "left-top", {
-                "text": f"Bi_Threshold: {self.bi_threshold:.2f}",
+                "text":
+                f"Bi_Threshold: {self.bi_threshold}(rounded from {self.bi_threshold_float:.4f})",
                 "color": "green"
             }
         ])
@@ -398,37 +415,53 @@ class M3Detector(LineDetector):
 
         return {"bg": core_drawer, "info": data_info}
 
+
 class MLDetector(BaseDetector):
-    """基于机器学习模型管线的检测器。(作为抽象类，并不会产生检测结果)
-    （迭代中，该版本并不稳定）
-
-    可接受单通道/三通道的输入。
-
+    """Detector with Deep-learning model as backend.
+    Support general yolo in onnx format and gives yolo-type output.
     Args:
         BaseDetector (_type_): _description_
     """
 
-    """基于"二值化-Hough直线检测"的检测器类。
-    
-    # 可启用特性：
-    暂无
-    """
-
-    def __init__(self, window_sec,mask, weight_path, fps) -> None:
+    def __init__(self, window_sec, mask, fps, cfg, logger) -> None:
         # stack
         self.mask = mask
+        self.logger = logger
+        self.pos_thre = 0.25
         self.stack_maxsize = int(window_sec * fps)
         self.stack = SlidingWindow(n=self.stack_maxsize,
-                            size=self.mask.shape,
-                            dtype=np.uint8)
-        # load model
-        pass
-                            
+                                   size=self.mask.shape,
+                                   dtype=np.uint8,
+                                   force_int=True)
+        self.model = init_model(cfg.model, logger=self.logger)
+
     def update(self, new_frame) -> None:
         self.stack.update(new_frame)
 
     def detect(self):
-        pass
+        self.result_pos, self.result_cls = self.model.forward(self.stack.max)
+        if len(self.result_pos) == 0:
+            return [], [], self.visu()
+        return self.result_pos, self.result_cls, self.visu()
 
     def visu(self) -> dict:
-        return {}
+        """ 构造可视化时使用的
+
+        Args:
+            bg (np.array): 背景图像
+            light (np.array): 响应图像
+        """
+
+        def core_drawer():
+            return self.stack.max
+
+        data_info = []
+        # TODO: 似乎没有设置哪儿可以关闭这个。。
+        #if getattr(self, "ref_ema", None):
+        for (x1, y1, x2, y2) in self.result_pos:
+            data_info.append(
+                ["rectangle", [(x1, y1), (x2, y2)], {
+                    "color": "orange"
+                }])
+
+        return {"bg": core_drawer, "info": data_info}

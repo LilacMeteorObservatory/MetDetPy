@@ -1,5 +1,6 @@
 import datetime
 import warnings
+from collections import namedtuple
 from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
@@ -7,6 +8,7 @@ import numpy as np
 
 from .MetLog import get_default_logger
 
+box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
 VERSION = "V2.0.0_alpha0"
@@ -18,6 +20,18 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
                                   (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 logger = get_default_logger()
 
+STR2DTYPE = {
+    "float32": np.float32,
+    "float16": np.float16,
+    "int8": np.int8
+}
+
+ID2NAME: dict[int,str] = {}
+
+with open("./config/class_name.txt") as f:
+    mapper = [x.strip().split() for x in f.readlines()]
+    for num,name in mapper:
+        ID2NAME[int(num)] = name
 
 def pt_offset(pt, offset) -> list:
     assert len(pt) == len(offset)
@@ -74,7 +88,7 @@ class Transform(object):
         return img
 
 class MergeFunction(object):
-    """图像变换方法的集合类。
+    """多张图像合并方法的集合类。
     """
 
     @classmethod
@@ -503,13 +517,13 @@ def lineset_nms(lines, max_dist, drct_prob_func):
         merged_list.append(this_list)
 
     line_type = [
-        "area" if drct_prob_func(drct_std(lines[x])) < 1 else "line"
+        -1 if drct_prob_func(drct_std(lines[x])) < 1 else 0
         for x in merged_list
     ]
 
     ret_list = []
     for single_type, inds in zip(line_type, merged_list):
-        if single_type == "area":
+        if single_type == -1:
             # 找到各个边界的代表点以及整个分布的中心点作为代表点集？
             # 有点奇怪
             sin_lines = lines[inds]
@@ -559,11 +573,82 @@ def generate_group_interpolate(lines):
     return coord_list
 
 
-def output_meteors(update_info):
-    # is this necessary?
-    logger = get_default_logger()
-    met_lst, drop_lst = update_info
-    for met in met_lst:
-        logger.meteor(met)
-    for met in drop_lst:
-        logger.dropped(met)
+def xywh2xyxy(mat:np.ndarray, inplace=True):
+    if inplace:
+        mat[:,0] = mat[:,0] - mat[:,2]/2
+        mat[:,1] = mat[:,1] - mat[:,3]/2
+        mat[:,2] = mat[:,0] + mat[:,2]
+        mat[:,3] = mat[:,1] + mat[:,3]
+        return mat
+    else:
+        raise NotImplementedError
+
+
+def met2xyxy(met):
+    """将met的字典转换为xyxy形式的坐标。
+
+    Args:
+        met (_type_): _description_
+    """
+    (x1, y1), (x2, y2) = met["pt1"], met["pt2"]
+    x1, x2 = min(x1, x2), max(x1, x2)
+    y1, y2 = min(y1, y2), max(y1, y2)
+    return box(x1, y1, x2, y2)
+
+def list2xyxy(met):
+    """将met的字典转换为xyxy形式的坐标。
+
+    Args:
+        met (_type_): _description_
+    """
+    (x1, y1, x2, y2) = met
+    x1, x2 = min(x1, x2), max(x1, x2)
+    y1, y2 = min(y1, y2), max(y1, y2)
+    return box(x1, y1, x2, y2)
+
+def calculate_area_iou(mat1, mat2):
+    """用于计算面积的iou。
+
+    Args:
+        met_a (_type_): _description_
+        met_b (_type_): _description_
+    """
+    # 若无交集即为0
+    if (mat1.x1 >= mat2.x2 or mat1.x2 <= mat2.x1) or (mat1.y1 >= mat2.y2
+                                                      or mat1.y2 <= mat2.y1):
+        return 0
+
+    # 计算交集面积
+    i_xx = sorted([mat1.x1, mat1.x2, mat2.x1, mat2.x2], reverse=True)[1:-1]
+    i_yy = sorted([mat1.y1, mat1.y2, mat2.y1, mat2.y2], reverse=True)[1:-1]
+    area_i = (i_xx[1] - i_xx[0]) * (i_yy[1] - i_yy[0])
+
+    # 分别计算面积
+    area_a = (mat1.x2 - mat1.x1) * (mat1.y2 - mat1.y1)
+    area_b = (mat2.x2 - mat2.x1) * (mat2.y2 - mat2.y1)
+    return area_i / (area_a + area_b - area_i)
+
+def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
+    """box matching by iou. create idx from src2tgt.
+    Args:
+        src_box (_type_): _description_
+        tgt_box (_type_): _description_
+    """
+    match_ind = []
+    matched_tgt = []
+    tgt_boxes = [list2xyxy(x) for x in tgt_boxes]
+    src_boxes = [list2xyxy(x) for x in src_boxes]
+    for i,src_box in enumerate(src_boxes):
+        best_iou, best_ind = 0, -1
+        for j, tgt_box in enumerate(tgt_boxes):
+            if j in matched_tgt: continue
+            iou = calculate_area_iou(src_box,tgt_box)
+            if iou>best_iou:
+                best_iou = iou
+                best_ind = j
+        if best_ind!=-1:
+            match_ind.append([i, best_ind])
+            matched_tgt.append(best_ind)
+    return match_ind
+            
+                

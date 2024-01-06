@@ -1,6 +1,32 @@
 
 # Update Log
 
+## Version 2.0.0-alpha
+
+✅ Bug Fixed
+* 修复输出时间错位的问题
+* 修复ClipToolkit对单个输入的支持
+
+✅ New Feature(s)
+
+* 支持深度学习检测器：可使用ONNX框架下YOLO格式的网络作为检测器
+* 支持“重校验”选项：预测结果可以通过神经网络进行重校验，降低误报率
+* 预测结果新增类别，可支持对流星以外的天文或大气现象进行检测
+
+✅ Modification
+
+* 大量代码和API重构
+* config格式调整；不再兼容v1.x版本的config文件
+* 引入多种可选预设替代简单的"sensitivity"设置
+* 可视化接口分离
+* 项目许可证更换为MPL2.0许可证
+
+✅ Improvement(s)
+* 优化部分预设参数，改善默认检测模式下的运行效果。
+* 优化多线程视频读取和日志模块设计，完善退出时线程回收逻辑。
+* 优化估算SNR的计算流程。
+* 优化make_package在多平台和复杂环境下的打包稳定性。
+
 ## Version 1.3.0
 
 ✅ Bug Fixed

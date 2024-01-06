@@ -1,0 +1,67 @@
+{
+    "description": {
+        "preset_name_en": "YOLOv5s",
+        "preset_name_cn": "YOLOv5s",
+        "intro_cn": "基于深度学习模型YOLOv5s的轻量检测器。计算量相对较大，适合有算力的场合。",
+        "intro_en": "Lightweight deep-learning detector based on YOLOv5s. The calculation amount is relatively large, suitable for use when having spare computing power."
+    },
+    "loader": {
+        "name": "ThreadVideoLoader",
+        "warpper": "OpenCVVideoWarpper",
+        "resize": [
+            960,
+            544
+        ],
+        "exp_time": 0.5,
+        "merge_func": "max",
+        "grayscale": false
+    },
+    "detector": {
+        "name": "MLDetector",
+        "window_sec": 1,
+        "cfg": {
+            "model": {
+                "name":"YOLOModel",
+                "weight_path": "./weights/yolov5s.onnx",
+                "dtype": "float32",
+                "nms": true,
+                "warmup": true,
+                "pos_thre": 0.25,
+                "nms_thre": 0.45
+            }
+        }
+    },
+    "collector": {
+        "meteor_cfg": {
+            "min_len": 15,
+            "max_interval": 5,
+            "time_range": [
+                0,
+                8
+            ],
+            "speed_range": [
+                0.9,
+                18
+            ],
+            "drct_range": [
+                0,
+                0.5
+            ],
+            "det_thre": 0.5,
+            "thre2": 2048
+        },
+        "recheck_cfg": {
+            "switch": true,
+            "model": {
+                "name":"YOLOModel",
+                "weight_path": "./weights/yolov5s.onnx",
+                "dtype": "float32",
+                "nms": true,
+                "warmup": true,
+                "pos_thre": 0.25,
+                "nms_thre": 0.45
+            },
+            "save_path":""
+        }
+    }
+}

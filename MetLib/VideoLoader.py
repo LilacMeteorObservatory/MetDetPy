@@ -548,7 +548,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 if self.status:
                     self.processed_frame = self.preprocess.exec_transform(
                         self.cur_frame)
-                    self.queue.put(self.processed_frame, timeout=10)
+                    self.queue.put(self.processed_frame, timeout=60)
                 else:
                     self.stop()
                     self.logger.warning(

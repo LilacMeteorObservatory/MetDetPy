@@ -87,7 +87,7 @@ class ThreadMetLog(BaseMetLog):
         if level >= self.log_level:
             time_head = ""
             if self.with_strf:
-                time_head = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}] - "
+                time_head = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] - "
             self.log_pool.put([time_head,level, string])
 
     def start(self):

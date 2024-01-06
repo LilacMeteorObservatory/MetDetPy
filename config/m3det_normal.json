@@ -1,0 +1,72 @@
+{
+    "description": {
+        "preset_name_cn": "M3Detector（一般灵敏度）",
+        "preset_name_en": "M3Detector(Normal sensitivity)",
+        "intro_cn": "自适应流星检测器，运行速度较快。一般灵敏度适用于大多数检测场景。",
+        "intro_en": "Adaptive meteor detector. Normal sensitivity is suitable for most detection scenarios."
+    },
+    "loader": {
+        "name": "ThreadVideoLoader",
+        "warpper": "OpenCVVideoWarpper",
+        "resize": 960,
+        "exp_time": "auto",
+        "merge_func": "max",
+        "grayscale": true
+    },
+    "detector": {
+        "name": "M3Detector",
+        "window_sec": 1,
+        "cfg": {
+            "binary": {
+                "adaptive_bi_thre": true,
+                "init_value": 7,
+                "sensitivity": "normal",
+                "area": 0.1,
+                "interval": 2
+            },
+            "hough_line": {
+                "threshold": 10,
+                "min_len": 10,
+                "max_gap": 10
+            },
+            "dynamic": {
+                "dy_mask": true,
+                "dy_gap": 0.05,
+                "fill_thre": 0.6
+            }
+        }
+    },
+    "collector": {
+        "meteor_cfg": {
+            "min_len": 15,
+            "max_interval": 4,
+            "time_range": [
+                0,
+                8
+            ],
+            "speed_range": [
+                0.9,
+                18
+            ],
+            "drct_range": [
+                0,
+                0.6
+            ],
+            "det_thre": 0.5,
+            "thre2": 2048
+        },
+        "recheck_cfg": {
+            "switch": true,
+            "model": {
+                "name":"YOLOModel",
+                "weight_path": "./weights/yolov5s.onnx",
+                "dtype": "float32",
+                "nms": true,
+                "warmup": true,
+                "pos_thre": 0.25,
+                "nms_thre": 0.45
+            },
+            "save_path":""
+        }
+    }
+}

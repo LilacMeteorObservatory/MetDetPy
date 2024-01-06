@@ -10,9 +10,10 @@ from easydict import EasyDict
 from MetLib import get_loader, get_warpper, get_detector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.utils import frame2time, output_meteors, VERSION
+from MetLib.utils import frame2time, VERSION
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Detector import LineDetector
+
 
 def detect_video(video_name,
                  mask_name,
@@ -45,14 +46,14 @@ def detect_video(video_name,
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         video_loader = VideoLoaderCls(VideoWarpperCls,
-                                    video_name,
-                                    mask_name,
-                                    resize_option,
-                                    start_time=start_time,
-                                    end_time=end_time,
-                                    grayscale=grayscale,
-                                    exp_option=exp_option,
-                                    merge_func=merge_func)
+                                      video_name,
+                                      mask_name,
+                                      resize_option,
+                                      start_time=start_time,
+                                      end_time=end_time,
+                                      grayscale=grayscale,
+                                      exp_option=exp_option,
+                                      merge_func=merge_func)
         logger.info(video_loader.summary())
 
         # get properties from VideoLoader
@@ -68,35 +69,44 @@ def detect_video(video_name,
             continue
 
         # Init detector
-        # TODO: 优化写法
         cfg_det = cfg.detector
-        if cfg_det.bi_cfg.sensitivity == "high":
-            cfg_det.hough_cfg.max_gap = 10
-        cfg_det.img_mask = video_loader.mask
-        cfg_det.fps = eq_fps
         detector = DetectorCls(window_sec=cfg_det.window_sec,
-                                fps=cfg_det.fps,
-                                mask=cfg_det.img_mask,
-                                bi_cfg=cfg_det.bi_cfg,
-                                hough_cfg=cfg_det.hough_cfg,
-                                dynamic_cfg=cfg_det.dynamic_cfg)
+                               fps=eq_fps,
+                               mask=video_loader.mask,
+                               cfg=cfg_det.cfg,
+                               logger=logger)
 
         # Init meteor collector
         # TODO: To be renewed
-        meteor_cfg = cfg.meteor_cfg
+        meteor_cfg = cfg.collector.meteor_cfg
         # 修改属性
         meteor_cfg.max_interval *= fps
         meteor_cfg.time_range[0] *= fps
         meteor_cfg.time_range[1] *= fps
         meteor_cfg.thre2 *= exp_frame
 
+        recheck_cfg = cfg.collector.recheck_cfg
+        recheck_loader = None
+        if recheck_cfg.switch:
+            recheck_loader = VideoLoaderCls(VideoWarpperCls,
+                                            video_name,
+                                            mask_name,
+                                            resize_option,
+                                            grayscale=False,
+                                            exp_option=exp_time,
+                                            merge_func=merge_func)
+
         main_mc = MeteorCollector(**meteor_cfg,
                                   eframe=exp_frame,
                                   fps=fps,
                                   runtime_size=video_loader.runtime_size,
-                                  raw_size=video_loader.raw_size)
+                                  raw_size=video_loader.raw_size,
+                                  recheck_cfg=recheck_cfg,
+                                  video_loader=recheck_loader,
+                                  logger=logger)
+
         # Init visualizer
-        # TODO: 参数暂未完全支持参数化设置。
+        # TODO: 可视化模块暂未完全支持参数化设置。
         visual_manager = OpenCVMetVisu(exp_time=exp_time,
                                        resolution=video_loader.runtime_size,
                                        flag=visual_mode)
@@ -121,21 +131,20 @@ def detect_video(video_name,
                 logger.processing(frame2time(i, fps))
             t0 = time.time()
             x = video_loader.pop()
-            tot_get_time += (time.time()-t0)
+            tot_get_time += (time.time() - t0)
             if (video_loader.stopped or x is None):
                 break
 
             detector.update(x)
             #TODO: Mask, visual
-            lines, detect_info = detector.detect()
+            lines, cates, detect_info = detector.detect()
 
             if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
                               == 0):
-                met_info = main_mc.update(i, lines=lines)
-                output_meteors(met_info)
+                main_mc.update(i, lines=lines, cates = cates)
 
             detect_info["info"] += main_mc.draw_on_img(frame_num=i)
-            
+
             visual_manager.display_a_frame(detect_info)
             if visual_manager.manual_stop:
                 logger.info('Manual interrupt signal detected.')
@@ -145,11 +154,11 @@ def detect_video(video_name,
             # TODO: 改下描述
             logger.info('VideoLoader-stop detected.')
     except Exception as e:
-        print(e)
+        logger.error(e)
         raise e
     finally:
         video_loader.release()
-        output_meteors(main_mc.clear())
+        main_mc.clear()
         visual_manager.stop()
         logger.info("Time cost: %.4ss." % (time.time() - t1))
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
@@ -161,11 +170,14 @@ def detect_video(video_name,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=f'MetDetPy{VERSION}')
     # TODO: Add More Details.
-    parser.add_argument('target', help="input video. Support H264, HEVC, etc.")
+    parser.add_argument(
+        'target',
+        help="input video. Support common video encoding like H264, HEVC, etc."
+    )
     parser.add_argument('--cfg',
                         '-C',
                         help="Config file.",
-                        default="./config/config.json")
+                        default="./config/m3det_normal.json")
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
 
     parser.add_argument('--start-time',
@@ -188,7 +200,7 @@ if __name__ == "__main__":
                         action='store_true',
                         help="Apply Debug Mode",
                         default=False)
-    
+
     parser.add_argument('--visual',
                         '-V',
                         action='store_true',
@@ -221,45 +233,66 @@ if __name__ == "__main__":
                           default=None,
                           help="The sensitivity of detection.")
 
+    parser.add_argument('--recheck',
+                        type=str,
+                        default=None,
+                        help="Apply recheck before the result is printed"
+                        "(the model must specified in the config file).")
+
+    parser.add_argument('--save-rechecked-img',
+                        type=str,
+                        help="Save rechecked images to the given path.")
+
     args = parser.parse_args()
 
-    video_name = args.target
     cfg_filename = args.cfg
-    mask_name = args.mask
-    debug_mode = args.debug
-    visual_mode = args.visual
+
     sensitivity = args.sensitivity
-    bi_thre = args.bi_thre
     adaptive = args.adaptive_thre
-    work_mode = args.mode
-    start_time = args.start_time
-    end_time = args.end_time
-    exp_time = args.exp_time
-    resize = args.resize
+
     with open(cfg_filename, mode='r', encoding='utf-8') as f:
         cfg: Any = EasyDict(json.load(f))
+    # TODO: 添加对于cfg的格式检查
 
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
-    # replace config value
-    if exp_time:
-        cfg.loader.exp_time = exp_time
-    if resize:
-        cfg.loader.resize = resize
-    if adaptive:
-        assert adaptive in ["on", "off"
-                            ], "adaptive_thre should be set \"on\" or \"off\"."
-        cfg.detector.bi_cfg.adaptive_bi_thre = {"on": True, "off": False}[adaptive]
-    if sensitivity:
-        cfg.detector.bi_cfg.sensitivity = sensitivity
-    if bi_thre:
-        cfg.detector.bi_cfg.init_value = bi_thre
+    # replace cfg value
+    if args.exp_time:
+        cfg.loader.exp_time = args.exp_time
+    if args.resize:
+        cfg.loader.resize = args.resize
 
-    # Preprocess start_time and end_time to int
+    # 与二值化有关的参数仅在使用直线型检测器时生效
+    if isinstance(get_loader(cfg.loader.name), LineDetector):
+        if adaptive:
+            assert adaptive in [
+                "on", "off"
+            ], "adaptive_thre should be set \"on\" or \"off\"."
+            cfg.detector.bi_cfg.adaptive_bi_thre = {
+                "on": True,
+                "off": False
+            }[adaptive]
+        if sensitivity:
+            cfg.detector.cfg.binary.sensitivity = sensitivity
+            # TODO: to be changed in the future.
+            print("\"sensitivity\" is considered to be rebuilt in v2.0.0."
+                  " Avoid use this. Instead, use config files.")
+        if args.bi_thre:
+            cfg.detector.bi_cfg.init_value = args.bi_thre
 
-    detect_video(video_name,
-                 mask_name,
+    if args.recheck:
+        assert args.recheck in ["on",
+                            "off"], "recheck should be set \"on\" or \"off\"."
+        cfg.collector.recheck_cfg.switch = {
+            "on": True,
+            "off": False
+        }[args.recheck]
+    if args.save_rechecked_img:
+        cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
+
+    detect_video(args.target,
+                 args.mask,
                  cfg,
-                 debug_mode,
-                 visual_mode,
-                 work_mode,
-                 time_range=(start_time, end_time))
+                 args.debug,
+                 args.visual,
+                 work_mode=args.mode,
+                 time_range=(args.start_time, args.end_time))

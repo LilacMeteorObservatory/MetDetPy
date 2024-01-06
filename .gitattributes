@@ -1,0 +1,2 @@
+weights/yolov5s.onnx filter=lfs diff=lfs merge=lfs -text
+test/20220413Red.mp4 filter=lfs diff=lfs merge=lfs -text
