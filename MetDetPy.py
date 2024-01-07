@@ -7,12 +7,12 @@ from typing import Any
 import tqdm
 from easydict import EasyDict
 
-from MetLib import get_loader, get_warpper, get_detector
+from MetLib import get_detector, get_loader, get_warpper
+from MetLib.Detector import LineDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.utils import frame2time, VERSION
 from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.Detector import LineDetector
+from MetLib.utils import VERSION, frame2time, relative2abs_path
 
 
 def detect_video(video_name,
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     parser.add_argument('--cfg',
                         '-C',
                         help="Config file.",
-                        default="./config/m3det_normal.json")
+                        default=relative2abs_path("./config/m3det_normal.json"))
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
 
     parser.add_argument('--start-time',

@@ -1,4 +1,5 @@
 import datetime
+import os
 import warnings
 from collections import namedtuple
 from typing import Any, Callable, List, Optional, Type, Union
@@ -12,6 +13,7 @@ box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
 VERSION = "V2.0.0_alpha1"
+WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
@@ -20,39 +22,33 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
                                   (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 logger = get_default_logger()
 
-STR2DTYPE = {
-    "float32": np.float32,
-    "float16": np.float16,
-    "int8": np.int8
-}
+STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
 
-ID2NAME: dict[int,str] = {}
-
-with open("./config/class_name.txt") as f:
-    mapper = [x.strip().split() for x in f.readlines()]
-    for num,name in mapper:
-        ID2NAME[int(num)] = name
 
 def pt_offset(pt, offset) -> list:
     assert len(pt) == len(offset)
     return [value + offs for value, offs in zip(pt, offset)]
 
+
 class Transform(object):
     """图像变换方法的集合类，及一个用于执行集成变换的方法。
     """
     MASK_FLAG = "MASK"
+
     def __init__(self) -> None:
         self.transform = []
 
     def opencv_resize(self, dsize, **kwargs):
         interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
-        self.transform.append([cv2.resize,dict(dsize=dsize, interpolation=interpolation)])
+        self.transform.append(
+            [cv2.resize,
+             dict(dsize=dsize, interpolation=interpolation)])
 
     def opencv_BGR2GRAY(self):
-        self.transform.append([cv2.cvtColor,dict(code=cv2.COLOR_BGR2GRAY)])
+        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)])
 
     def opencv_RGB2GRAY(self):
-        self.transform.append([cv2.cvtColor,dict(code=cv2.COLOR_RGB2GRAY)])
+        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_RGB2GRAY)])
 
     def mask_with(self, mask):
         self.transform.append([self.MASK_FLAG, dict(mask=mask)])
@@ -60,15 +56,22 @@ class Transform(object):
     def expand_3rd_channel(self, num):
         """将单通道灰度图像通过Repeat方式映射到多通道图像。
         """
-        assert isinstance(num, int) and num>0, f"num invalid! expect int>0, got {num} with dtype={type(num)}."
-        self.transform.append([np.expand_dims,dict(axis=-1)])
-        if num>1:
+        assert isinstance(
+            num, int
+        ) and num > 0, f"num invalid! expect int>0, got {num} with dtype={type(num)}."
+        self.transform.append([np.expand_dims, dict(axis=-1)])
+        if num > 1:
             self.transform.append([np.repeat, dict(repeats=num, axis=-1)])
 
     def opencv_binary(self, threshold, maxval=255, inv=False):
-        self.transform.append([cv2.threshold,dict(thresh=threshold, maxval=maxval,type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)])
-    
-    def exec_transform(self,img:np.ndarray)->np.ndarray:
+        self.transform.append([
+            cv2.threshold,
+            dict(thresh=threshold,
+                 maxval=maxval,
+                 type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)
+        ])
+
+    def exec_transform(self, img: np.ndarray) -> np.ndarray:
         """按顺序执行给定的变换。
 
         Args:
@@ -78,14 +81,15 @@ class Transform(object):
         Returns:
             np.ndarray: _description_
         """
-        for [transform,kwargs] in self.transform:
-            if transform==self.MASK_FLAG:
+        for [transform, kwargs] in self.transform:
+            if transform == self.MASK_FLAG:
                 img = img * kwargs["mask"]
-            elif transform==cv2.threshold:
-                img = transform(img,**kwargs)[-1]
+            elif transform == cv2.threshold:
+                img = transform(img, **kwargs)[-1]
             else:
-                img = transform(img,**kwargs)
+                img = transform(img, **kwargs)
         return img
+
 
 class MergeFunction(object):
     """多张图像合并方法的集合类。
@@ -573,12 +577,12 @@ def generate_group_interpolate(lines):
     return coord_list
 
 
-def xywh2xyxy(mat:np.ndarray, inplace=True):
+def xywh2xyxy(mat: np.ndarray, inplace=True):
     if inplace:
-        mat[:,0] = mat[:,0] - mat[:,2]/2
-        mat[:,1] = mat[:,1] - mat[:,3]/2
-        mat[:,2] = mat[:,0] + mat[:,2]
-        mat[:,3] = mat[:,1] + mat[:,3]
+        mat[:, 0] = mat[:, 0] - mat[:, 2] / 2
+        mat[:, 1] = mat[:, 1] - mat[:, 3] / 2
+        mat[:, 2] = mat[:, 0] + mat[:, 2]
+        mat[:, 3] = mat[:, 1] + mat[:, 3]
         return mat
     else:
         raise NotImplementedError
@@ -595,6 +599,7 @@ def met2xyxy(met):
     y1, y2 = min(y1, y2), max(y1, y2)
     return box(x1, y1, x2, y2)
 
+
 def list2xyxy(met):
     """将met的字典转换为xyxy形式的坐标。
 
@@ -605,6 +610,7 @@ def list2xyxy(met):
     x1, x2 = min(x1, x2), max(x1, x2)
     y1, y2 = min(y1, y2), max(y1, y2)
     return box(x1, y1, x2, y2)
+
 
 def calculate_area_iou(mat1, mat2):
     """用于计算面积的iou。
@@ -628,6 +634,7 @@ def calculate_area_iou(mat1, mat2):
     area_b = (mat2.x2 - mat2.x1) * (mat2.y2 - mat2.y1)
     return area_i / (area_a + area_b - area_i)
 
+
 def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
     """box matching by iou. create idx from src2tgt.
     Args:
@@ -638,17 +645,27 @@ def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
     matched_tgt = []
     tgt_boxes = [list2xyxy(x) for x in tgt_boxes]
     src_boxes = [list2xyxy(x) for x in src_boxes]
-    for i,src_box in enumerate(src_boxes):
+    for i, src_box in enumerate(src_boxes):
         best_iou, best_ind = 0, -1
         for j, tgt_box in enumerate(tgt_boxes):
             if j in matched_tgt: continue
-            iou = calculate_area_iou(src_box,tgt_box)
-            if iou>best_iou:
+            iou = calculate_area_iou(src_box, tgt_box)
+            if iou > best_iou:
                 best_iou = iou
                 best_ind = j
-        if best_ind!=-1:
+        if best_ind != -1:
             match_ind.append([i, best_ind])
             matched_tgt.append(best_ind)
     return match_ind
-            
-                
+
+
+def relative2abs_path(path):
+    if path.startswith("./"): path = path[2:]
+    return os.path.join(WORK_PATH, path)
+
+
+ID2NAME: dict[int, str] = {}
+with open(relative2abs_path("./config/class_name.txt")) as f:
+    mapper = [x.strip().split() for x in f.readlines()]
+    for num, name in mapper:
+        ID2NAME[int(num)] = name

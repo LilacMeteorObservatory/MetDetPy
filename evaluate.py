@@ -6,7 +6,7 @@ from collections import namedtuple
 import numpy as np
 from easydict import EasyDict
 from MetDetPy import detect_video
-from MetLib.utils import ts2frame, calculate_area_iou
+from MetLib.utils import ts2frame, calculate_area_iou, relative2abs_path
 from MetLib.VideoWarpper import OpenCVVideoWarpper
 from typing import Any
 
@@ -64,7 +64,7 @@ parser.add_argument('video_json', help="json file of test videos.")
 parser.add_argument('--cfg',
                     '-C',
                     help="Config file.",
-                    default="./config.json")
+                    default=relative2abs_path("./config/m3det_normal.json"))
 
 parser.add_argument('--load',
                     '-L',
