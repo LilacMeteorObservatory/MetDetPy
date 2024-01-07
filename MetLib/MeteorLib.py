@@ -98,10 +98,12 @@ class MeteorCollector(object):
         temp_waiting_meteor, drop_list = [], []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
-                if self.prob_meteor(ms) > self.det_thre:
-                    # 没有后校验的情况下，UNKNOWN类型不给予输出
-                    if self.met_exporter.recheck or ms.cate != -1:
+                if (self.prob_meteor(ms) > self.det_thre):
+                    # 没有后校验的情况下，UNKNOWN，PLANE类型不给予输出
+                    if self.met_exporter.recheck or not(ms.cate in [-1,1]):
                         temp_waiting_meteor.append(ms)
+                    else:
+                        drop_list.append(ms)
                 else:
                     drop_list.append(ms)
         # 维护
@@ -363,7 +365,10 @@ class MeteorSeries(object):
             return box
 
     def update(self, new_frame, new_box, update_type):
-        if update_type == 0:
+        # TODO: 兼容运行。这一块逻辑后续需要优化。
+        # 如果label>=1，则是由模型预测的。
+        # 飞机线 (=1) 与 红色精灵 (=2) 目前仍按照直线处理。
+        if update_type in [0, 1, 2]:
             new_box = [new_box[:2], new_box[2:]]
         (x1, y1), (x2, y2) = self.range
         for pt in new_box:
@@ -373,7 +378,7 @@ class MeteorSeries(object):
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
 
-        if update_type == 0:
+        if update_type in [0, 1, 2]:
             self.drct_list.append(drct(new_box))
 
     def may_in_series(self, new_box, cur_frame):
@@ -564,14 +569,18 @@ class MetExporter(object):
             matched_pairs = box_matching(bbox_list, raw_bbox_list)
             fixed_output_dict = dict(video_size=output_dict["video_size"],
                                      target=[])
-            if len(matched_pairs) == 0:
-                continue
             for l, r in matched_pairs:
+                # if cate->1, drop.
+                if cls_list[l]==1:
+                    continue
                 sure_meteor = output_dict["target"][r]
                 sure_meteor["category"] = ID2NAME.get(cls_list[l], "UNDEFINED")
                 # TODO: score没有带出来
                 sure_meteor["score"] = 1.0
                 fixed_output_dict["target"].append(sure_meteor)
+            # after fix. to be optimized.
+            if len(fixed_output_dict["target"])==0:
+                continue
             # 为fixed_output_dict重新计算准确的起止时间
             fixed_output_dict["start_time"] = min(
                 [x["start_time"] for x in fixed_output_dict["target"]])

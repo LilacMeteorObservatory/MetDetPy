@@ -1,9 +1,9 @@
 {
     "description": {
-        "preset_name_cn": "M3Detector（一般灵敏度）",
-        "preset_name_en": "M3Detector(Normal sensitivity)",
-        "intro_cn": "自适应流星检测器，运行速度较快。一般灵敏度适用于大多数检测场景。",
-        "intro_en": "Adaptive meteor detector. Normal sensitivity is suitable for most detection scenarios."
+        "preset_name_cn": "M3Det-通用",
+        "preset_name_en": "M3Det-general",
+        "intro_cn": "自适应检测器，适用于多数检测场景。",
+        "intro_en": "Adaptive meteor detector. Suitable for most detection scenarios."
     },
     "loader": {
         "name": "ThreadVideoLoader",

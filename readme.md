@@ -40,7 +40,7 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 ### Packages
 
 * numpy>=1.15.0
-* opencv_python>=4.7.0
+* opencv_python>=4.9.0
 * tqdm>=4.0.0
 * easydict>=1.0
 * multiprocess>=0.70.0
