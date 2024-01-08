@@ -123,7 +123,8 @@ class ONNXBackend(Backend):
         self.dtype = dtype
         # load model
         # TODO: 手动可以强制降级指定运行的设备
-        self.model_session = ort.InferenceSession(self.weight_path)
+        available_providers = ort.get_available_providers()
+        self.model_session = ort.InferenceSession(self.weight_path, providers=available_providers)
         self.shapes = [x.shape for x in self.model_session.get_inputs()]
         self.names = [x.name for x in self.model_session.get_inputs()]
 
