@@ -6,6 +6,7 @@ from abc import abstractmethod, ABCMeta
 from .MetLog import get_default_logger
 from .utils import xywh2xyxy, STR2DTYPE
 
+ort.set_default_logger_severity(3)
 logger = get_default_logger()
 
 
