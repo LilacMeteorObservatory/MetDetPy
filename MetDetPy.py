@@ -7,7 +7,7 @@ from typing import Any
 import tqdm
 from easydict import EasyDict
 
-from MetLib import get_detector, get_loader, get_warpper
+from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.Detector import LineDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
@@ -34,7 +34,7 @@ def detect_video(video_name,
 
         # parse preprocessing params
         VideoLoaderCls = get_loader(cfg.loader.name)
-        VideoWarpperCls = get_warpper(cfg.loader.warpper)
+        VideoWrapperCls = get_wrapper(cfg.loader.wrapper)
         DetectorCls = get_detector(cfg.detector.name)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
@@ -45,7 +45,7 @@ def detect_video(video_name,
             assert grayscale, "Require grayscale ON when using subclass of LineDetector."
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
-        video_loader = VideoLoaderCls(VideoWarpperCls,
+        video_loader = VideoLoaderCls(VideoWrapperCls,
                                       video_name,
                                       mask_name,
                                       resize_option,
@@ -88,7 +88,7 @@ def detect_video(video_name,
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
         if recheck_cfg.switch:
-            recheck_loader = VideoLoaderCls(VideoWarpperCls,
+            recheck_loader = VideoLoaderCls(VideoWrapperCls,
                                             video_name,
                                             mask_name,
                                             resize_option,

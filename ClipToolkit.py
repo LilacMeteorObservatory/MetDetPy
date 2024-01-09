@@ -6,7 +6,7 @@ import cv2
 from MetLib.Stacker import max_stacker, all_stacker
 from MetLib.utils import save_img, save_video, ts2frame
 from MetLib.VideoLoader import ThreadVideoLoader
-from MetLib.VideoWarpper import OpenCVVideoWarpper
+from MetLib.VideoWrapper import OpenCVVideoWrapper
 from MetLib.MetLog import get_default_logger, set_default_logger
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
@@ -81,7 +81,7 @@ def main():
     # image option
     jpg_quality, png_compress = args.jpg_quality, args.png_compressing
 
-    video_loader = ThreadVideoLoader(OpenCVVideoWarpper,
+    video_loader = ThreadVideoLoader(OpenCVVideoWrapper,
                                      video_name,
                                      resize_option=resize,
                                      exp_option="real-time",

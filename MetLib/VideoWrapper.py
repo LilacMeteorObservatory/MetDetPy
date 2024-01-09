@@ -1,20 +1,20 @@
 """
-VideoWarpper wraps video-related API, so that VideoLoader can use unified 
+VideoWrapper wraps video-related API, so that VideoLoader can use unified 
 API to obtain metadata and frame data.
 
-VideoWarpper对读取视频的API进行初步包装, 使VideoLoader能够使用统一的接口获取元数据及帧数据。
+VideoWrapper对读取视频的API进行初步包装, 使VideoLoader能够使用统一的接口获取元数据及帧数据。
 """
 
 import cv2
 from typing import Union
 from abc import ABCMeta, abstractmethod
 
-class BaseVideoWarpper(metaclass=ABCMeta):
+class BaseVideoWrapper(metaclass=ABCMeta):
     """
-    ## BaseVideoWarpper
-    Abstract Base Class of VideoWarpper. Inherit this to implement your Videowarpper.
+    ## BaseVideoWrapper
+    Abstract Base Class of VideoWrapper. Inherit this to implement your Videowrapper.
 
-    ### What your VideoWarpper should support:
+    ### What your VideoWrapper should support:
     #### Property:
     fps -> Union[int, float] # frame per second
 
@@ -62,8 +62,8 @@ class BaseVideoWarpper(metaclass=ABCMeta):
         pass
 
 
-class OpenCVVideoWarpper(BaseVideoWarpper):
-    """VideoWarpper for opencv-based video loader (cv2.VideoCapture)
+class OpenCVVideoWrapper(BaseVideoWrapper):
+    """VideoWrapper for opencv-based video loader (cv2.VideoCapture)
 
     Args:
         video_name (str): The video filename.

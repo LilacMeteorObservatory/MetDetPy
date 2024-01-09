@@ -7,7 +7,7 @@
     },
     "loader": {
         "name": "ThreadVideoLoader",
-        "warpper": "OpenCVVideoWarpper",
+        "wrapper": "OpenCVVideoWrapper",
         "resize": [
             960,
             544

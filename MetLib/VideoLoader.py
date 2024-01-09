@@ -28,7 +28,7 @@ from .MetLog import get_default_logger
 from .utils import (MergeFunction, Transform, frame2time, load_8bit_image,
                     parse_resize_param, sigma_clip, time2frame, timestr2int,
                     transpose_wh)
-from .VideoWarpper import BaseVideoWarpper
+from .VideoWrapper import BaseVideoWrapper
 
 UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
@@ -51,9 +51,9 @@ class BaseVideoLoader(metaclass=ABCMeta):
     3. preprocessing pipeline building; 
     4. exposure time estimation.
 
-    notice: It is advised to use a VideoWarpper to load video,\
-        since all VideoWarpper(s) share the same basic APIs \
-        (so that it is easy to support other kinds of video sources by replacing VideoWarpper).
+    notice: It is advised to use a VideoWrapper to load video,\
+        since all VideoWrapper(s) share the same basic APIs \
+        (so that it is easy to support other kinds of video sources by replacing VideoWrapper).
 
     ## What VideoLoader should support
     ### Property
@@ -148,7 +148,7 @@ class VanillaVideoLoader(BaseVideoLoader):
     In this implementation, the video is only read when the pop method is called,\
         which can suffer from file IO blocking.
     ## Args:
-        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_wrapper (Type[BaseVideoWrapper]): the type of videowrapper.
         video_name (str): the filename of the video.
         mask_name (Optional[str]): the filename of the mask. The default is None.
         resize_option (Union[int, list, str, None]): resize option from input. The default is None.
@@ -171,7 +171,7 @@ class VanillaVideoLoader(BaseVideoLoader):
     """
 
     def __init__(self,
-                 video_warpper: Type[BaseVideoWarpper],
+                 video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list, str, None] = None,
@@ -189,7 +189,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             which can suffer from file IO blocking.
 
         ## Args:
-            video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+            video_wrapper (Type[BaseVideoWrapper]): the type of videowrapper.
             video_name (str): the filename of the video.
             mask_name (Optional[str]): the filename of the mask. The default is None.
             resize_option (Union[int, list, str, None]): resize option from input. The default is None.
@@ -206,7 +206,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         """
 
         # init necessary variables
-        self.video_warpper = video_warpper
+        self.video_wrapper = video_wrapper
         self.video_name = video_name
         self.mask_name = mask_name
         self.grayscale = grayscale
@@ -215,7 +215,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.read_stopped = True
 
         # load video and mask
-        self.video = video_warpper(video_name)
+        self.video = video_wrapper(video_name)
         self.runtime_size = parse_resize_param(resize_option, self.raw_size)
         self.mask = self.load_mask(self.mask_name)
 
@@ -455,7 +455,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
     ThreadVideoLoader can partly solve I/O blocking and provide speedup.
 
     ## Args:
-        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_wrapper (Type[BaseVideoWrapper]): the type of videowrapper.
         video_name (str): the filename of the video.
         mask_name (Optional[str]): the filename of the mask. The default is None.
         resize_option (Union[int, list, str, None]): resize option from input. The default is None.
@@ -480,7 +480,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
     """
 
     def __init__(self,
-                 video_warpper: Type[BaseVideoWarpper],
+                 video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list, str, None] = None,
@@ -493,7 +493,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  **kwargs) -> None:
         self.maxsize = maxsize
         self.queue = queue.Queue(maxsize=self.maxsize)
-        super().__init__(video_warpper, video_name, mask_name, resize_option,
+        super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, exp_option,
                          merge_func, **kwargs)
 
@@ -580,7 +580,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
     ProcessVideoLoader can partly solve I/O blocking and provide speedup.
 
     ## Args:
-        video_warpper (Type[BaseVideoWarpper]): the type of videowarpper.
+        video_wrapper (Type[BaseVideoWrapper]): the type of videowrapper.
         video_name (str): the filename of the video.
         mask_name (Optional[str]): the filename of the mask. The default is None.
         resize_option (Union[int, list, str, None]): resize option from input. The default is None.
@@ -605,7 +605,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
     """
 
     def __init__(self,
-                 video_warpper: Type[BaseVideoWarpper],
+                 video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list, str, None] = None,
@@ -618,7 +618,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  **kwargs) -> None:
         self.maxsize = maxsize
         self.notify_queue = MQueue(maxsize=self.maxsize - 1)
-        super().__init__(video_warpper, video_name, mask_name, resize_option,
+        super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, exp_option,
                          merge_func, **kwargs)
 
@@ -639,7 +639,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.subprocess = Process(target=self.videoloop, daemon=True)
         self.subprocess.start()
         # a hack way
-        self.video = self.video_warpper(self.video_name)
+        self.video = self.video_wrapper(self.video_name)
 
     def clear_queue(self):
         while self.notify_queue.qsize() > 0:
@@ -684,7 +684,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
 
     def videoloop(self):
         # TODO: 此处硬编码了类型。后续应该做调整。
-        self.video = self.video_warpper(self.video_name)
+        self.video = self.video_wrapper(self.video_name)
         self.video.set_to(self.start_frame)
 
         np_buffer = np.frombuffer(self.buffer,

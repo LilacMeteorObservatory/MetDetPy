@@ -7,7 +7,7 @@ import numpy as np
 from easydict import EasyDict
 from MetDetPy import detect_video
 from MetLib.utils import ts2frame, calculate_area_iou, relative2abs_path
-from MetLib.VideoWarpper import OpenCVVideoWarpper
+from MetLib.VideoWrapper import OpenCVVideoWrapper
 from typing import Any
 
 # 正样本阈值：默认0.5
@@ -102,7 +102,7 @@ with open('config.json', mode='r', encoding='utf-8') as f:
 video_name = video_dict.video
 mask_name = video_dict.mask
 
-video = OpenCVVideoWarpper(video_name)
+video = OpenCVVideoWrapper(video_name)
 raw_size = video.size
 fps = video.fps
 #video.release()
