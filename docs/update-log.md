@@ -1,7 +1,7 @@
 
 # Update Log
 
-## Version 2.0.0-alpha
+## Version 2.0.0
 
 ✅ Bug Fixed
 * 修复输出时间错位的问题

@@ -1,7 +1,7 @@
-<div align="center">
+  <div align="center">
   <img src="../imgs/banner.png"/>
 
-[![license](https://img.shields.io/badge/license-LGPL2.1-success)](./LICENSE)
+![version](https://img.shields.io/badge/version-v2.0.0_alpha1-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
 
 <center>语言: <a href="../readme.md">English</a> | 简体中文 </center>
 
@@ -9,62 +9,67 @@
 
 ## 简介
 
-MetDetPy 是一个基于 python 开发的，可用于从直录视频中检测流星的检测器。其受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy更加强大可靠，具有以下优点：
+MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测流星的检测器。其视频检测受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy强大可靠，具有以下优点：
 
-* **自适应灵敏度：** 对于大多数流星视频，MetDetPy可以借助一系列自适应算法自动估算信噪比并调整灵敏度，无需详细配置参数即可以进行高效的流星检测。
+* **易于使用且可配置：** MetDetPy设计有易用的默认配置，多数情况下无需详细配置参数即可以进行高效的流星检测，并且也支持修改设置以获得更好的检测结果。
 
-* **适用于各种设备和曝光时间：** MetDetPy可以从各种设备（流星监控，数码相机等）拍摄的视频文件中检测流星。 我们实现了 M3 检测器，它适用于曝光时间从 1/120 秒到 1/4 秒的流星直录视频。 它在更宽的滑动时间窗口中有效地计算差异帧（由最大减去均值计算）以提高准确性。
+* **适用于各种设备和曝光时间：** MetDetPy可以从各种设备拍摄的视频及图像中检测流星。借助一系列自适应算法与深度学习模型，MetDetPy对从流星监控到数码相机拍摄的数据都能较好工作。
 
-* **低 CPU 和内存使用率：** MetDetPy 基于 OpenCV 开发的，因此工作时对 CPU 和内存占用率较低，不依赖 GPU。 可支持在主流电脑或准系统上进行多摄像头输入的实时检测。
+* **低 CPU 使用率：** MetDetPy 工作时对 CPU 和内存占用率较低，可支持在主流电脑或准系统上进行多摄像头输入的实时检测。
 
-* **有效的过滤器：** MetDetPy引入了流星检测结果管理器（称为 MeteorLib）以整合预测，排除误报样本。 每个预测都有一个取值范围为 [0,1] 的置信度分数，表示其被认为是流星的可能性。
+* **可选的深度学习模型接入：** MetDetPy 已接入深度学习支持，可以在主检测或重校验阶段选择性使用深度学习模型，在不显著增加性能开销的情况下提升检测效果。模型也可用于图像中的流星检测。
+
+* **有效的过滤器：** 流星结果将根据其视觉特性与运动属性进行重校验以排除误报样本。每个预测都将被给出一个取值范围为 [0,1] 的置信度分数，表示其被认为是流星的可能性。
 
 * **丰富的支持工具：** MetDetPy还提供了评估工具和剪辑工具，以支持进行高效的视频切片、图像堆叠或结果评估。
 
 ## 发行版
 
-你可以从[Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases)处获取最新的MetDetPy发行版。发行版将MetDetPy进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `pyinstaller` 或 `nuitka` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
+你可以从[Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases)处获取最新的MetDetPy发行版。发行版将MetDetPy进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `nuitka` 或 `pyinstaller` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
 
-此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的视频流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。Meteor Master的最新版本可以从如下源获取:
-
-* [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster)
-* [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
+此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
 
 
 ## 运行需求
 
 ### 环境
 
-* Python>=3.7
+* 64bit OS
+* Python>=3.7 (推荐 3.9+)
 
-### 模块
+### 依赖
 
 * numpy>=1.15.0
-* opencv_python>=4.7.0
+* opencv_python>=4.9.0
 * tqdm>=4.0.0
 * easydict>=1.0
+* multiprocess>=0.70.0
+* onnxruntime>=1.16.0
 
-可以通过如下指令安装模块：
+可以通过如下指令安装依赖：
 
 ```sh
 pip install -r requirements.txt
 ```
 
+如果已有完整的CUDA环境并希望在GPU上运行深度学习模型，可安装 `onnxruntime-gpu` 代替`onnxruntime`；如果在macOS上使用，则推荐安装 `onnxruntime-silicon` 作为`onnxruntime`。
+
 ## 用法
 
-### 直接运行
+### 运行视频流星检测
 
 ```sh
-python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
+python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
+               [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
 ```
 
 #### 主要参数
 
 * target: 待检测视频文件。支持常见的视频编码。
 
-* --cfg: 配置文件。默认情况下使用同目录下的[config.json](../config.json)文件。
+* --cfg: 配置文件。默认情况下使用config目录下的[m3det_normal.json](../config/m3det_normal.json)文件。
 
 * --mask：指定掩模（遮罩）图像。可以使用任何非白色颜色的颜色在空白图像上覆盖不需要检测的区域来创建掩馍图像。不强制要求尺寸与原图相同。支持JPEG和PNG格式。
 
@@ -74,11 +79,13 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 * --mode：运行模式。从{backend, frontend}中选择。frontend运行时会显示运行相关信息的进度条，backend则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用frontend。
 
-* --debug: 调试模式。以调试模式启动MetDetPy时，会创建一个额外调试窗口，显示当前的检测情况以及更多调试信息。
+* --debug: 调试模式。以调试模式启动MetDetPy时，会打印更多调试信息。
 
-#### 覆盖参数
+* --visu: 可视模式。以可视模型启动时，创建一个额外调试窗口，显示当前的检测情况。
 
-以下参数在不设置时使用[配置文件](../config.json)中的默认值，如果设置则覆盖配置文件中的数值。有关这些参数的详细解释可以参考[配置文件文档](./config-doc.md)。
+#### 额外参数
+
+以下参数在不设置时使用配置文件中的默认值，如果设置则覆盖配置文件中的数值。有关这些参数的详细解释可以参考[配置文件文档](./config-doc-cn.md)。
 
 * --resize: 检测时采用的帧图像尺寸。可以指定单个整数（如`960`，代表长边长度），列表（如`[960,540]`）或者字符串（如`960x540`）。
 
@@ -90,15 +97,30 @@ python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end
 
 * --sensitivity: 检测器的灵敏度。从{low, normal, high}中选择。当启用自适应二值化阈值时，灵敏度选项仍起效，且更高的灵敏度将会估计更高的阈值。不能与--bi-thre同时设置。
 
+* --recheck: 启用重校验机制减少误报。从{on, off}中选择。
+
+* --save-rechecked-img: 重校验图像的保存路径。
+
+
 #### 示例
 
 ```sh
-python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
+python MetDetPy.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 ```
 
 #### 自定义配置文件
 
-大多数与检测相关的重要参数都预先定义并储存在配置文件中。大多数情况下，这些预设值都能够较好的工作，但有时对参数微调可以取得更好的结果。如果想要获取配置文件的说明，可以参考[配置文件文档](./config-doc.md)获取更多信息。
+大多数与检测相关的重要参数都预先定义并储存在配置文件中。大多数情况下，这些预设值都能够较好的工作，但有时对参数微调可以取得更好的结果。如果想要获取配置文件的说明，可以参考[配置文件文档](./config-doc-cn.md)获取更多信息。
+
+### 运行图像流星检测
+
+要启动图像流星检测器，运行 `run_model.py`：
+
+```sh
+python run_model.py target 
+```
+
+(相关能力还在建设中)
 
 ### 其他工具的使用
 
@@ -107,14 +129,11 @@ python core.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
 ClipToolkit可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。其用法如下：
 
 ```sh
-python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] target json
+python ClipToolkit.py target json [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING]
 ```
 ##### Arguments:
 
 * target: 目标视频文件。
-* --mode: convert clip(s) to images or videos. Should be selected from {image, video}.
-* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode.
-* --save-path: the path where image(s)/video(s) are placed.
 
 * json: JSON格式的字符串或者JSON文件的路径。该JSON应当包含起始时间，结束时间和文件名（可选）信息。
     具体来说，这个 JSON 应该是一个数组，其中每个元素都应该至少包含一个`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间。 `"filename"` 是一个可选键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）`"filename"` 优先于 `--mode` 和 ` --suffix` 选项，但如果未指定，此剪辑将根据命令选项自动转换和命名。
@@ -138,7 +157,7 @@ python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE
 python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540 --save-path ./test
 ```
 
-注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，你应该注意命令行中双引号的转义。
+注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，需要注意命令行中双引号的转义。
 
 #### 评估
 
@@ -181,7 +200,7 @@ python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [-
 
 * --metrics：计算检测的精度和召回率。 要应用它，必须在 `"video_json"` 的JSON中提供 `"meteors"` 。
 
-* --debug：用这个启动`evaluate.py`时，会有一个调试窗口。
+* --debug：用这个启动`evaluate.py`时，会有详细的调试信息。
 
 ## 打包Python代码为可执行程序
 
@@ -211,25 +230,23 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 
 注意：
 
-1. 建议使用 `Python>=3.9`, 且安装 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。此外，避免使用 `nuitka>=1.5.0` (2023.03)，这可能会导致某些设备运行时出现 SystemError。
-
-2. 根据在 MetDetPy 上的测试，`pyinstaller` 打包更快，能生成更小的可执行文件（小于Nuitka约30%）。然而，其可执行程序在启动会花更多时间。相对的，`nuitka`花费更多时间在编译期，并生成相对更大的可执行文件（即使使用UPX压缩），但其启动快于Pyinstaller版本约50%。除去启动时间，两种可执行文件运行速度基本相同。因此，可根据实际需求选择合适的打包工具。
+1. 建议使用 `Python>=3.9`, 且安装 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。任一工具都可以用于创建可执行程序。
 
 3. 由于Python的特性，上述两种工具均无法跨平台打包生成可执行文件。
 
 4. （原因不明）如果环境中有`matplotlib`或`scipy`，它们很可能会一起打包到最终目录中。 为避免这种情况，建议使用干净的环境进行打包。
+
 ## Todo List
 
  1. 改善检测效果 (Almost Done, but some potential bugs left)
-    1. 设计再校验机制：利用叠图结果做重校准
-    2. 优化速度计算逻辑，包括方向，平均速度等
-    3. 改善对暗弱流星的召回率
-    4. 改善解析帧率与真实帧率不匹配时的大量误报问题
-    5. 优化帧率估算机制；
-    6. 改善对蝙蝠/云等情况的误检(？)
- 2. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 3. 利用cython改善性能
- 4. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
+    1. 优化速度计算逻辑，包括方向，平均速度等
+    2. 改善对暗弱流星的召回率
+ 2. 增加对其他天象的检测能力
+ 3. 模型迭代
+ 4. 接入其他深度学习框架和模型
+ 5. 利用cython改善性能
+ 6. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
+ 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
  
 
 P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：

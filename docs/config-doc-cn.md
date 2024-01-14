@@ -1,38 +1,38 @@
-# 参数设置
+# 参数设置文档
 
 <center>语言: <a href="./config-doc.md">English</a> | 简体中文 </center>
 
 ## 简介
 
-MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配置文件能够较好的工作，但有时调整参数可以取得更好的检测效果。可以修改或创建自己的配置文件，设置自己的视频读取和流星检测的参数组合，或调整过滤流星的边界条件。
+MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配置文件能够较好的工作，但有时也可以调整检测参数可以取得更好的检测效果。该文档解释了各项参数的含义，可以根据需要修改自己的视频读取和流星检测的参数，或调整过滤流星的边界条件。
 
-默认的配置文件以`json`形式储存在[config](../config)文件夹下，默认使用的`json`为[m3det_normal.json](../config/m3det_normal.json)。配置文件主要可以配置4部分内容：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。
+配置文件是`JSON`格式的文本，主要包含4个部分：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。作为参考，预设的配置文件储存在[config](../config)文件夹下。可以结合[默认使用的配置文件](../config/m3det_normal.json)阅读本文档以更清晰了解配置文件的格式。
 
 ⚠️ 在`v2.0.0`的正式版发布前，本文中提及的接口仍然可能发生变化。
 
 ## 描述文本Description
 
-可用于描述配置文件的主要使用场景和说明。检测中不会实际使用该项。
+可用于描述配置文件的主要使用场景和说明。前端应用（如Meteor Master>=3.6.0）将可以展示这些信息。检测中不会实际使用该项。
 
-描述文本的示例如下：
+描述文本段的示例如下：
 
 ```json
 "description": {
-    "preset_name_cn": "M3Detector（一般灵敏度）",
-    "preset_name_en": "M3Detector(Normal sensitivity)",
-    "intro_cn": "自适应流星检测器，运行速度较快。一般灵敏度适用于大多数检测场景。",
-    "intro_en": "Adaptive meteor detector. Normal sensitivity is suitable for most detection scenarios."
+    "preset_name": "配置名称",
+    "intro": "一段配置简介",
 }
 ```
 
-描述文本的各项参数说明如下：
+如果希望在中文/英文页面有不同的显示，也可以使用如下方式配置：
 
-|参数名|格式|说明|
-|------|---|---|
-|preset_name_cn| str |配置的中文名称。|
-|preset_name_en| str |配置的英文名称。|
-|intro_cn| str |配置的中文简介。|
-|intro_en| str |配置的英文简介。|
+```json
+"description": {
+    "preset_name_cn": "M3Det-通用",
+    "preset_name_en": "M3Det-general",
+    "intro_cn": "自适应检测器，适用于多数检测场景。",
+    "intro_en": "Adaptive meteor detector. Suitable for most detection scenarios."
+}
+```
 
 
 ## 视频加载器/Loader
@@ -42,7 +42,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 ```json
 "loader": {
     "name": "ThreadVideoLoader",
-    "warpper": "OpenCVVideoWarpper",
+    "wrapper": "OpenCVVideoWrapper",
     "resize": 960,
     "exp_time": "auto",
     "merge_func": "max",
@@ -54,15 +54,15 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|--------|
-|name|str|所使用的`loader`名称。目前可选`"VanillaVideoLoader"`,`"ThreadVideoLoader"`和`ProcessVideoLoader`。一般情况下，推荐使用稳定且运行速度较快的`"ThreadVideoLoader"`。|`"ThreadVideoLoader"`|
-|warpper|str|视频底层的解析包装器。目前仅支持基于OpenCV的`"OpenCVVideoWarpper"`。|`"OpenCVVideoWarpper"`|
-|resize|int, array, str|指定检测使用的分辨率。较低的分辨率下程序运行更快，较高的分辨率则有助于检测到更暗弱和短的流星。仅指定长边长度（如`960`）时，程序会自适应不同长宽比的视频（推荐）；该设置也支持同时指定宽高（使用以`:`或者`x`分隔两个数字的字符串，如`"960:540"`，`"960x540"`；或直接使用列表，如`[960,540]`）|`960`|
-|exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)|指定单帧的曝光时间。使用传统检测器时，推荐使用`"auto"`，程序会根据片段估算实际曝光时间（会在启动前花费一小段时间）。如果确定视频帧率与曝光时间匹配，则可以使用`"real-time"`。如果希望指定具体数值，可以填入单位为s的浮点数（小数）。|`"auto"`(对传统算法检测器)/`0.5`(对基于深度学习的检测器)|
+|name|str|所使用的`loader`的名称。目前可选`"VanillaVideoLoader"`,`"ThreadVideoLoader"`和`ProcessVideoLoader`。一般情况下，推荐使用稳定且运行速度较快的`"ThreadVideoLoader"`。|`"ThreadVideoLoader"`|
+|wrapper|str|底层加载视频使用的`wrapper`。目前仅支持基于OpenCV的`"OpenCVVideoWrapper"`。|`"OpenCVVideoWrapper"`|
+|resize|int, array, str|指定检测使用的分辨率。较低的分辨率下程序运行更快，较高的分辨率则有助于检测到更暗弱和短的流星。可以设置一个整数以仅指定长边长度（如`960`），程序会自适应不同长宽比的视频（推荐）；该设置也支持同时指定宽高（使用以`:`或者`x`分隔两个数字的字符串，如`"960:540"`，`"960x540"`；或直接使用列表，如`[960,540]`）|`960`|
+|exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)|指定单帧的曝光时间。使用传统检测器时，推荐使用`"auto"`，程序会根据片段估算实际曝光时间（会在启动前花费一小段时间）。如果确定视频帧率与曝光时间匹配，则可以使用`"real-time"`。如果希望指定具体数值，可以填入单位为s的浮点数（小数）。|`"auto"`（直线检测器）/`0.5`（深度学习检测器）|
 |merge_func|str|描述多帧图像如何合并为一帧。仅当实际曝光时间长于视频的单帧时长时生效。可选`"max"`,`"m3func"`,`"mix_max_median_stacker"`。因为流星检测的视觉特性，推荐使用`"max"`。|`"max"`|
-
+|grayscale|bool|描述是否将视频转换为灰度图像进行加载。对于基于直线检测的检测器，该项必须为`true`；对于基于深度学习的检测器，目前必须选择`false`。|`true`（直线检测器）/`false`（深度学习检测器）|
 
 ⚠️ 
-1.  `"name": "ProcessVideoLoader"`尚未经过完善的测试与调整，无法在macOS设备上使用，也不推荐在生产环境中配置。
+1.  `"name": "ProcessVideoLoader"`属于实验性的功能，尚未经过完善的测试与调整。其无法在macOS设备上使用，也不推荐在生产环境中配置。
 2. Q: 为什么要填写曝光时间？ A: 存在实际曝光时间与帧率不匹配的情况（例如，部分相机可以输出曝光时间为1/20s的4k60p的视频，视频每3帧变化一次，而非每帧间均有差异）。在这种情况下，使用实际的曝光时间可以改善运行速度和识别的准确率。
 
 
@@ -120,7 +120,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
-|name|str|描述使用的检测器。目前可选`"ClassicDetector"`, `"M3Detector"`与  `"MLDetector"`。其中， `"ClassicDetector"` 和`"M3Detector"`是基于直线检测的传统检测器，`"MLDetector"`则是基于深度学习的检测器。基本上，传统检测器运行速度更快，但更容易产生误报（可通过配置重校验改善，见[重校验](#重校验配置recheck_cfg)部分）；深度学习检测器则更加稳健，但计算开销更大。二者在参数配置上有差异。|`"M3Detector"`(传统检测器)/`"MLDetector"`(深度学习检测器)|
+|name|str|描述使用的检测器。目前可选`"ClassicDetector"`, `"M3Detector"`与  `"MLDetector"`。其中， `"ClassicDetector"` 和`"M3Detector"`是基于直线检测的传统检测器，`"MLDetector"`则是基于深度学习的检测器。基本上，传统检测器更加灵敏，运行更快，但也更容易产生误报（可通过配置[重校验](#重校验配置recheck_cfg)改善）；深度学习检测器则更加稳健，但计算开销更大。二者在参数配置上有差异。|`"M3Detector"`(传统检测器)/`"MLDetector"`(深度学习检测器)|
 |windows_sec|int,float|描述滑动时间窗长度。运行时算法将逐帧在该窗口长度内检测可能的流星。通常来说，设置在1s附近可以取得比较好的结果。|1|
 |cfg|-|描述具体的参数设置。|（见下）|
 
@@ -138,7 +138,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
         <td rowspan="5"><p>binary</p>(二值化阈值相关参数)</td>    
         <td>adaptive_bi_thre</td> 
         <td>bool</td> 
-        <td>是否启用自适应二值化阈值算法。该算法可以根据采样区域的视频信噪比估算最佳二值化阈值，进而检出流星。</td> 
+        <td>是否启用自适应二值化阈值算法。该算法可以根据采样区域的视频信噪比估算最佳二值化阈值，进而将变亮区域分割出来。</td> 
         <td>true</td> 
     </tr>
     <tr>
@@ -156,7 +156,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
     <tr>
         <td>area</td>  
         <td>float</td> 
-        <td>描述自适应二值化阈值算法的采样区域大小。取值范围[0,1]，代表采样区域的大小。设置合适的大小能够在获取近似准确的估计值的同时加速估算。推荐区域设置在0.05-0.2。设置为非法值（小于0或者大于1）时将使用全图采样估算。</td> 
+        <td>描述自适应二值化阈值算法的采样区域大小。取值范围[0,1]，代表采样区域与全图面积的比值。设置合适的大小能够在获取近似准确的估计值的同时加速估算。推荐区域设置在0.05-0.2。设置为非法值（小于0或者大于1）时将使用全图采样估算。</td> 
         <td>0.1</td>  
     </tr>
     <tr>
@@ -280,7 +280,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |------|---|---|---|
 |switch|str|是否默认启用重校验。|true|
 |model|-|参考[模型](#模型model)部分。|-|
-|save_path|str|保存重校验图像的路径。置空时，默认不保存重校验的图像。|`""`|
+|save_path|str|保存重校验图像的路径。置空时，不保存重校验的图像。|`""`|
 
 
 ## 模型/Model

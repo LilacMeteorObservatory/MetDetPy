@@ -9,26 +9,25 @@
 
 ## Introduction
 
-MetDetPy is a python-based video meteor detector that can detect meteors from video files, which is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy is more powerful and reliable, with the following features:
+MetDetPy is a Python-based meteor detector project that detects meteors from videos and images. Its video detection is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy is powerful and reliable, with the following features:
 
-* **Adaptive Sensitivity:** for most meteor videos, MetDetPy can be used directly without detailed configuration. With a series of adaptive algorithms, MetDetPy can change its detecting sensitivity according to the signal-to-noise ratio of the video.
+* **Easy-to-use and Configurable:** MetDetPy is designed with easy-to-use default settings, so it can be used directly without detailed configuration under most circumstances. Settings are also supported to be changed to get better detection results.
 
-* **Applicable for Various Devices and Exposure Time:** MetDetPy can detect meteors from video files that capture by various types of devices. We implement the M3 detector, which works fine for videos with exposure time from 1/120s to 1/4s. It calculates the difference frame (calculated by maximum minus mean) in a wider sliding time window efficiently to improve accuracy.
+* **Applicable for Various Devices and Exposure Time:** MetDetPy can detect meteors from video files captured by various types of devices. With adaptive algorithms and deep learning models, MetDetPy works fine for videos and images from full-frame cameras and monitor cameras.
 
-* **Low CPU and Memory Usage:** MetDetPy is developed based on OpenCV, thus it works with low CPU and memory usage while not requiring GPU. It can support multi-camera real-time detection on mainstream computers or barebones.
+* **Low CPU Usage:** MetDetPy works with relatively low CPU usage and supports multi-camera real-time detection on mainstream computers or barebones.
 
-* **Effective Filter:** a meteor detection result manager (called MeteorLib) is designed to help integrate predictions and exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
+* **Optional Deep Learning Model:** MetDetPy has optional deep learning support. It can be selectively used in the main detection or recheck phase to improve detection results without significantly increasing performance overhead. The model can also be used for meteor detection in images.
 
-* **Abundant Support Tools:** an evaluation tool and a video clip toolkit are also provided to support further video clipping, image stacking, or result evaluation.
+* **Effective Filter:** Meteors will be rechecked according to visual appearance and motion properties to exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
+
+* **Support Tools:** An evaluation tool and a video clip toolkit are also provided to support further video clipping, image stacking, or result evaluation.
 
 ## Release Version
 
-You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version are already packed and can run on common platforms (including Windows, macOS and Linux) respectively. Also, you can build it yourself with `pyinstaller` or `nuitka` (see [Package python codes to executables](#package-python-codes-to-executables)).
+You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version is already packed and can run on common platforms (including Windows, macOS, and Linux) respectively. Also, you can build it yourself with `nuitka` or `pyinstaller` (see [Package python codes to executables](#package-python-codes-to-executables)).
 
-Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0. Meteor Master is a video meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function,  automatic running, etc. You can get the latest Meteor Master (Windows and macOS release version) from:
-
-* [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster)
-* [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
+Besides, MetDetPy has worked as the backend of the Meteor Master since version 1.2.0. Meteor Master (AI) is a meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function, automatic running, etc. You can get more information at [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster), or get its latest version from the Microsoft Store / App Store. Its earlier version can get from [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
 ## Requirements
 
@@ -37,7 +36,7 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 * 64bit OS
 * Python>=3.7 (3.9+ is recommended)
 
-### Packages
+### Requirements
 
 * numpy>=1.15.0
 * opencv_python>=4.9.0
@@ -46,41 +45,48 @@ Besides, MetDetPy works as the backend of the Meteor Master since version 1.2.0.
 * multiprocess>=0.70.0
 * onnxruntime>=1.16.0
 
-You can install these packages using:
+You can install these requirements using:
 
 ```sh
 pip install -r requirements.txt
 ```
 
+If you have CUDA installed and want to run deep learning models on Nvidia GPU(s), install `onnxruntime-gpu` instead of `onnxruntime`; if you are using macOS, it is recommended to install `onnxruntime-silicon` instead.
+
 ## Usage
 
-### Run MetDetPy
+### Run Video Meteor Detector
+
+MetDetPy is the launcher of the video meteor detector, its usage is as follows:
 
 ```sh
-python core.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
+python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
+               [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
 ```
 
 #### Main Arguments
 
-* target: meteor video filename. Support common video encoding (since it uses OpenCV to decode video).
+* target: meteor video filename. Support common video encoding like H264, HEVC, etc.
 
-* --cfg: configuration file. Use [config.json](./config.json) under the same path default.
+* --cfg: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
 
 * --mask: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* --start-time: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e, 0).
+* --start-time: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
 
 * --end-time: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
 
-* --mode: the running mode. Its argument should be selected from {backend, frontend}. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
+* --mode: the running mode. Its argument should be selected from `{backend, frontend}`. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
 
-* --debug: when launching MetDetPy with --debug, there will be a debug window showing videos and detected meteors.
+* --debug: whether to print debug information.
 
-#### Cover arguments
+* --visu: showing a debug window displaying videos and detected meteors.
 
-The following arguments has default value in [config files](./config.json). Their detail explanation can be seen in [configuration documents](./docs/config-doc.md).
+#### Extra Arguments
+
+The following arguments have default values in config files. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
 
 * --resize: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
 
@@ -88,19 +94,33 @@ The following arguments has default value in [config files](./config.json). Thei
 
 * --adaptive-thre: whether apply adaptive binary threshold in the detector. Select from {on, off}.
 
-* --bi-thre: the binary threshold used in the detector. When adaptive binary threshold is applied, this option is invalidate. Do not set --sensitivity with this at the same time.
+* --bi-thre: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
 
-* --sensitivity: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
+* --sensitivity: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time. 
+
+* --recheck: whether apply recheck mechanism. Select from {on, off}.
+
+* --save-rechecked-img: the path where rechecked images are saved to.
 
 #### Example
 
 ```sh
-python core.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg"
+python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg"
 ```
 
-### Customize Configuration
+#### Customize Configuration
 
-Unlike video-related arguments, most detect-related important arguments are predefined and stored in the configuration file. In most cases, predefined arguments works fine. However, sometimes it is possible to finetune these arguments to get better results. If you want to get the illustration of the configuration file, see [configuration documents](./docs/config-doc.md) for more information.
+MetDetPy reads arguments from configuration files. For most circumstances, preset configuration files work well, but there are also times when better detection results can be achieved by adjusting detection arguments. This document explains the meanings of arguments so that they can adjusted according to the requirement. See [configuration documents](./docs/config-doc.md) for more information.
+
+### Run Image Meteor Detector
+
+To launch the image meteor detector, use `run_model.py` as follows:
+
+```sh
+python run_model.py target 
+```
+
+(WIP)
 
 ### Usage of Other Tools
 
@@ -109,7 +129,7 @@ Unlike video-related arguments, most detect-related important arguments are pred
 ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
 
 ```sh
-python ClipToolkit.py [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] target json
+python ClipToolkit.py target json [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] 
 ```
 
 ##### Arguments:
@@ -218,23 +238,21 @@ The target executable file and its zip package version (if applied) will be gene
 
 **Notice:**
 
-1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. Besides, avoid using `nuitka>=1.5.0` (2023.03), which might lead to SystemError on some devices.
-2. According to our test, `pyinstaller` packages MetDetPy faster, and generated executables are usually smaller (about 30% smaller than its nuitka version). However, its executables may spend more time when launching. In contrast, `nuitka` takes more time at compiling and generates bigger executables (even with UPX compressing), but it launches faster (over 50%). Except for the launch time, their running time is mostly the same. Thus, you can choose the proper packaging tool to fit your requirement.
-3. Due to the feature of Python, neither tools above can generate cross-platform executable files.
-4. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment for packaging.
+1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. You can prepare either tool to package the program.
+2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
+3. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment when packaging.
 
 ## Todo List
 
  1. 改善检测效果 (Almost Done, but some potential bugs left)
-    1. 设计再校验机制：利用叠图结果做重校准
-    2. 优化速度计算逻辑，包括方向，平均速度等
-    3. 改善对暗弱流星的召回率
-    4. 改善解析帧率与真实帧率不匹配时的大量误报问题
-    5. 优化帧率估算机制；
-    6. 改善对蝙蝠/云等情况的误检(？)
- 2. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 3. 利用cython改善性能
- 4. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
+    1. 优化速度计算逻辑，包括方向，平均速度等
+    2. 改善对暗弱流星的召回率
+ 2. 增加对其他天象的检测能力
+ 3. 模型迭代
+ 4. 接入其他深度学习框架和模型
+ 5. 利用cython改善性能
+ 6. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
+ 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
  
 
 P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
@@ -248,11 +266,9 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
 1. When applying default configuration on 3840x2160 10fps video, MetDetPy detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500). Videos with higher FPS may cost more time.
 
-2. So far no deep-learning model is introduced to MetDetPy, thus it does not require GPU and can support multi-camera real-time detection on mainstream computers or barebones ([MeteorMaster](https://www.photohelper.cn/MeteorMaster) has supported this). (P. S: We do plan to add A simple and lightweight CNN classifier in our future ---- do not worry, it will not increase CPU load significantly, while it can utilize Nvidia GPU if applicable.)
+2. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
 
-3. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
-
-4. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcome to contact us or submit issues (if possible and applicable, provide full or clipped video).
+3. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcome to contact us or submit issues (if possible and applicable, provide full or clipped video).
 
 ## Appendix
 
