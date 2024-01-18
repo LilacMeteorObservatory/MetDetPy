@@ -1,7 +1,7 @@
 <div align="center">
   <img src="imgs/banner.png"/>
 
-![version](https://img.shields.io/badge/version-v2.0.0_alpha1-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
+![version](https://img.shields.io/badge/version-v2.0.0-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
@@ -80,7 +80,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * --mode: the running mode. Its argument should be selected from `{backend, frontend}`. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
 
-* --debug: whether to print debug information.
+* --debug: indicates whether to print debug information.
 
 * --visu: showing a debug window displaying videos and detected meteors.
 
@@ -92,13 +92,13 @@ The following arguments have default values in config files. Their detailed expl
 
 * --exp-time: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
 
-* --adaptive-thre: whether apply adaptive binary threshold in the detector. Select from {on, off}.
+* --adaptive-thre: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
 
 * --bi-thre: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
 
 * --sensitivity: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time. 
 
-* --recheck: whether apply recheck mechanism. Select from {on, off}.
+* --recheck: indicates whether apply recheck mechanism. Select from {on, off}.
 
 * --save-rechecked-img: the path where rechecked images are saved to.
 
