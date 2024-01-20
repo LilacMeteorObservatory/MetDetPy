@@ -12,7 +12,7 @@ from .MetLog import get_default_logger
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
-VERSION = "V2.0.0_alpha1"
+VERSION = "V2.0.0"
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
@@ -23,6 +23,7 @@ drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
 logger = get_default_logger()
 
 STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
+SWITCH2BOOL = {"on": True, "off": False}
 
 
 def pt_offset(pt, offset) -> list:
@@ -416,14 +417,14 @@ def time2frame(time: int, fps: float) -> int:
 
 
 def frame2time(frame: int, fps: float) -> int:
-    """convert time (in ms) to the frame num.
+    """convert the frame to time (in ms).
 
     Args:
-        time (int): time in ms.
+        frame (int): time in ms.
         fps (float): video fps
 
     Returns:
-        int: the frame num.
+        int: the time num.
     """
     return int(frame * 1000 / fps)
 

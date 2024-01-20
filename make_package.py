@@ -57,7 +57,7 @@ def nuitka_compile(header, options, target):
 
 
 def pyinstaller_compile(header="pyinstaller", spec=None):
-    ret_code, time_cost = run_cmd(f"{header} {spec}")
+    ret_code, time_cost = run_cmd([header, spec]")
 
     print(
         f"Package finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
@@ -129,7 +129,7 @@ if (platform == "win"):
     exec_suffix = ".exe"
 if (platform == "macos"):
     mac_main_ver = int(pf.mac_ver()[0].split(".")[0])
-    if mac_main_ver>=13:
+    if mac_main_ver>=13 and compile_tool=="nuitka":
         exec_suffix = ".bin"
         platform += "13+"
 
@@ -232,7 +232,7 @@ else:
     shutil.rmtree(f"./build")
     print("Done.")
     print("Merging dist files...", end="", flush=True)
-    shutil.move(join_path(compile_path, "ClipToolkit", "ClipToolkit.exe"),
+    shutil.move(join_path(compile_path, "ClipToolkit", f"ClipToolkit{exec_suffix}"),
                 join_path(compile_path, "MetDetPy"))
     shutil.rmtree(join_path(compile_path, "ClipToolkit"))
     print("Done.")

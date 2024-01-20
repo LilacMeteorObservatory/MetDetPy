@@ -35,6 +35,8 @@ DEFAULT_EXPOSURE_FRAME = 1
 SHORT_LENGTH_THRESHOLD = 300
 RF_ESTIMATE_LENGTH = 100
 SLOW_EXP_TIME = 1 / 4
+GET_TIMEOUT = 10
+PUT_TIMEOUT = 10
 
 freeze_support()
 
@@ -315,8 +317,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         if exp_frame != None:
             self.exp_frame = exp_frame
         if reset_time_attr:
-            self.start_time = self.start_frame / self.fps
-            self.end_time = self.end_frame / self.fps
+            self.start_time = frame2time(self.start_frame, self.fps)
+            self.end_time = frame2time(self.end_frame, self.fps)
         self.iterations = self.end_frame - self.start_frame
         self.read_stopped = True
 
@@ -507,8 +509,6 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.clear_queue()
         self.read_stopped = False
         self.status = True
-        # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
-        # TODO 2: 对于不能set_to的，能否向后继续跳转？
         self.video.set_to(self.start_frame)
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.setDaemon(True)
@@ -527,7 +527,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         try:
             for i in range(self.exp_frame):
                 if self.stopped: break
-                ret.append(self.queue.get(timeout=2))
+                ret.append(self.queue.get(timeout=GET_TIMEOUT))
         except Exception as e:
             # handle the condition when there is no frame to read due to manual stop trigger or other exception.
             if isinstance(e, queue.Empty) and self.read_stopped:
@@ -548,7 +548,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 if self.status:
                     self.processed_frame = self.preprocess.exec_transform(
                         self.cur_frame)
-                    self.queue.put(self.processed_frame, timeout=60)
+                    self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
                 else:
                     self.stop()
                     self.logger.warning(
@@ -632,9 +632,6 @@ class ProcessVideoLoader(VanillaVideoLoader):
             np.dtype("uint8").char, self.maxsize * w * h * c)
         self.buffer_shape = (self.maxsize, h,
                              w) if self.grayscale else (self.maxsize, h, w, 3)
-        # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
-        # TODO 2: 对于不能set_to的，能否向后继续跳转？
-        #self.video.set_to(self.start_frame)
         del self.video
         self.subprocess = Process(target=self.videoloop, daemon=True)
         self.subprocess.start()
@@ -668,7 +665,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         try:
             for i in range(self.exp_frame):
                 if self.stopped: break
-                x = self.notify_queue.get(timeout=2)
+                x = self.notify_queue.get(timeout=GET_TIMEOUT)
                 if x == "STOPPED":
                     self.read_stopped = True
                     break
@@ -683,7 +680,6 @@ class ProcessVideoLoader(VanillaVideoLoader):
         return self.merge_func(np_buffer[ret])
 
     def videoloop(self):
-        # TODO: 此处硬编码了类型。后续应该做调整。
         self.video = self.video_wrapper(self.video_name)
         self.video.set_to(self.start_frame)
 
@@ -704,8 +700,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                 self.cur_frame = self.preprocess.exec_transform(self.cur_frame)
                 np_buffer[self.cur_pos] = self.cur_frame
                 self.cur_pos = (self.cur_pos + 1) % self.maxsize
-                # TODO: timeout均为硬编码，应当参数化。
-                self.notify_queue.put(self.cur_pos, timeout=10)
+                self.notify_queue.put(self.cur_pos, timeout=PUT_TIMEOUT)
 
         except Exception as e:
             raise e
@@ -717,7 +712,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
             super().stop()
             self.stop()
             try:
-                self.notify_queue.put("STOPPED", timeout=10)
+                self.notify_queue.put("STOPPED", timeout=PUT_TIMEOUT)
             except queue.Full as e:
                 pass
 

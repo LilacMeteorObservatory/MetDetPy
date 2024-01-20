@@ -4,7 +4,11 @@ import time
 import datetime
 import threading
 import queue
+import sys
 
+# Reconfigure stdout to utf-8.
+sys.stdout.reconfigure(encoding="utf-8") # type: ignore
+sys.stderr.reconfigure(encoding="utf-8") # type: ignore
 level_header = ("Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor")
 
 LV_DROPPED = 0

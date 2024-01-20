@@ -12,6 +12,13 @@ from .utils import (color_interpolater, drct, drct_line, frame2ts, lineset_nms,
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
 
+class Name2Label(object):
+    UNKNOWN_AREA = -1
+    METEOR = 0
+    PLANE = 1
+    RED_SPRITE = 2
+    LIGHTNING = 3
+
 
 def scale_to(pt, rescale):
     return [int(x * y) for x, y in zip(pt, rescale)]
@@ -49,13 +56,13 @@ class MeteorCollector(object):
     全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列，执行必要的重校验。
     """
 
-    def __init__(self, min_len, max_interval, det_thre, time_range,
-                 speed_range, thre2, eframe, drct_range, fps, runtime_size,
-                 raw_size, recheck_cfg, video_loader, logger) -> None:
-        self.min_len = min_len
-        self.max_interval = max_interval
-        self.max_acti_frame = max_interval
-        self.det_thre = det_thre
+    def __init__(self, meteor_cfg, eframe, fps, runtime_size, raw_size,
+                 recheck_cfg, video_loader, logger) -> None:
+        self.min_len = meteor_cfg.min_len
+        self.max_interval = meteor_cfg.max_interval * fps
+        self.max_acti_frame = meteor_cfg.max_interval * fps
+        self.det_thre = meteor_cfg.det_thre
+        self.thre2 = meteor_cfg.thre2 * eframe
         self.active_meteor = [
             MeteorSeries(np.inf, np.inf, [-100, -100, -101, -101], np.nan,
                          np.nan, "None")
@@ -63,17 +70,19 @@ class MeteorCollector(object):
         self.waiting_meteor = []
         self.ended_meteor = []
         self.cur_frame = 0
-        self.thre2 = thre2
-        self.speed_range = speed_range
         self.eframe = eframe
         self.fps = fps
         self.raw_size = raw_size
         # 调整time的验证下界
-        time_range[0] = max(time_range[0], int(4 * self.eframe + 2))
-        self.time_prob_func = create_prob_func(time_range)
-        self.speed_prob_func = create_prob_func(speed_range)
-        self.len_prob_func = create_prob_func((min_len, np.inf))
-        self.drct_prob_func = create_prob_func(drct_range)
+        # TODO: 梳理一下time_range相关逻辑
+        meteor_cfg.time_range[0] *= fps
+        meteor_cfg.time_range[1] *= fps
+        meteor_cfg.time_range[0] = max(meteor_cfg.time_range[0],
+                                       int(4 * self.eframe + 2))
+        self.time_prob_func = create_prob_func(meteor_cfg.time_range)
+        self.speed_prob_func = create_prob_func(meteor_cfg.speed_range)
+        self.len_prob_func = create_prob_func((self.min_len, np.inf))
+        self.drct_prob_func = create_prob_func(meteor_cfg.drct_range)
 
         # Init Exporter
         self.met_exporter = MetExporter(runtime_size=runtime_size,
@@ -81,7 +90,7 @@ class MeteorCollector(object):
                                         recheck_cfg=recheck_cfg,
                                         video_loader=video_loader,
                                         logger=logger,
-                                        max_interval=max_interval)
+                                        max_interval=self.max_interval)
 
     def update(self, cur_frame, lines, cates):
         """
@@ -100,7 +109,7 @@ class MeteorCollector(object):
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
                 if (self.prob_meteor(ms) > self.det_thre):
                     # 没有后校验的情况下，UNKNOWN，PLANE类型不给予输出
-                    if self.met_exporter.recheck or not(ms.cate in [-1,1]):
+                    if self.met_exporter.recheck or not (ms.cate in [Name2Label.UNKNOWN_AREA, Name2Label.PLANE]):
                         temp_waiting_meteor.append(ms)
                     else:
                         drop_list.append(ms)
@@ -571,7 +580,7 @@ class MetExporter(object):
                                      target=[])
             for l, r in matched_pairs:
                 # if cate->1, drop.
-                if cls_list[l]==1:
+                if cls_list[l] == 1:
                     continue
                 sure_meteor = output_dict["target"][r]
                 sure_meteor["category"] = ID2NAME.get(cls_list[l], "UNDEFINED")
@@ -579,7 +588,7 @@ class MetExporter(object):
                 sure_meteor["score"] = 1.0
                 fixed_output_dict["target"].append(sure_meteor)
             # after fix. to be optimized.
-            if len(fixed_output_dict["target"])==0:
+            if len(fixed_output_dict["target"]) == 0:
                 continue
             # 为fixed_output_dict重新计算准确的起止时间
             fixed_output_dict["start_time"] = min(

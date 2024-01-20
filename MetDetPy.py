@@ -12,7 +12,7 @@ from MetLib.Detector import LineDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.utils import VERSION, frame2time, relative2abs_path
+from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL
 
 
 def detect_video(video_name,
@@ -77,14 +77,7 @@ def detect_video(video_name,
                                logger=logger)
 
         # Init meteor collector
-        # TODO: To be renewed
         meteor_cfg = cfg.collector.meteor_cfg
-        # 修改属性
-        meteor_cfg.max_interval *= fps
-        meteor_cfg.time_range[0] *= fps
-        meteor_cfg.time_range[1] *= fps
-        meteor_cfg.thre2 *= exp_frame
-
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
         if recheck_cfg.switch:
@@ -96,7 +89,7 @@ def detect_video(video_name,
                                             exp_option=exp_time,
                                             merge_func=merge_func)
 
-        main_mc = MeteorCollector(**meteor_cfg,
+        meteor_collector = MeteorCollector(meteor_cfg,
                                   eframe=exp_frame,
                                   fps=fps,
                                   runtime_size=video_loader.runtime_size,
@@ -141,43 +134,46 @@ def detect_video(video_name,
 
             if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
                               == 0):
-                main_mc.update(i, lines=lines, cates = cates)
+                meteor_collector.update(i, lines=lines, cates=cates)
 
-            detect_info["info"] += main_mc.draw_on_img(frame_num=i)
+            detect_info["info"] += meteor_collector.draw_on_img(frame_num=i)
 
             visual_manager.display_a_frame(detect_info)
             if visual_manager.manual_stop:
                 logger.info('Manual interrupt signal detected.')
                 break
+
         # 仅正常结束时（即 手动结束或视频读取完）打印。
         if not visual_manager.manual_stop:
-            # TODO: 改下描述
             logger.info('VideoLoader-stop detected.')
     except Exception as e:
         logger.error(e)
         raise e
     finally:
         video_loader.release()
-        main_mc.clear()
+        meteor_collector.clear()
+        # TODO: 不是很美观。后续封装一下
+        meteor_collector.met_exporter.export_loop.join()
         visual_manager.stop()
         logger.info("Time cost: %.4ss." % (time.time() - t1))
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
         logger.stop()
 
-    return main_mc.ended_meteor
+    return meteor_collector.ended_meteor
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=f'MetDetPy{VERSION}')
+    parser = argparse.ArgumentParser(description=f'MetDetPy {VERSION}')
     # TODO: Add More Details.
     parser.add_argument(
         'target',
         help="input video. Support common video encoding like H264, HEVC, etc."
     )
-    parser.add_argument('--cfg',
-                        '-C',
-                        help="Config file.",
-                        default=relative2abs_path("./config/m3det_normal.json"))
+    parser.add_argument(
+        '--cfg',
+        '-C',
+        help="Path to the config file.",
+        default=relative2abs_path("./config/m3det_normal.json"))
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
 
     parser.add_argument('--start-time',
@@ -218,6 +214,7 @@ if __name__ == "__main__":
         type=str,
         default=None)
     parser.add_argument('--adaptive-thre',
+                        choices=['on', 'off'],
                         default=None,
                         type=str,
                         help="Apply adaptive binary threshold.")
@@ -235,6 +232,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--recheck',
                         type=str,
+                        choices=['backend', 'frontend'],
                         default=None,
                         help="Apply recheck before the result is printed"
                         "(the model must specified in the config file).")
@@ -245,12 +243,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    cfg_filename = args.cfg
-
-    sensitivity = args.sensitivity
-    adaptive = args.adaptive_thre
-
-    with open(cfg_filename, mode='r', encoding='utf-8') as f:
+    with open(args.cfg, mode='r', encoding='utf-8') as f:
         cfg: Any = EasyDict(json.load(f))
     # TODO: 添加对于cfg的格式检查
 
@@ -263,16 +256,11 @@ if __name__ == "__main__":
 
     # 与二值化有关的参数仅在使用直线型检测器时生效
     if isinstance(get_loader(cfg.loader.name), LineDetector):
-        if adaptive:
-            assert adaptive in [
-                "on", "off"
-            ], "adaptive_thre should be set \"on\" or \"off\"."
-            cfg.detector.bi_cfg.adaptive_bi_thre = {
-                "on": True,
-                "off": False
-            }[adaptive]
-        if sensitivity:
-            cfg.detector.cfg.binary.sensitivity = sensitivity
+        if args.adaptive_thre:
+            cfg.detector.bi_cfg.adaptive_bi_thre = SWITCH2BOOL[
+                args.adaptive_thre]
+        if args.sensitivity:
+            cfg.detector.cfg.binary.sensitivity = args.sensitivity
             # TODO: to be changed in the future.
             print("\"sensitivity\" is considered to be rebuilt in v2.0.0."
                   " Avoid use this. Instead, use config files.")
@@ -280,12 +268,7 @@ if __name__ == "__main__":
             cfg.detector.bi_cfg.init_value = args.bi_thre
 
     if args.recheck:
-        assert args.recheck in ["on",
-                            "off"], "recheck should be set \"on\" or \"off\"."
-        cfg.collector.recheck_cfg.switch = {
-            "on": True,
-            "off": False
-        }[args.recheck]
+        cfg.collector.recheck_cfg.switch = SWITCH2BOOL[args.recheck]
     if args.save_rechecked_img:
         cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
 
