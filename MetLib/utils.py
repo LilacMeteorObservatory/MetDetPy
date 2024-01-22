@@ -51,10 +51,13 @@ class Transform(object):
     def opencv_RGB2GRAY(self):
         self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_RGB2GRAY)])
 
+    def opencv_GRAY2BGR(self):
+        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_GRAY2BGR)])
+
     def mask_with(self, mask):
         self.transform.append([self.MASK_FLAG, dict(mask=mask)])
 
-    def expand_3rd_channel(self, num):
+    def expand_3rd_channel(self, num: int):
         """将单通道灰度图像通过Repeat方式映射到多通道图像。
         """
         assert isinstance(

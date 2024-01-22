@@ -12,7 +12,7 @@ from MetLib.Detector import LineDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL
+from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL, frame2ts
 
 
 def detect_video(video_name,
@@ -89,20 +89,23 @@ def detect_video(video_name,
                                             exp_option=exp_time,
                                             merge_func=merge_func)
 
-        meteor_collector = MeteorCollector(meteor_cfg,
-                                  eframe=exp_frame,
-                                  fps=fps,
-                                  runtime_size=video_loader.runtime_size,
-                                  raw_size=video_loader.raw_size,
-                                  recheck_cfg=recheck_cfg,
-                                  video_loader=recheck_loader,
-                                  logger=logger)
+        meteor_collector = MeteorCollector(
+            meteor_cfg,
+            eframe=exp_frame,
+            fps=fps,
+            runtime_size=video_loader.runtime_size,
+            raw_size=video_loader.raw_size,
+            recheck_cfg=recheck_cfg,
+            video_loader=recheck_loader,
+            logger=logger)
 
         # Init visualizer
         # TODO: 可视化模块暂未完全支持参数化设置。
-        visual_manager = OpenCVMetVisu(exp_time=exp_time,
-                                       resolution=video_loader.runtime_size,
-                                       flag=visual_mode)
+        visual_manager = OpenCVMetVisu(
+            exp_time=exp_time,
+            resolution=video_loader.runtime_size,
+            flag=visual_mode,
+            visu_param_list=[detector.visu_param, meteor_collector.visu_param])
         # Init main iterator
         main_iterator = range(start_frame, end_frame, exp_frame)
         if work_mode == 'frontend':
@@ -115,6 +118,7 @@ def detect_video(video_name,
     # MAIN DETECTION PART
     t1 = time.time()
     tot_get_time = 0
+    visu_info = {}
     try:
         video_loader.start()
         for i in main_iterator:
@@ -129,19 +133,25 @@ def detect_video(video_name,
                 break
 
             detector.update(x)
-            #TODO: Mask, visual
-            lines, cates, detect_info = detector.detect()
+            lines, cates = detector.detect()
 
             if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
                               == 0):
                 meteor_collector.update(i, lines=lines, cates=cates)
 
-            detect_info["info"] += meteor_collector.draw_on_img(frame_num=i)
-
-            visual_manager.display_a_frame(detect_info)
-            if visual_manager.manual_stop:
-                logger.info('Manual interrupt signal detected.')
-                break
+            if visual_mode:
+                # 仅在可视化模式下通过detector和collector的可视化接口获取需要渲染的所有内容。
+                visu_info.update(main_bg=x,
+                                 timestamp=[{
+                                     "text": frame2ts(i, fps)
+                                 }])
+                visu_info.update(detector.visu())
+                visu_info.update(meteor_collector.visu(frame_num=i))
+                visual_manager.display_a_frame(visu_info)
+                visu_info.clear()
+                if visual_manager.manual_stop:
+                    logger.info('Manual interrupt signal detected.')
+                    break
 
         # 仅正常结束时（即 手动结束或视频读取完）打印。
         if not visual_manager.manual_stop:

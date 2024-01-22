@@ -1,4 +1,7 @@
 """
+Detector is the kernel component(?) of the MetDetPy. It detects meteors (and other events) from the given image sequence.
+
+Detector 是MetDetPy的核心组件。其主要在给定的时间窗内检测流星（及其他事件）。
 
 Relation of Detectors in MetDetPy:
 
@@ -71,7 +74,7 @@ class SNR_SW(SlidingWindow):
                     self.sub_sw.sliding_window -
                     np.array(self.sub_sw.mean, dtype=float))
                 self.noise_ema.update(self.noise_cur_value)
-            elif 1< self.timer <= self.n:
+            elif 1 < self.timer <= self.n:
                 self.noise_cur_value: np.floating = np.std(
                     self.sub_sw.sliding_window[:self.timer] -
                     np.array(self.sub_sw.mean, dtype=float))
@@ -136,7 +139,7 @@ class BaseDetector(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def detect(self) -> np.ndarray:
+    def detect(self):
         pass
 
     def visu(self) -> dict:
@@ -161,7 +164,7 @@ class LineDetector(BaseDetector):
     """
     # version I
     sensitivity_func = {
-        #"low": lambda x: 1.5 * x**2 + 4.2, # not sure, unstable update, needs more sample to validate.
+        #"low": lambda x: 1.5 * x**2 + 4.2, # TODO:not sure, unstable update, needs more sample to validate.
         "low": lambda x: 2.0 * x**2 + 4.4,
         "normal": lambda x: 1.2 * x**2 + 3.6,
         "high": lambda x: 0.9 * x**2 + 3,
@@ -201,8 +204,10 @@ class LineDetector(BaseDetector):
             self.max_allow_gap = self.dynamic_cfg.dy_gap
             self.fill_thre = self.dynamic_cfg.fill_thre
 
-    def detect(self) -> tuple[list, list, dict[str, Any]]:
-        return [], [], {}
+        self.visu_param = {}
+
+    def detect(self) -> tuple[list, list]:
+        return [], []
 
     def update(self, new_frame: np.ndarray):
         self.stack.update(new_frame)
@@ -270,9 +275,10 @@ class ClassicDetector(LineDetector):
                                       maxLineGap=self.hough_cfg.max_gap)
 
         self.linesp = [] if self.linesp is None else self.linesp[0]
-        return self.linesp, [], self.visu(sw[id3], dst)
+        # TODO: Classic Detector的方法，可视化接口都需要实现。
+        return self.linesp, []
 
-    def visu(self, img, dst):
+    def visu(self):
         raise NotImplementedError
 
 
@@ -293,6 +299,42 @@ class M3Detector(LineDetector):
     Returns:
         _type_: _description_
     """
+
+    def __init__(self, window_sec, fps, mask, cfg, logger):
+        super().__init__(window_sec, fps, mask, cfg, logger)
+        self.visu_param = dict(
+            results=["draw", {
+                "type": "rectangle",
+                "color": "orange"
+            }],
+            std_roi_area=["draw", {
+                "type": "rectangle",
+                "color": "purple"
+            }],
+            mix_bg=["img", {
+                "color": "yellow",
+                "weight": 0.5,
+            }],
+            std_value=["text", {
+                "position": "left-top",
+                "color": "green"
+            }],
+            bi_value=["text", {
+                "position": "left-top",
+                "color": "green"
+            }],
+            lines_num=["text", {
+                "position": "left-top",
+                "color": "green"
+            }],
+            area_ratio=["text", {
+                "position": "left-top",
+                "color": "green"
+            }],
+            lines_warning=["text", {
+                "position": "left-top",
+                "color": "red"
+            }])
 
     def detect(self) -> tuple:
         # Preprocessing
@@ -315,8 +357,10 @@ class M3Detector(LineDetector):
         # dynamic_gap机制
         # 根据产生的响应比例适量减少gap
         # 一定程度上能够改善对低信噪比场景的误检
-        dst_sum = np.sum(dst / 255.) / self.mask_area * 100  # type: ignore
-        gap = max(0, 1 - dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
+        self.dst_sum = np.sum(
+            dst / 255.) / self.mask_area * 100  # type: ignore
+        gap = max(
+            0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
         # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
@@ -328,8 +372,8 @@ class M3Detector(LineDetector):
         linesp = np.array([]) if linesp is None else linesp[:, 0, :]
 
         # 如果产生的响应数目非常多，忽略该帧
-        lines_num = len(linesp)
-        if lines_num > NUM_LINES_TOOMUCH:
+        self.lines_num = len(linesp)
+        if self.lines_num > NUM_LINES_TOOMUCH:
             linesp = np.array([])
 
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
@@ -344,76 +388,45 @@ class M3Detector(LineDetector):
             #    print(line, line_pt)
             #    print(dst[line_pt[1], line_pt[0]])
             linesp = linesp[line_score > self.fill_thre]
-            lines_num = len(linesp)
+            self.lines_num = len(linesp)
 
-        data_info = [[
-            "text", "left-top", {
-                "text": f"Line num: {lines_num}",
-                "color": "green"
-            }
-        ],
-                     [
-                         "text", "left-top", {
-                             "text": f"Diff Area: {dst_sum:.2f}%",
-                             "color": "green"
-                         }
-                     ]]
-        if lines_num > 10:
-            data_info.append([
-                "text", "left-top", {
-                    "text": "WARNING: TOO MANY LINES!",
-                    "color": "red"
-                }
-            ])
         # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
-        return linesp, np.ones(
-            (lines_num, ), dtype=int) * (-1), self.visu(light_img,
-                                                        dst,
-                                                        extra_info=data_info)
+        # TODO: 重整类别格式，前置NMS
+        self.linesp = linesp
+        self.dst = dst
+        return linesp, np.ones((self.lines_num, ), dtype=int) * (-1)
 
-    def visu(self, bg, light, extra_info: Optional[list] = None) -> dict:
-        """ 构造可视化时使用的
-
-        Args:
-            bg (np.array): 背景图像
-            light (np.array): 响应图像
+    def visu(self) -> dict:
+        """ 返回可视化时的所需实际参数，需要与visu_param对应。
         """
+        x1, y1, x2, y2 = [-1] * 4
+        if getattr(self.stack, "std_roi", None):
+            x1, y1, x2, y2 = self.stack.std_roi
 
-        def core_drawer():
-            """
-            LineDetector只支持Monochrome，因此无需特别处置。
-            """
-            p = cv2.cvtColor(light, cv2.COLOR_GRAY2RGB)
-            b = cv2.cvtColor(bg, cv2.COLOR_GRAY2RGB)
-            p[:, :, 0] = 0
-            cb_img = cv2.addWeighted(b, 1, p, 0.5, 1)
-            return cb_img
-
-        data_info = []
-        # TODO: 似乎没有设置哪儿可以关闭这个。。
-        #if getattr(self, "ref_ema", None):
-        x1, y1, x2, y2 = self.stack.std_roi
-        data_info.append(
-            ["rectangle", [(y1, x1), (y2, x2)], {
-                "color": "purple"
-            }])
-        data_info.append([
-            "text", "left-top", {
-                "text": f"STD:{self.stack.snr:.4f};",
-                "color": "green"
-            }
-        ])
-        data_info.append([
-            "text", "left-top", {
+        return dict(
+            mix_bg=[{
+                "img": self.dst // 255 # type:ignore
+            }],
+            std_value=[{
+                "text": f"STD:{self.stack.snr:.4f}"
+            }],
+            bi_value=[{
                 "text":
-                f"Bi_Threshold: {self.bi_threshold}(rounded from {self.bi_threshold_float:.4f})",
-                "color": "green"
-            }
-        ])
-        if extra_info:
-            data_info.extend(extra_info)
-
-        return {"bg": core_drawer, "info": data_info}
+                f"Bi_Threshold: {self.bi_threshold}(rounded from {self.bi_threshold_float:.4f})"
+            }],
+            lines_num=[{
+                "text": f"Line num: {self.lines_num}"
+            }],
+            area_ratio=[{
+                "text": f"Diff Area: {self.dst_sum:.2f}%"
+            }],
+            lines_warning=[{
+                "text":
+                "WARNING: TOO MANY LINES!" if self.lines_num > 10 else ""
+            }],
+            std_roi_area=[{
+                "position": [(y1, x1), (y2, x2)]
+            }])
 
 
 class MLDetector(BaseDetector):
@@ -434,6 +447,7 @@ class MLDetector(BaseDetector):
                                    dtype=np.uint8,
                                    force_int=True)
         self.model = init_model(cfg.model, logger=self.logger)
+        self.visu_param = dict(results=["rectangle", {"color": "orange"}])
 
     def update(self, new_frame) -> None:
         self.stack.update(new_frame)
@@ -441,27 +455,14 @@ class MLDetector(BaseDetector):
     def detect(self):
         self.result_pos, self.result_cls = self.model.forward(self.stack.max)
         if len(self.result_pos) == 0:
-            return [], [], self.visu()
-        return self.result_pos, self.result_cls, self.visu()
+            return [], []
+        return self.result_pos, self.result_cls
 
     def visu(self) -> dict:
-        """ 构造可视化时使用的
+        """ 返回可视化时的所需实际参数，需要与visu_param对应。
 
         Args:
             bg (np.array): 背景图像
             light (np.array): 响应图像
         """
-
-        def core_drawer():
-            return self.stack.max
-
-        data_info = []
-        # TODO: 似乎没有设置哪儿可以关闭这个。。
-        #if getattr(self, "ref_ema", None):
-        for (x1, y1, x2, y2) in self.result_pos:
-            data_info.append(
-                ["rectangle", [(x1, y1), (x2, y2)], {
-                    "color": "orange"
-                }])
-
-        return {"bg": core_drawer, "info": data_info}
+        return dict(results=[{"position": x} for x in self.result_pos])

@@ -12,6 +12,7 @@ from .utils import (color_interpolater, drct, drct_line, frame2ts, lineset_nms,
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
 
+
 class Name2Label(object):
     UNKNOWN_AREA = -1
     METEOR = 0
@@ -92,6 +93,36 @@ class MeteorCollector(object):
                                         logger=logger,
                                         max_interval=self.max_interval)
 
+        # 定义可视化接口字段及格式
+        self.visu_param = dict(
+            active_meteors=[
+                "draw", {
+                    "type": "rectangle",
+                    "color": "as-input"
+                }
+            ],
+            active_pts=[
+                "draw", {
+                    "type": "circle",
+                    "position": "as-input",
+                    "color": "as-input",
+                    "radius": 2,
+                    "thickness": -1
+                }
+            ],
+            score_bg=[
+                "draw", {
+                    "type": "rectangle",
+                    "position": "as-input",
+                    "color": "as-input",
+                    "thickness": -1
+                }
+            ],
+            score_text=["text", {
+                "position": "as-input",
+                "color": "white"
+            }])
+
     def update(self, cur_frame, lines, cates):
         """
         更新流星序列的主要函数。
@@ -109,7 +140,9 @@ class MeteorCollector(object):
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
                 if (self.prob_meteor(ms) > self.det_thre):
                     # 没有后校验的情况下，UNKNOWN，PLANE类型不给予输出
-                    if self.met_exporter.recheck or not (ms.cate in [Name2Label.UNKNOWN_AREA, Name2Label.PLANE]):
+                    if self.met_exporter.recheck or not (ms.cate in [
+                            Name2Label.UNKNOWN_AREA, Name2Label.PLANE
+                    ]):
                         temp_waiting_meteor.append(ms)
                     else:
                         drop_list.append(ms)
@@ -191,45 +224,40 @@ class MeteorCollector(object):
                              max_acti_frame=self.max_acti_frame,
                              cate=cate))
 
-    def draw_on_img(self, frame_num):
-        # add timestamp
-        data_info = []
-        data_info.append([
-            "text", "left-bottom", {
-                "text": self.frame2ts(frame_num),
-                "color": "white"
-            }
-        ])
+    def visu(self, frame_num):
+        active_meteors, active_pts = [], []
+        score_text, score_bg = [], []
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             color = color_mapper(self.prob_meteor(ms))
-            data_info.append(["rectangle", (pt1, pt2), {"color": color}])
+
+            active_meteors.append({"position": (pt1, pt2), "color": color})
+
+            # TODO: 检查是否交互计算时也只计算了最近的点。
             # 只打印最近的响应点
-            # 迭代中，不绘制最近响应点
-            #first = np.where(ms.coord_list.frame_num >= frame_num -
-            #                 self.max_acti_frame)[0]
-            #first = len(
-            #    ms.coord_list.frame_num) if len(first) == 0 else first[0]
-            #for pts in ms.coord_list[first:]:
-            #    pt_x, pt_y = pts
-            #    draw_img = cv2.circle(draw_img, (pt_x, pt_y), 2, color, -1)
+            first = np.where(ms.coord_list.frame_num >= frame_num -
+                             self.max_acti_frame)[0]
+            first = len(
+                ms.coord_list.frame_num) if len(first) == 0 else first[0]
+            for pts in ms.coord_list[first:]:
+                pt_x, pt_y = pts
+                active_pts.append({"position": (pt_x, pt_y), "color": color})
 
             # print score
             pt1 = [min(pt1[0], pt2[0]), min(pt1[1], pt2[1])]
-            data_info.append([
-                "rectangle", (pt1, pt_offset(pt1, (35, -10))), {
-                    "color": color,
-                    "thickness": -1
-                }
-            ])
-            data_info.append([
-                "text", pt1, {
-                    "text": f"{self.prob_meteor(ms):.2f}",
-                    "color": "white"
-                }
-            ])
+            score_bg.append({
+                "position": (pt1, pt_offset(pt1, (35, -10))),
+                "color": color
+            })
+            score_text.append({
+                "position": pt1,
+                "text": f"{self.prob_meteor(ms):.2f}"
+            })
 
-        return data_info
+        return dict(active_meteors=active_meteors,
+                    active_pts=active_pts,
+                    score_text=score_text,
+                    score_bg=score_bg)
 
     def clear(self):
         """将当前时间更新至无穷久以后，清空列表。
@@ -318,6 +346,7 @@ class MeteorSeries(object):
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
         self.cate = cate
+        self.calc_range()
 
     @property
     def drst_std(self):
@@ -334,9 +363,13 @@ class MeteorSeries(object):
     def duration(self):
         return self.last_activate_frame - self.start_frame + 1
 
-    @property
-    def range(self):
-        return [
+    def calc_range(self):
+        """TODO: 这个是高耗时步骤。需要优化。
+
+        Returns:
+            _type_: _description_
+        """
+        self.range = [
             int(min([x[0] for x in self.coord_list])),
             int(min([x[1] for x in self.coord_list]))
         ], [
@@ -386,7 +419,8 @@ class MeteorSeries(object):
                 break
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
-
+        # range由calc_range更新，除去init外每次仅在update时更新
+        self.calc_range()
         if update_type in [0, 1, 2]:
             self.drct_list.append(drct(new_box))
 
