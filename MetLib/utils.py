@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
 import numpy as np
+from numba import njit, uint8
 
 from .MetLog import get_default_logger
 
@@ -666,6 +667,12 @@ def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
 def relative2abs_path(path):
     if path.startswith("./"): path = path[2:]
     return os.path.join(WORK_PATH, path)
+
+
+@njit
+def gray2colorimg(gray_image: np.ndarray[uint8],
+                  color: np.ndarray[uint8]) -> np.ndarray[uint8]:
+    return gray_image[:, :, None] * color
 
 
 ID2NAME: dict[int, str] = {}

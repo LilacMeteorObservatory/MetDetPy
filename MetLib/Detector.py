@@ -222,11 +222,9 @@ class LineDetector(BaseDetector):
         # if "dynamic_mask" is applied, stack and mask dst
         self.dy_mask_list.update(act)
         # TODO: 你要不要看看你在写什么.jpg
-        dy_mask = cv2.threshold(
-            np.sum(self.dy_mask_list.sliding_window // 255,
-                   axis=0,
-                   dtype=np.uint8), self.dy_mask_list.length - 1, 1,
-            cv2.THRESH_BINARY_INV)[-1]
+        dy_mask = np.array(self.dy_mask_list.sum
+                           < (self.dy_mask_list.length - 1) * 255,
+                           dtype=np.uint8)
         dy_mask = cv2.erode(dy_mask, self.cv_op)
         return np.multiply(act, dy_mask)
 
@@ -405,7 +403,7 @@ class M3Detector(LineDetector):
 
         return dict(
             mix_bg=[{
-                "img": self.dst // 255 # type:ignore
+                "img": self.dst // 255  # type:ignore
             }],
             std_value=[{
                 "text": f"STD:{self.stack.snr:.4f}"

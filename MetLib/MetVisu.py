@@ -34,7 +34,7 @@ import cv2
 import numpy as np
 from typing import Optional, Callable, Union
 from copy import deepcopy
-from .utils import pt_offset, Transform
+from .utils import pt_offset, Transform, gray2colorimg
 from .MetLog import get_default_logger
 
 DEFAULT_VISUAL_DELAY = 200
@@ -253,8 +253,7 @@ class OpenCVMetVisu(object):
                 self.fill_cfg_w_default(cfg, base_cfg)
                 if len(img.shape) == 2:
                     if "color" in cfg:
-                        # TODO: 耗时。
-                        img = img[:,:,None] * np.array(self.parse_color(cfg["color"]),dtype=np.uint8).reshape((1,-1))
+                        img = gray2colorimg(img, np.array(self.parse_color(cfg["color"]),dtype=np.uint8).reshape((1,-1)))
                     else:
                         img = self.img_gray2bgr.exec_transform(img)
                 base_img = cv2.addWeighted(base_img, 1, img, cfg["weight"], 1)

@@ -37,7 +37,7 @@ RF_ESTIMATE_LENGTH = 100
 SLOW_EXP_TIME = 1 / 4
 GET_TIMEOUT = 10
 PUT_TIMEOUT = 10
-
+FAILED_FLAG = "failed"
 freeze_support()
 
 
@@ -527,11 +527,13 @@ class ThreadVideoLoader(VanillaVideoLoader):
         try:
             for i in range(self.exp_frame):
                 if self.stopped: break
-                ret.append(self.queue.get(timeout=GET_TIMEOUT))
+                frame = self.queue.get(timeout=GET_TIMEOUT)
+                if frame is FAILED_FLAG: raise queue.Empty()
+                ret.append(frame)
         except Exception as e:
             # handle the condition when there is no frame to read due to manual stop trigger or other exception.
             if isinstance(e, queue.Empty) and self.read_stopped:
-                self.logger.info("Acceptable queue.Empty exception occured.")
+                self.logger.info("Acceptable exception occured.")
                 pass
             else:
                 raise e
@@ -553,6 +555,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                     self.stop()
                     self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
+                    self.queue.put(FAILED_FLAG, timeout=PUT_TIMEOUT)
                     break
         except Exception as e:
             raise e
