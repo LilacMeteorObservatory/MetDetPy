@@ -1,6 +1,18 @@
 
 # Update Log
 
+## Version 2.0.1
+
+✅ Bug Fixed
+* 输出编码统一为utf-8。
+
+✅ Modification
+* 可视化接口重构及通用性扩展
+
+✅ Improvement(s)
+* 优化了部分计算逻辑，加速检测
+* 引入JIT，加速可视化
+
 ## Version 2.0.0
 
 ✅ Bug Fixed

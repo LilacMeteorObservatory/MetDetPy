@@ -337,7 +337,8 @@ class MeteorSeries(object):
                  max_acti_frame, cate):
         self.coord_list = PointList()
         self.drct_list = []
-        self.coord_list.extend(self.box2coord(init_box), cur_frame)
+        init_pts = self.box2coord(init_box)
+        self.coord_list.extend(init_pts, cur_frame)
         if cate == 0:
             self.drct_list.append(drct_line(init_box))
         self.start_frame = start_frame
@@ -346,7 +347,8 @@ class MeteorSeries(object):
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
         self.cate = cate
-        self.calc_range()
+        self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
+        self.calc_new_range(init_pts)
 
     @property
     def drst_std(self):
@@ -363,18 +365,18 @@ class MeteorSeries(object):
     def duration(self):
         return self.last_activate_frame - self.start_frame + 1
 
-    def calc_range(self):
+    def calc_new_range(self, pts):
         """TODO: 这个是高耗时步骤。需要优化。
 
         Returns:
             _type_: _description_
         """
         self.range = [
-            int(min([x[0] for x in self.coord_list])),
-            int(min([x[1] for x in self.coord_list]))
+            min(int(min([pt[0] for pt in pts])), self.range[0][0]),
+            min(int(min([pt[1] for pt in pts])), self.range[0][1])
         ], [
-            int(max([x[0] for x in self.coord_list])),
-            int(max([x[1] for x in self.coord_list]))
+            max(int(max([pt[0] for pt in pts])), self.range[1][0]),
+            max(int(max([pt[1] for pt in pts])), self.range[1][0])
         ]
 
     @property
@@ -419,8 +421,8 @@ class MeteorSeries(object):
                 break
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
-        # range由calc_range更新，除去init外每次仅在update时更新
-        self.calc_range()
+        # range由calc_new_range更新，除去init外每次仅在update时更新
+        self.calc_new_range(new_box)
         if update_type in [0, 1, 2]:
             self.drct_list.append(drct(new_box))
 
