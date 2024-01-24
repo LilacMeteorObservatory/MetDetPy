@@ -6,9 +6,13 @@ import threading
 import queue
 import sys
 
-# Reconfigure stdout to utf-8.
-sys.stdout.reconfigure(encoding="utf-8") # type: ignore
-sys.stderr.reconfigure(encoding="utf-8") # type: ignore
+try:
+    # Reconfigure stdout to utf-8.
+    sys.stdout.reconfigure(encoding="utf-8") # type: ignore
+    sys.stderr.reconfigure(encoding="utf-8") # type: ignore
+except AttributeError:
+    sys.stdout.writelines("Unable to set output encoding.")
+    sys.stdout.flush()
 level_header = ("Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor")
 
 LV_DROPPED = 0
