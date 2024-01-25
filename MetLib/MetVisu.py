@@ -32,8 +32,7 @@ visu()方法返回一个dict[str, list]的对象。
 """
 import cv2
 import numpy as np
-from typing import Optional, Callable, Union
-from copy import deepcopy
+from typing import Optional, Union
 from .utils import pt_offset, Transform, gray2colorimg
 from .MetLog import get_default_logger
 
@@ -196,6 +195,7 @@ class OpenCVMetVisu(object):
                 cfg["fontScale"] = cfg.get("fontScale", self.font_size)
                 cfg["thickness"] = cfg.get("thickness", self.font_thickness)
                 self.text_visu_param[key] = cfg
+
     def display_a_frame(self, data: dict) -> bool:
         # 通过键盘中断时返回失败信号
         # 如果不渲染则固定返回成功
@@ -253,7 +253,10 @@ class OpenCVMetVisu(object):
                 self.fill_cfg_w_default(cfg, base_cfg)
                 if len(img.shape) == 2:
                     if "color" in cfg:
-                        img = gray2colorimg(img, np.array(self.parse_color(cfg["color"]),dtype=np.uint8).reshape((1,-1)))
+                        img = gray2colorimg(
+                            img,
+                            np.array(self.parse_color(cfg["color"]),
+                                     dtype=np.uint8).reshape((1, -1)))
                     else:
                         img = self.img_gray2bgr.exec_transform(img)
                 base_img = cv2.addWeighted(base_img, 1, img, cfg["weight"], 1)

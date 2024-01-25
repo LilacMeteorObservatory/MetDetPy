@@ -5,6 +5,8 @@
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
+[![Star History Chart](https://api.star-history.com/svg?repos=LilacMeteorObservatory/MetDetPy&type=Timeline)](https://star-history.com/#LilacMeteorObservatory/MetDetPy&Timeline)
+
 </div>
 
 ## Introduction
