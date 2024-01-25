@@ -302,7 +302,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
 |name|str|使用的深度学习模型类型，这将决定程序如何处理输入输出。目前仅实现了YOLO格式的模型`"YOLOModel"`。|`"YOLOModel"`|
-|weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考XXX配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
+|weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
 |dtype|str|描述网络的输入数据格式。当使用量化模型时，需在此处配置格式，否则程序可能无法正常运行。目前支持全精度（`"float32"`），半精度（`"float16"`）。|`"float32"`|
 |nms|bool|是否需要执行非最大值抑制NMS。如果构建的网络已附带NMS，则选择`false`以提升运行速度。|`true`|
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
