@@ -1,7 +1,7 @@
   <div align="center">
   <img src="../imgs/banner.png"/>
 
-![version](https://img.shields.io/badge/version-v2.0.0-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
+![version](https://img.shields.io/badge/version-v2.0.1-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
 
 <center>语言: <a href="../readme.md">English</a> | 简体中文 </center>
 

@@ -8,8 +8,6 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 
 配置文件是`JSON`格式的文本，主要包含4个部分：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。作为参考，预设的配置文件储存在[config](../config)文件夹下。可以结合[默认使用的配置文件](../config/m3det_normal.json)阅读本文档以更清晰了解配置文件的格式。
 
-⚠️ 在`v2.0.0`的正式版发布前，本文中提及的接口仍然可能发生变化。
-
 ## 描述文本Description
 
 可用于描述配置文件的主要使用场景和说明。前端应用（如Meteor Master>=3.6.0）将可以展示这些信息。检测中不会实际使用该项。

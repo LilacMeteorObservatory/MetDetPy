@@ -57,7 +57,7 @@ def nuitka_compile(header, options, target):
 
 
 def pyinstaller_compile(header="pyinstaller", spec=None):
-    ret_code, time_cost = run_cmd([header, spec]")
+    ret_code, time_cost = run_cmd([header, spec])
 
     print(
         f"Package finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."

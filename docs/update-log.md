@@ -5,13 +5,14 @@
 
 ✅ Bug Fixed
 * 输出编码统一为utf-8。
+* 修复make_package中的错误。
+* 完善了视频读取非正常退出时的结束逻辑。
 
 ✅ Modification
-* 可视化接口重构及通用性扩展
+* 可视化接口重构及通用性扩展。
 
 ✅ Improvement(s)
-* 优化了部分计算逻辑，加速检测
-* 引入JIT，加速可视化
+* 优化了deetector与collector中的参数计算逻辑，加速检测。
 
 ## Version 2.0.0
 

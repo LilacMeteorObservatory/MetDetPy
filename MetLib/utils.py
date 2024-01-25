@@ -6,14 +6,14 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
 import numpy as np
-from numba import njit, uint8
+#from numba import njit, uint8
 
 from .MetLog import get_default_logger
 
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
-VERSION = "V2.0.0"
+VERSION = "V2.0.1"
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
@@ -669,9 +669,10 @@ def relative2abs_path(path):
     return os.path.join(WORK_PATH, path)
 
 
-@njit
-def gray2colorimg(gray_image: np.ndarray[uint8],
-                  color: np.ndarray[uint8]) -> np.ndarray[uint8]:
+#@njit
+#def gray2colorimg(gray_image: np.ndarray[uint8],
+#                  color: np.ndarray[uint8]) -> np.ndarray[uint8]:
+def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
     return gray_image[:, :, None] * color
 
 

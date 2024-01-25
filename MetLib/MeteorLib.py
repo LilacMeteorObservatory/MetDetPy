@@ -376,7 +376,7 @@ class MeteorSeries(object):
             min(int(min([pt[1] for pt in pts])), self.range[0][1])
         ], [
             max(int(max([pt[0] for pt in pts])), self.range[1][0]),
-            max(int(max([pt[1] for pt in pts])), self.range[1][0])
+            max(int(max([pt[1] for pt in pts])), self.range[1][1])
         ]
 
     @property

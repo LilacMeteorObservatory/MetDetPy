@@ -221,7 +221,7 @@ class LineDetector(BaseDetector):
     def calculate_dy_mask(self, act):
         # if "dynamic_mask" is applied, stack and mask dst
         self.dy_mask_list.update(act)
-        # TODO: 你要不要看看你在写什么.jpg
+        # TODO: 进一步使Dy_mask稳定作用在持续产生响应的区域，并提供可调整的阈值。
         dy_mask = np.array(self.dy_mask_list.sum
                            < (self.dy_mask_list.length - 1) * 255,
                            dtype=np.uint8)

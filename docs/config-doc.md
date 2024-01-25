@@ -8,9 +8,6 @@ MetDetPy utilizes configuration files to read arguments. Generally, preset confi
 
 A configuration file is a `JSON` formatted text comprising four sections: [description](#description), [loader](#loader), [detector](#detector), and [Collector](#collector). For reference, predefined settings are stored in theFor reference, predefined settings are stored in theFor reference, predefined settings are stored in the [config](../config) directory. While going through this guide, it's advisable to use [the default configuration file](../config/m3det_normal.json) as a reference to better comprehend the configuration file format.
 
-⚠️ APIs in this document may still be changed until the formal `v2.0.0` is released.
-
-
 ## Description
 
 The `description` section provides the name of the configuration and a brief introduction. This section is primarily designed for frontend applications, as MetDetPy often operates as the backend. However, it's not critical for the detection process.
