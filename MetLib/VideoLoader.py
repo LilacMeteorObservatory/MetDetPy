@@ -158,6 +158,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
         grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
         exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        exp_upper_bound (Optional[float]): upper bound of the exposure time. The default is None.
         merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
         **kwargs: compatibility design to support other arguments. 
             VanilliaVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
@@ -181,6 +182,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  exp_option: Union[int, float, str] = "auto",
+                 exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  **kwargs) -> None:
         """
@@ -245,8 +247,8 @@ class VanillaVideoLoader(BaseVideoLoader):
             self.preprocess.mask_with(self.mask)
 
         # init exposure time (exp_time) and exposure frame (exp_frame)
-        self.exp_time = self.init_exp_time(exp_option,
-                                           upper_bound=UP_EXPOSURE_BOUND)
+        exp_upper_bound = exp_upper_bound if exp_upper_bound is not None else UP_EXPOSURE_BOUND
+        self.exp_time = self.init_exp_time(exp_option, exp_upper_bound)
         self.exp_frame = int(round(self.exp_time * self.fps))
 
         assert not (
@@ -393,13 +395,13 @@ class VanillaVideoLoader(BaseVideoLoader):
             f"(MinTimeFlag = {frame2time(self.exp_frame * self.eq_int_fps, self.fps)})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"
 
-    def init_exp_time(self, exp_time: Union[int, float, str],
+    def init_exp_time(self, exp_option: Union[int, float, str],
                       upper_bound: float) -> float:
-        """Init exposure time. Return the exposure time.
+        """Init exposure time according to the exp_option. Return the exposure time that do not longer than to upper_bound time.
 
         Args:
-            exp_time (int,float,str): value from config.json. It can be either a value or a specified string.
-            mask (np.array): mask array.
+            exp_time (int,float,str): value from config.json. It can be either a int/float value or a specified string.
+            upper_bound (float): the upper bound of the exposure time.
 
         Raises:
             ValueError: raised if the exp_time is invalid.
@@ -407,26 +409,26 @@ class VanillaVideoLoader(BaseVideoLoader):
         Returns:
             exp_time: the exposure time in float.
         """
-        # TODO: Rewrite this annotation.
-        # TODO 2: set `upbound` to json setting.
-        self.logger.info(f"Parsing \"exp_time\"={exp_time}")
+        self.logger.info(f"Parsing \"exp_option\"={exp_option}")
         fps = self.video.fps
         self.logger.info(f"Metainfo FPS = {fps:.2f}")
         assert isinstance(
-            exp_time, (str, float, int)
-        ), f"exp_time should be either <str, float, int>, got {type(exp_time)}."
+            exp_option, (str, float, int)
+        ), f"exp_option should be either <str, float, int>, got {type(exp_option)}."
 
+        # if video fps is slow, do not apply estimation.
         if fps <= int(1 / upper_bound):
             self.logger.warning(
                 f"Slow FPS detected. Use {1/fps:.2f}s directly.")
             return 1 / fps
 
-        if isinstance(exp_time, str):
-            if exp_time == "real-time":
+        # parse str exp_option
+        if isinstance(exp_option, str):
+            if exp_option == "real-time":
                 return 1 / fps
-            if exp_time == "slow":
+            if exp_option == "slow":
                 return SLOW_EXP_TIME
-            if exp_time == "auto":
+            if exp_option == "auto":
                 rf = rf_estimator(self)
                 if rf / fps >= upper_bound:
                     self.logger.warning(
@@ -434,12 +436,13 @@ class VanillaVideoLoader(BaseVideoLoader):
                     )
                 return min(rf / fps, upper_bound)
             try:
-                exp_time = float(exp_time)
+                exp_time = float(exp_option)
             except ValueError as E:
                 raise ValueError(
                     "Invalid exp_time string value: It should be selected from [float], [int], "
-                    + "real-time\",\"auto\" and \"slow\", got %s." %
-                    (exp_time))
+                    f"real-time\",\"auto\" and \"slow\", got {exp_option}.")
+        else:
+            exp_time = exp_option
         if isinstance(exp_time, (float, int)):
             if exp_time * fps < 1:
                 self.logger.warning(
@@ -465,6 +468,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
         grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
         exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        exp_upper_bound (Optional[float]): upper bound of the exposure time. The default is None.
         merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
         maxsize (int): the maxsize of the video buffer queue. The default is 32.
         **kwargs: compatibility design to support other arguments. 
@@ -490,13 +494,14 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  exp_option: Union[int, float, str] = "auto",
+                 exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
                  **kwargs) -> None:
         self.maxsize = maxsize
         self.queue = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, exp_option,
+                         start_time, end_time, grayscale, exp_option, exp_upper_bound, 
                          merge_func, **kwargs)
 
     def clear_queue(self):
@@ -591,6 +596,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
         grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
         exp_option (Union[int, float, str]): resize option from input. The default is "auto".
+        exp_upper_bound (Optional[float]): upper bound of the exposure time. The default is None.
         merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
         maxsize (int): the maxsize of the video buffer queue. The default is 32.
         **kwargs: compatibility design to support other arguments. 
@@ -616,13 +622,14 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  exp_option: Union[int, float, str] = "auto",
+                 exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
                  **kwargs) -> None:
         self.maxsize = maxsize
         self.notify_queue = MQueue(maxsize=self.maxsize - 1)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, exp_option,
+                         start_time, end_time, grayscale, exp_option, exp_upper_bound, 
                          merge_func, **kwargs)
 
     def start(self):

@@ -11,7 +11,8 @@
         "resize": 960,
         "exp_time": "auto",
         "merge_func": "max",
-        "grayscale": true
+        "grayscale": true,
+        "upper_bound": 0.5
     },
     "detector": {
         "name": "M3Detector",

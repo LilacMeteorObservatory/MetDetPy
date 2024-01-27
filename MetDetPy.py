@@ -8,11 +8,11 @@ import tqdm
 from easydict import EasyDict
 
 from MetLib import get_detector, get_loader, get_wrapper
-from MetLib.Detector import LineDetector
+from MetLib.Detector import BaseDetector, LineDetector, MLDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL, frame2ts
+from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
 
 
 def detect_video(video_name,
@@ -38,11 +38,16 @@ def detect_video(video_name,
         DetectorCls = get_detector(cfg.detector.name)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
+        exp_upper_bound = cfg.loader.get("exp_upper_bound",None)
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
         if issubclass(DetectorCls, LineDetector):
             assert grayscale, "Require grayscale ON when using subclass of LineDetector."
+        elif issubclass(DetectorCls, MLDetector):
+            assert not grayscale, "Require grayscale OFF when using subclass of LineDetector."
+        else:
+            raise NotImplementedError("Detector not ready to use.")
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         video_loader = VideoLoaderCls(VideoWrapperCls,
@@ -53,6 +58,7 @@ def detect_video(video_name,
                                       end_time=end_time,
                                       grayscale=grayscale,
                                       exp_option=exp_option,
+                                      exp_upper_bound = exp_upper_bound,
                                       merge_func=merge_func)
         logger.info(video_loader.summary())
 
@@ -70,7 +76,7 @@ def detect_video(video_name,
 
         # Init detector
         cfg_det = cfg.detector
-        detector = DetectorCls(window_sec=cfg_det.window_sec,
+        detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
                                fps=eq_fps,
                                mask=video_loader.mask,
                                cfg=cfg_det.cfg,
@@ -271,9 +277,6 @@ if __name__ == "__main__":
                 args.adaptive_thre]
         if args.sensitivity:
             cfg.detector.cfg.binary.sensitivity = args.sensitivity
-            # TODO: to be changed in the future.
-            print("\"sensitivity\" is considered to be rebuilt in v2.0.0."
-                  " Avoid use this. Instead, use config files.")
         if args.bi_thre:
             cfg.detector.bi_cfg.init_value = args.bi_thre
 
