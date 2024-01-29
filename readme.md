@@ -5,8 +5,6 @@
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
-[![Star History Chart](https://api.star-history.com/svg?repos=LilacMeteorObservatory/MetDetPy&type=Timeline)](https://star-history.com/#LilacMeteorObservatory/MetDetPy&Timeline)
-
 </div>
 
 ## Introduction
@@ -307,3 +305,7 @@ Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space
 ### Update Log
 
 See [update log](docs/update-log.md).
+
+### Statistics
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LilacMeteorObservatory/MetDetPy&type=Timeline)](https://star-history.com/#LilacMeteorObservatory/MetDetPy&Timeline)

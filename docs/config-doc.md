@@ -42,6 +42,7 @@ The `loader` section primarily handles arguments related to video loading and fr
     "wrapper": "OpenCVVideoWrapper",
     "resize": 960,
     "exp_time": "auto",
+    "upper_bound": 0.5,
     "merge_func": "max",
     "grayscale": true
 }
@@ -55,6 +56,7 @@ The loader `section` arguments are explained as follows:
 |wrapper|str| Names the `wrapper` used for video loading. Currently, only `"OpenCVVideoWrapper"` based on OpenCV is supported. |`"OpenCVVideoWrapper"`|
 |resize|int, array, str| Determines the resolution used during detection. Lower resolution speeds up detection, while higher resolution aids in detecting shorter meteors. Input an integer to specify the length of the long side, allowing the program to scale the video automatically(Recommended). Specifying both height and width simultaneously is also supported (input a string of two numbers separated by `:` or `x`, like `"960:540"` or `"960x540"`; a list format like `[960,540]` is also acceptable).  |`960`|
 |exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)| Defines the exposure time of a single frame. For traditional detectors, setting `"auto"` is recommended as MetDetPy will estimate the real exposure time based on the video. If the exposure time in the metadata matches the real one, set `"real-time"`. To specify a value, input a float in seconds. |`"auto"` (LineDetector)/ `0.5` (MLDetector)|
+|upper_bound|float (optional)|Specifies the upper bound of the exposure time when using "auto" exp_time. This is an optional argument, and it can be left blank if not necessary.|0.5|
 |merge_func|str| Indicates how multiple frames are merged, choosing from `"max"`,`"m3func"`, or `"mix_max_median_stacker"`. Due to the visual characteristic of meteors, `"max"` is recommended.|`"max"`|
 |grayscale|bool| Determines whether to load the video in grayscale. For LineDetector, `grayscale` must be set to `true`; for deep learning-based detector, it should be `false`. |`true`(LineDetector)/ `false`(MLDetector)|
 

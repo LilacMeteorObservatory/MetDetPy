@@ -5,9 +5,6 @@
 
 <center>语言: <a href="../readme.md">English</a> | 简体中文 </center>
 
-[![Star History Chart](https://api.star-history.com/svg?repos=LilacMeteorObservatory/MetDetPy&type=Timeline)](https://star-history.com/#LilacMeteorObservatory/MetDetPy&Timeline)
-
-
 </div>
 
 ## 简介
@@ -256,18 +253,16 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 
  1. 完善的GUI
  2. 支持rtmp/rtsp/http流直播
- 3. 时间水印（待开发）
+ 3. 时间水印
  4. 自动启停
 
 ### 性能和效率
 
 1. 在 3840x2160 10fps 视频上应用默认配置进行检测时，MetDetPy 检测流星的平均时间开销为视频长度的 20-30%（使用 Intel i5-7500 测试）。 FPS 较高的视频可能会花费更多时间。
 
-2、MetDetPy目前没有引入深度学习模型，因此不需要GPU，可以支持主流电脑或准系统上的多摄像头实时检测（可以利用 [MeteorMaster](https://www.photohelper.cn/ MeteorMaster) 实现）。（PS：我们确实计划在未来添加一个简单轻量级的 CNN 分类器----别担心，它不会显着增加 CPU 负载，同时它可以在可能的情况下使用 Nvidia GPU。）
+2. 我们使用从各种设备（从改装监控摄像头到数码相机）拍摄的样本视频测试 MetDetPy，MetDetPy 平均能够达到 80% 以上的准确率和 80% 以上的召回率。
 
-3. 我们使用从各种设备（从改装监控摄像头到数码相机）拍摄的样本视频测试 MetDetPy，MetDetPy 平均能够达到 80% 以上的准确率和 80% 以上的召回率。
-
-4. MetDetPy 现在可以快速高效地检测大多数流星视频。 但当面对复杂的天气或其他影响因素时，其准确率和召回率还有待提高。 如果您发现 MetDetPy 在您的视频上表现不够好，欢迎联系我们或提交问题（如果可以的话，一并提供完整或剪辑的视频）。
+3. MetDetPy 现在可以快速高效地检测大多数流星视频。 但当面对复杂的天气或其他影响因素时，其准确率和召回率还有待提高。 如果您发现 MetDetPy 在您的视频上表现不够好，欢迎联系我们或提交问题（如果可以的话，一并提供完整或剪辑的视频）。
 
 ## 附录
 
@@ -304,3 +299,7 @@ Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space
 ### 更新日志
 
 见 [更新日志](update-log.md)。
+
+### 统计数据
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LilacMeteorObservatory/MetDetPy&type=Timeline)](https://star-history.com/#LilacMeteorObservatory/MetDetPy&Timeline)
