@@ -13,13 +13,13 @@ BaseDetector(ABC)--|                |--M3Detector
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Any, Callable, Optional
+from typing import Callable
 
 import cv2
 import numpy as np
 
 from .Model import init_model
-from .utils import EMA, PI, SlidingWindow, generate_group_interpolate
+from .utils import EMA, PI, SlidingWindow, generate_group_interpolate, expand_cls_pred, lineset_nms
 
 NUM_LINES_TOOMUCH = 100
 
@@ -172,8 +172,10 @@ class LineDetector(BaseDetector):
     abs_sensitivity = {"high": 3, "normal": 5, "low": 7}
     cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-    def __init__(self, window_sec, fps, mask, cfg, logger):
+    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
         self.mask = mask
+        self.num_cls = num_cls
+        self.logger = logger
         self.mask_area = np.sum(self.mask)
         # cfg
         self.bi_cfg = cfg.binary
@@ -235,10 +237,10 @@ class ClassicDetector(LineDetector):
     '''
     classic_max_size = 4
 
-    def __init__(self, window_sec, fps, mask, cfg, logger):
+    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
         # 4帧窗口（硬编码）
         window_sec = self.classic_max_size / fps
-        super().__init__(window_sec, fps, mask, cfg, logger)
+        super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
 
     def detect(self):
         id3, id2, id1, id0 = [
@@ -273,8 +275,12 @@ class ClassicDetector(LineDetector):
                                       maxLineGap=self.hough_cfg.max_gap)
 
         self.linesp = [] if self.linesp is None else self.linesp[0]
-        # TODO: Classic Detector的方法，可视化接口都需要实现。
-        return self.linesp, []
+        # TODO:
+        # 1. Classic Detector的可视化接口尚未实现
+        # 2. ClassicDetector的输出统一为METEOR判定。可能需要考虑逻辑是否会变更。
+        cls_pred = np.zeros((len(self.linesp), self.num_cls))
+        cls_pred[:, 0] = 1
+        return self.linesp, cls_pred
 
     def visu(self):
         raise NotImplementedError
@@ -298,8 +304,8 @@ class M3Detector(LineDetector):
         _type_: _description_
     """
 
-    def __init__(self, window_sec, fps, mask, cfg, logger):
-        super().__init__(window_sec, fps, mask, cfg, logger)
+    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+        super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
         self.visu_param = dict(
             results=["draw", {
                 "type": "rectangle",
@@ -357,8 +363,8 @@ class M3Detector(LineDetector):
         # 一定程度上能够改善对低信噪比场景的误检
         self.dst_sum = np.sum(
             dst / 255.) / self.mask_area * 100  # type: ignore
-        gap = max(
-            0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
+        #gap = max(
+        #    0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
         # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
@@ -366,7 +372,7 @@ class M3Detector(LineDetector):
                                  theta=PI,
                                  threshold=self.hough_cfg.threshold,
                                  minLineLength=self.hough_cfg.min_len,
-                                 maxLineGap=gap)
+                                 maxLineGap=self.hough_cfg.max_gap)
         linesp = np.array([]) if linesp is None else linesp[:, 0, :]
 
         # 如果产生的响应数目非常多，忽略该帧
@@ -388,11 +394,19 @@ class M3Detector(LineDetector):
             linesp = linesp[line_score > self.fill_thre]
             self.lines_num = len(linesp)
 
-        # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
-        # TODO: 重整类别格式，前置NMS
-        self.linesp = linesp
         self.dst = dst
-        return linesp, np.ones((self.lines_num, ), dtype=int) * (-1)
+        # NMS
+        # Another TODO: 不确定是否会产生额外的性能开销。
+        if len(linesp) > 0:
+            linesp, nonline_probs = lineset_nms(linesp)
+            self.filtered_line_num = len(linesp)
+            cls_pred = np.zeros((self.filtered_line_num, self.num_cls))
+            cls_pred[:, -1] = nonline_probs
+            cls_pred[:, 0] = 1 - nonline_probs
+        else:
+            self.filtered_line_num = 0
+            cls_pred = np.zeros((0, self.num_cls))
+        return linesp, cls_pred
 
     def visu(self) -> dict:
         """ 返回可视化时的所需实际参数，需要与visu_param对应。
@@ -410,10 +424,11 @@ class M3Detector(LineDetector):
             }],
             bi_value=[{
                 "text":
-                f"Bi_Threshold: {self.bi_threshold}(rounded from {self.bi_threshold_float:.4f})"
+                f"Bi_Threshold: {self.bi_threshold} (rounded from {self.bi_threshold_float:.4f})"
             }],
             lines_num=[{
-                "text": f"Line num: {self.lines_num}"
+                "text":
+                f"Line num: {self.lines_num} (filtered: {self.filtered_line_num})"
             }],
             area_ratio=[{
                 "text": f"Diff Area: {self.dst_sum:.2f}%"
@@ -434,11 +449,11 @@ class MLDetector(BaseDetector):
         BaseDetector (_type_): _description_
     """
 
-    def __init__(self, window_sec, mask, fps, cfg, logger) -> None:
+    def __init__(self, window_sec, mask, fps, num_cls, cfg, logger) -> None:
         # stack
         self.mask = mask
+        self.num_cls = num_cls
         self.logger = logger
-        self.pos_thre = 0.25
         self.stack_maxsize = int(window_sec * fps)
         self.stack = SlidingWindow(n=self.stack_maxsize,
                                    size=self.mask.shape,
@@ -454,7 +469,7 @@ class MLDetector(BaseDetector):
         self.result_pos, self.result_cls = self.model.forward(self.stack.max)
         if len(self.result_pos) == 0:
             return [], []
-        return self.result_pos, self.result_cls
+        return self.result_pos, expand_cls_pred(self.result_cls)
 
     def visu(self) -> dict:
         """ 返回可视化时的所需实际参数，需要与visu_param对应。

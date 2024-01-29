@@ -50,7 +50,7 @@ class YOLOModel(object):
             assert c == self.c, "num_channel must match."
             if (h != self.h or w != self.w):
                 self.logger.warning(
-                    f"Model input shape ({self.h}x{self.w}) is"
+                    f"Model input shape ({self.h}x{self.w}) is "
                     f"not strictly matched with config ({h}x{w}). "
                     f"Extra resize is applied to avoid error (which may increase time cost.)"
                 )
@@ -70,27 +70,21 @@ class YOLOModel(object):
         # for yolo results, [0:4] for pos(xywh), 4 for conf, [5:] for cls_score.
         xywh2xyxy(results[:, :4], inplace=True)
         if self.nms:
-            # 只选取统计conf>thre 及 cls>thre 的结果
-            #conf_score = results[:, 4]
-            #conf_result = results[conf_score > self.pos_thre]
-            #cls_idx = np.sum((conf_result[:, -3:] > self.pos_thre), axis=1)
-            #results = conf_result[cls_idx > 0]
+            # 只选取统计 conf>thre 及 cls>thre 的结果(done with NMSBoxes)
             res = cv2.dnn.NMSBoxes(bboxes=results[:, :4],
                                    scores=results[:, 4],
                                    score_threshold=self.pos_thre,
                                    nms_threshold=self.nms_thre)
             results = results[list(res)]
-        # TODO: resize back if necessary
+        # resize back if necessary
         if self.resize:
             results[:,0] *= self.scale_w
             results[:,2] *= self.scale_w
             results[:,1] *= self.scale_h
             results[:,3] *= self.scale_h
-        # 整数化坐标，argmax取得类别
+        # 整数化坐标，类别输出概率矩阵
         result_pos = np.array(results[:, :4], dtype=int)
-        result_cls = np.argmax(results[:, 5:], axis=1)
-
-        
+        result_cls = results[:, 5:]
         return result_pos, result_cls
 
 

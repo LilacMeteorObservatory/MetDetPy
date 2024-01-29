@@ -6,7 +6,6 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
 import numpy as np
-#from numba import njit, uint8
 
 from .MetLog import get_default_logger
 
@@ -16,15 +15,29 @@ PI = np.pi / 180.0
 VERSION = "V2.0.1"
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
-pt_len_xy = lambda pt1, pt2: (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
                              (pt_len_xy(pts[0], pts[1]))**(1 / 2))
-drct_line = lambda pts: np.arccos((pts[3] - pts[1]) /
-                                  (pt_len_xy(pts[:2], pts[2:]))**(1 / 2))
 logger = get_default_logger()
 
 STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
 SWITCH2BOOL = {"on": True, "off": False}
+
+
+def pt_len_xy(pt1: Union[np.ndarray, list, tuple],
+              pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
+    """返回两点之间的距离的平方。
+
+    Args:
+        pt1 (Union[np.ndarray, list, tuple]): 点1
+        pt2 (Union[np.ndarray, list, tuple]): 点2
+
+    Returns:
+        int: 距离的平方。
+    """
+    if isinstance(pt1, np.ndarray) and isinstance(pt2, np.ndarray):
+        return (pt1[..., 1] - pt2[..., 1])**2 + (pt1[..., 0] - pt2[..., 0])**2
+    else:
+        return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 
 def pt_offset(pt, offset) -> list:
@@ -278,12 +291,28 @@ def sigma_clip(sequence, sigma=3.00):
 
 
 def parse_resize_param(tgt_wh: Union[None, list, str, int],
-                       raw_wh: Union[list, tuple]):
-    # (该函数返回的wh是OpenCV风格的，即w, h)
-    #TODO: fix poor English
+                       raw_wh: Union[list, tuple]) -> List[int]:
+    """Parse resize tgt_wh according to the video size, and return a list includes target width and height.
+
+    This function accepts and returns in [w,h] order (i.e. OpenCV style).
+
+    Args:
+        tgt_wh (Union[None, list, str, int]): the desired resolution. Accept examples: None; [960, 540]; "960x540"; 960
+        raw_wh (Union[list, tuple]): the video size. 
+
+    Raises:
+        Exception: if the tgt_wh is invalid, an expection will be raised.
+        TypeError: if the tgt_wh is not of any type that hints, an TypeError will be raised.
+
+    Returns:
+        list: the desired resolution in list of int.
+    """
+    # If tgt_wh is not specified, it returns the video size (no resize).
     if tgt_wh == None:
         return list(raw_wh)
+
     w, h = raw_wh
+    # convert string to list/int
     if isinstance(tgt_wh, str):
         try:
             # if str, tgt_wh is from args.
@@ -293,13 +322,19 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int],
                 tgt_wh = int(tgt_wh)
         except Exception as e:
             raise Exception(
-                f"{e}: unexpected values for argument \"--resize\".\
-                 Input should be either one integer or two integers separated by \"x\"."
-                % tgt_wh)
+                f"{e}: unexpected values for argument \"--resize\":"
+                f" input should be either one integer or two integers separated by \"x\", got {tgt_wh}."
+            )
+    # if int, convert to list by set the short side to -1 (adaptive)
     if isinstance(tgt_wh, int):
         tgt_wh = [tgt_wh, -1] if w > h else [-1, tgt_wh]
-    if isinstance(tgt_wh, (list)):
-        assert len(tgt_wh) == 2, "2 values expected, got %d." % len(tgt_wh)
+
+    # parse list
+    if isinstance(tgt_wh, list):
+        if len(tgt_wh) != 2:
+            raise Exception(
+                f"Expected tgt_wh is converted to a list with 2 elements, got {len(tgt_wh)}."
+            )
         # replace default value
         if tgt_wh[0] <= 0 or tgt_wh[1] <= 0:
             if tgt_wh[0] <= 0 and tgt_wh[1] <= 0:
@@ -310,8 +345,8 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int],
             tgt_wh[idn] = int(raw_wh[idn] * tgt_wh[idx] / raw_wh[idx])
         return list(tgt_wh)
     raise TypeError(
-        "Unsupported arg type: it should be <int,str,list>, got %s" %
-        type(tgt_wh))
+        f"Unsupported arg type: it should be <int,str,list>, got {type(tgt_wh)}."
+    )
 
 
 def save_img(img, filename, quality, compressing):
@@ -473,83 +508,65 @@ def color_interpolater(color_list):
     return color_interpolate_func
 
 
-def drct_std(lines):
-    """计算方向的方差。可能不完全对？
+def lineset_nms(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Conduct NMS for line set.
+    对线段合集执行NMS，并从线段集合中区分出“面积”类型。
+    Args:
+        lines (np.ndarray): 线段集合
 
     Returns:
-        _type_: _description_
+        np.ndarray: 去重后的线段集合
     """
-    drct_list = [drct_line(line) for line in lines]
-    drct_copy = np.array(drct_list.copy())
-    std1 = np.std(
-        np.sort(drct_copy)[:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
-    drct_copy[drct_copy > np.pi / 2] -= np.pi
-    std2 = np.std(
-        np.sort(drct_copy)[:-1]) if len(drct_copy) >= 3 else np.std(drct_copy)
-    return np.min([std1, std2])
-
-
-def lineset_nms(lines, max_dist, drct_prob_func):
-    """对线段合集执行NMS。
-    （此处的NMS并不是纯粹的去重，还包含了合并近邻直线，用于处理面积类型）
-    （如何划分两种类型，目前并没有很好的想法）
-
-    Args:
-        drct: 方向方差，可作为Area贡献或者是Line的参考依据。
-        lines (_type_): _description_
-        drct_prob_func 计算drct属于line概率的函数
-    """
+    # 其实也不需要阈值...每个输出都可以是百分之多少概率的直线。这会让整个概率体系更加可靠。
+    # 合并线段的方法：线段的合并区域可以由其半径决定。
+    # 合并概率的计算：根据合并后的长宽比
     num_line = len(lines)
-    length = np.sqrt(
-        np.power((lines[:, 3] - lines[:, 1]), 2) +
-        np.power((lines[:, 2] - lines[:, 0]), 2))
+    length_sqr = np.power((lines[:, 3] - lines[:, 1]), 2) + np.power(
+        (lines[:, 2] - lines[:, 0]), 2)
+    length_params = np.array([
+        lines[:, 3] - lines[:, 1], lines[:, 0] - lines[:, 2],
+        lines[:, 2] * lines[:, 1] - lines[:, 3] * lines[:, 0]
+    ]).transpose()
     centers = (lines[:, 2:] + lines[:, :2]) // 2
-    merged_list = []
+    nms_ids = []
     nms_mask = np.zeros((num_line, ), dtype=np.uint8)
-    length_sort = np.argsort(length)[::-1]
-    lines = lines[length_sort]
-    centers = centers[length_sort]
+    length_sort = np.argsort(length_sqr)[::-1]
+    # width_list 用于记录每个集合的宽度，在输出时给出直线比率。
+    # TODO: 该机制如何与现有的流星机制结合也是一个问题。
+    width_list = []
+    # NMS
+    for i, idx in enumerate(length_sort):
+        # 如果已经被其他收纳 则忽略
+        if nms_mask[idx]: continue
+        # 开始新的一组
+        nms_ids.append(idx)
+        nms_mask[idx] = 1
+        max_width = 0
+        for idy in length_sort[i:]:
+            if nms_mask[idy]: continue
+            # 距离小于长线的length_sqr//4 (长线的半径以内) 即收纳.
+            # TODO: 这个逻辑和过去并不一样。需要测试以验证稳定性。
+            if pt_len_xy(centers[idx], centers[idy]) < length_sqr[idx] // 4:
+                nms_mask[idy] = 1
+                # max_width only include Ax+By.
+                max_width = max(
+                    max_width,
+                    np.abs(
+                        np.sum(length_params[idx, :2] * centers[idy]) +
+                        length_params[idx, -1]))
+        width_list.append(max_width)
 
-    # BFS聚类
-    for i in range(num_line):
-        if nms_mask[i]: continue
-        nms_mask[i] = 1
-        this_list = [i]
-        ind = 0
-        while ind < len(this_list):
-            for j in range(num_line):
-                if nms_mask[j]: continue
-                if pt_len_xy(centers[this_list[ind]], centers[j]) < max_dist:
-                    this_list.append(j)
-                    nms_mask[j] = 1
-            ind += 1
-        merged_list.append(this_list)
+    # 后处理
+    nms_lines = lines[nms_ids]
+    # nonline_prob = |(Ax+By)+C|/sqrt(A^2+B^2) / LENGTH
+    # *2 to calculate radius.
+    nonline_prob = np.abs(width_list) / np.sqrt(
+        np.sum(np.power(length_params[nms_ids,:2], 2), axis=1)) / np.sqrt(
+            length_sqr[nms_ids]) * 2
+    nonline_prob[nonline_prob > 1] = 1
 
-    line_type = [
-        -1 if drct_prob_func(drct_std(lines[x])) < 1 else 0
-        for x in merged_list
-    ]
-
-    ret_list = []
-    for single_type, inds in zip(line_type, merged_list):
-        if single_type == -1:
-            # 找到各个边界的代表点以及整个分布的中心点作为代表点集？
-            # 有点奇怪
-            sin_lines = lines[inds]
-            l1 = sin_lines[np.argmin(sin_lines[:, 0])]
-            l2 = sin_lines[np.argmin(sin_lines[:, 1])]
-            l3 = sin_lines[np.argmax(sin_lines[:, 2])]
-            l4 = sin_lines[np.argmax(sin_lines[:, 3])]
-            cc = np.mean((sin_lines[:, :2] + sin_lines[:, 2:]) / 2,
-                         axis=0).astype(np.int16)
-            #print(l1,l2,l3,l4,cc)
-            ret_list.append(
-                np.concatenate([l1, l2, l3, l4, cc], axis=0).reshape((-1, 2)))
-        else:
-            ret_list.append(lines[inds[0]])
-            #drct_mean = np.mean([drct(line) for line in inds])
-
-    return line_type, ret_list
+    return nms_lines, nonline_prob
 
 
 def generate_group_interpolate(lines):
@@ -669,11 +686,21 @@ def relative2abs_path(path):
     return os.path.join(WORK_PATH, path)
 
 
-#@njit
-#def gray2colorimg(gray_image: np.ndarray[uint8],
-#                  color: np.ndarray[uint8]) -> np.ndarray[uint8]:
 def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
     return gray_image[:, :, None] * color
+
+
+def expand_cls_pred(cls_pred: np.ndarray) -> np.ndarray:
+    """expand cls prediction from [num, cls] to [num, cls+1].
+
+    Args:
+        cls_pred (np.ndarray): _description_
+
+    Returns:
+        np.ndarray: _description_
+    """
+    num_pred, _ = cls_pred.shape
+    return np.concatenate([cls_pred, np.zeros((num_pred, 1))], axis=-1)
 
 
 ID2NAME: dict[int, str] = {}
@@ -681,3 +708,6 @@ with open(relative2abs_path("./config/class_name.txt")) as f:
     mapper = [x.strip().split() for x in f.readlines()]
     for num, name in mapper:
         ID2NAME[int(num)] = name
+ID2NAME[3] = "UNKNOWN_AREA"
+# NUM_CLASS here includes "UNKNOWN AREA" with the last label
+NUM_CLASS = len(ID2NAME)

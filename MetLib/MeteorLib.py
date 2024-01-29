@@ -6,19 +6,19 @@ import numpy as np
 
 from .Model import init_model
 from .Stacker import max_stacker
-from .utils import (color_interpolater, drct, drct_line, frame2ts, lineset_nms,
-                    save_img, pt_len_xy, pt_offset, box_matching, ID2NAME)
+from .utils import (color_interpolater, drct, frame2ts, save_img, pt_len_xy,
+                    pt_offset, box_matching, ID2NAME, NUM_CLASS)
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
 
 
 class Name2Label(object):
-    UNKNOWN_AREA = -1
     METEOR = 0
     PLANE = 1
     RED_SPRITE = 2
     LIGHTNING = 3
+    UNKNOWN_AREA = NUM_CLASS - 1
 
 
 def scale_to(pt, rescale):
@@ -65,8 +65,9 @@ class MeteorCollector(object):
         self.det_thre = meteor_cfg.det_thre
         self.thre2 = meteor_cfg.thre2 * eframe
         self.active_meteor = [
-            MeteorSeries(np.inf, np.inf, [-100, -100, -101, -101], np.nan,
-                         np.nan, "None")
+            MeteorSeries(np.inf, np.inf, np.array([[-100, -100],
+                                                   [-101, -101]]), np.nan,
+                         np.nan, None)
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -163,6 +164,7 @@ class MeteorCollector(object):
         self.waiting_meteor.extend(temp_waiting_meteor)
 
         # 整合待导出序列：如果没有活跃的潜在流星，则导出
+        # TODO: 缺省的等待时间和收集距离可能需要调整——也可能不需要。但需要评估。
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
             for ms in self.active_meteor:
@@ -180,35 +182,33 @@ class MeteorCollector(object):
                                          waiting_meteor)
                 self.waiting_meteor.clear()
 
-        # 对新的line进行判断
+        if len(cates) == 0:
+            return
+        # 做合并
         num_activate = len(self.active_meteor)
-
-        # NMS
-        self.line_type, self.lines = [], []
-        if len(lines) > 0:
-            # TODO: 主要是LineDetector的结果需要；未来考虑优化到LineDetector检测器内部或移除。
-            # 目前是利用CATE进行区分: 目前LineDetector统一返回CATE=-1; NMS将流星转换为label=0，非流星为label=-1
-            if cates[0] == -1:
-                self.line_type, self.lines = lineset_nms(
-                    lines, self.thre2, self.drct_prob_func)
-            else:
-                self.line_type, self.lines = cates, lines
-
-        for cate, line in zip(self.line_type, self.lines):
+        cate_ids = np.argmax(cates, axis=0)
+        for line, cate_id, cate_prob in zip(lines, cate_ids, cates):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
             # TODO: cur_frame+-eframe fixed!!
-
+            # 对于直线类型（流星，飞机），使用头尾及中间点作为点集
+            # 对于面积类型（未知类别，闪电，精灵），使用边界点及中心点作为点集
+            # TODO: 目前使用硬编码。未来优化。
+            if cate_id in [Name2Label.METEOR, Name2Label.PLANE]:
+                line = np.array(
+                    [line[:2], line[2:], (line[:2] + line[2:]) // 2])
+            else:
+                x1, y1, x2, y2 = line
+                # 有点奇怪
+                # 此处保留顺序是因为计算方差需要。TODO: 这个要考量下。
+                line = np.array([[x1, y1], [x2, y2], [x2, y1], [x1, y2],
+                                 [int((x1 + x2) / 2),
+                                  int((y1 + y2) / 2)]])
             is_in_series = False
             for ms in self.active_meteor[:num_activate]:
-                # Area不再接收line性质的更新
-                # TODO: Area相关的逻辑需要进一步迭代。目前Area按照-1处置，可能无法召回一些精灵类型的目标
-                # Another TODO: 基于模型的方法（和传统方法）的类别标签给出方法可能需要进一步迭代。
-                if ms.cate == -1 and cate == 0: continue
-
                 is_in = ms.may_in_series(line, cur_frame)
                 if is_in:
-                    ms.update(self.cur_frame, line, update_type=cate)
+                    ms.update(self.cur_frame, line, new_cate=cate_prob)
                     is_in_series = True
                     break
             # 如果不属于已存在的序列，则为其构建新的序列开头
@@ -222,7 +222,7 @@ class MeteorCollector(object):
                              line,
                              max_acceptable_dist=self.thre2,
                              max_acti_frame=self.max_acti_frame,
-                             cate=cate))
+                             cate_prob=cate_prob))
 
     def visu(self, frame_num):
         active_meteors, active_pts = [], []
@@ -245,13 +245,18 @@ class MeteorCollector(object):
 
             # print score
             pt1 = [min(pt1[0], pt2[0]), min(pt1[1], pt2[1])]
+            if pt1[1] <= 15: pt1[1] = max(pt1[1], pt2[1]) + 15
+            word_length = len(f"{ID2NAME[ms.cate]}:{self.prob_meteor(ms):.2f}")
             score_bg.append({
-                "position": (pt1, pt_offset(pt1, (35, -10))),
-                "color": color
+                "position": (pt1, pt_offset(pt1, (10 * word_length, -15))),
+                "color":
+                color
             })
             score_text.append({
-                "position": pt1,
-                "text": f"{self.prob_meteor(ms):.2f}"
+                "position":
+                pt_offset(pt1, (0, -2)),
+                "text":
+                f"{ID2NAME[ms.cate]}:{self.prob_meteor(ms):.2f}"
             })
 
         return dict(active_meteors=active_meteors,
@@ -271,6 +276,7 @@ class MeteorCollector(object):
         """
         self.update(np.inf, [], [])
         self.met_exporter.export(self.met_exporter.END_FLAG, [])
+        self.met_exporter.export_loop.join()
 
     def prob_meteor(self, met):
         # 用于估计met实例属于流星序列的概率。
@@ -279,21 +285,23 @@ class MeteorCollector(object):
         # 2. 平均响应长度（暂未实现）
         # 3. 直线拟合情况（暂未实现）
 
-        # AREA目前按照排异移除掉...或者需要另外给一个头？
-        #type_prob = 0 if met.cate == 1 else 1
-
-        # 对短样本实现一定的宽容
-        len_prob = self.len_prob_func(met.dist)
-
-        # 排除总时长过长/过短
-        time_prob = self.time_prob_func(met.duration)
-        # 排除速度过快/过慢
-        speed_prob = self.speed_prob_func(met.speed)
-        # 计算直线情况
-        #print(met.drct_list)
-        drct_prob = self.drct_prob_func(met.drst_std)
-
-        return int(time_prob * speed_prob * len_prob * drct_prob * 100) / 100
+        # 计分规则：当属于流星时，按照流星规则统计；当不属于流星时，按照所属类别的最大概率统计。
+        # TODO: 可能是不完善的。需要观察验证。
+        if met.cate == 0:
+            # 对短样本实现一定的宽容
+            len_prob = self.len_prob_func(met.dist)
+            # 排除总时长过长/过短
+            time_prob = self.time_prob_func(met.duration)
+            # 排除速度过快/过慢
+            speed_prob = self.speed_prob_func(met.speed)
+            # 计算直线情况
+            drct_prob = self.drct_prob_func(met.drst_std)
+            return np.float64(time_prob * speed_prob * len_prob * drct_prob)
+        else:
+            if np.any(np.isnan(met.cate_prob)):
+                print("nan detected.", met.cate_prob)
+                exit
+            return met.cate_prob[met.cate] / met.count
 
     def get_met_attr(self, met) -> dict:
         """将met的点集序列转换为属性字典。
@@ -306,7 +314,6 @@ class MeteorCollector(object):
         """
         pt1, pt2 = met.sort_range
         dist = np.sqrt(pt_len_xy(pt1, pt2))
-
         return dict(start_time=self.frame2ts(met.start_frame),
                     start_frame=met.start_frame,
                     end_time=self.frame2ts(met.end_frame),
@@ -319,8 +326,8 @@ class MeteorCollector(object):
                     category=ID2NAME[met.cate],
                     pt1=pt1,
                     pt2=pt2,
-                    drct_loss=met.drst_std,
-                    score=self.prob_meteor(met))
+                    drct_loss=np.round(met.drst_std, 3),
+                    score=np.round(self.prob_meteor(met), 2))
 
     def frame2ts(self, frame: int) -> str:
         return frame2ts(frame, self.fps)
@@ -333,20 +340,29 @@ class MeteorSeries(object):
         object (_type_): _description_
     """
 
-    def __init__(self, start_frame, cur_frame, init_box, max_acceptable_dist,
-                 max_acti_frame, cate):
+    def __init__(self, start_frame, cur_frame, init_pts, max_acceptable_dist,
+                 max_acti_frame, cate_prob):
+        """_summary_
+
+        Args:
+            start_frame (_type_): _description_
+            cur_frame (_type_): _description_
+            init_box (_type_): shape [n, 2]
+            max_acceptable_dist (_type_): _description_
+            max_acti_frame (_type_): _description_
+            cate_prob (_type_): _description_
+        """
         self.coord_list = PointList()
         self.drct_list = []
-        init_pts = self.box2coord(init_box)
         self.coord_list.extend(init_pts, cur_frame)
-        if cate == 0:
-            self.drct_list.append(drct_line(init_box))
+        self.drct_list.append(drct(init_pts))
         self.start_frame = start_frame
         self.end_frame = cur_frame
         self.last_activate_frame = cur_frame
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
-        self.cate = cate
+        self.count = 1
+        self.cate_prob = cate_prob
         self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
         self.calc_new_range(init_pts)
 
@@ -362,12 +378,15 @@ class MeteorSeries(object):
         return min(std1, std2)  # type: ignore
 
     @property
+    def cate(self):
+        return np.argmax(self.cate_prob, axis=0)
+
+    @property
     def duration(self):
         return self.last_activate_frame - self.start_frame + 1
 
     def calc_new_range(self, pts):
-        """TODO: 这个是高耗时步骤。需要优化。
-
+        """
         Returns:
             _type_: _description_
         """
@@ -401,20 +420,16 @@ class MeteorSeries(object):
         # TODO: 有个问题：我这个速度是不是应该考虑fps的影响来着...
         return self.dist / (self.end_frame - self.start_frame + 1e-6)
 
-    def box2coord(self, box):
-        if len(box) == 4:
-            return [box[0], box[1]], [box[2], box[3]], [(box[0] + box[2]) // 2,
-                                                        (box[1] + box[3]) // 2]
-        else:
-            return box
+    def update(self, new_frame, new_box, new_cate):
+        """为序列更新新的响应
 
-    def update(self, new_frame, new_box, update_type):
-        # TODO: 兼容运行。这一块逻辑后续需要优化。
-        # 如果label>=1，则是由模型预测的。
-        # 飞机线 (=1) 与 红色精灵 (=2) 目前仍按照直线处理。
-        if update_type in [0, 1, 2]:
-            new_box = [new_box[:2], new_box[2:]]
+        Args:
+            new_frame (_type_): _description_
+            new_box (_type_): _description_
+            new_cate (_type_): _description_
+        """
         (x1, y1), (x2, y2) = self.range
+        # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
         for pt in new_box:
             if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
                 self.end_frame = new_frame
@@ -423,10 +438,11 @@ class MeteorSeries(object):
         self.coord_list.extend(new_box, new_frame)
         # range由calc_new_range更新，除去init外每次仅在update时更新
         self.calc_new_range(new_box)
-        if update_type in [0, 1, 2]:
-            self.drct_list.append(drct(new_box))
+        self.drct_list.append(drct(new_box))
+        self.cate_prob += new_cate
+        self.count += 1
 
-    def may_in_series(self, new_box, cur_frame):
+    def may_in_series(self, pts, cur_frame):
         # 策略一：最后近邻法（对于有尾迹的判断不准确）
         #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
         #    return True
@@ -434,7 +450,7 @@ class MeteorSeries(object):
         first = np.where(self.coord_list.frame_num >= cur_frame -
                          self.max_acti_frame)[0]
         first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
-        for tgt_pt in self.box2coord(new_box):
+        for tgt_pt in pts:
             for in_pt in self.coord_list[first:]:
                 if pt_len_xy(tgt_pt, in_pt) < self.max_acceptable_dist:
                     return True
@@ -600,14 +616,14 @@ class MetExporter(object):
             final_list (_type_): 包含若干个整片段
         """
         # 片段级重校验
-        # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。
+        # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。此处逻辑可能需要重新处置。
         # 重构Collector时修复。
         new_final_list = []
         for output_dict in final_list:
             stacked_img = max_stacker(video_loader=self.recheck_loader,
                                       start_frame=output_dict["start_frame"],
                                       end_frame=output_dict["end_frame"])
-            bbox_list, cls_list = self.recheck_model.forward(stacked_img)
+            bbox_list, score_list = self.recheck_model.forward(stacked_img)
             # 匹配bbox，丢弃未检出box，修改与类别得分为模型预测得分
             raw_bbox_list = [[*x["pt1"], *x["pt2"]]
                              for x in output_dict["target"]]
@@ -615,13 +631,13 @@ class MetExporter(object):
             fixed_output_dict = dict(video_size=output_dict["video_size"],
                                      target=[])
             for l, r in matched_pairs:
-                # if cate->1, drop.
-                if cls_list[l] == 1:
+                label = np.argmax(score_list[l, :], axis=0)
+                score = score_list[l, label]
+                if label == Name2Label.PLANE:
                     continue
                 sure_meteor = output_dict["target"][r]
-                sure_meteor["category"] = ID2NAME.get(cls_list[l], "UNDEFINED")
-                # TODO: score没有带出来
-                sure_meteor["score"] = 1.0
+                sure_meteor["category"] = ID2NAME.get(label, "UNDEFINED")
+                sure_meteor["score"] = np.round(score.astype(np.float64), 2)
                 fixed_output_dict["target"].append(sure_meteor)
             # after fix. to be optimized.
             if len(fixed_output_dict["target"]) == 0:

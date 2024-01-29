@@ -79,6 +79,7 @@ def detect_video(video_name,
         detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
                                fps=eq_fps,
                                mask=video_loader.mask,
+                               num_cls = NUM_CLASS,
                                cfg=cfg_det.cfg,
                                logger=logger)
 
@@ -168,8 +169,6 @@ def detect_video(video_name,
     finally:
         video_loader.release()
         meteor_collector.clear()
-        # TODO: 不是很美观。后续封装一下
-        meteor_collector.met_exporter.export_loop.join()
         visual_manager.stop()
         logger.info("Time cost: %.4ss." % (time.time() - t1))
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
