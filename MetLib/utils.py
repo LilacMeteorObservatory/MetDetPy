@@ -9,10 +9,10 @@ import numpy as np
 
 from .MetLog import get_default_logger
 
+VERSION = "V2.0.2"
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
-VERSION = "V2.0.1"
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /

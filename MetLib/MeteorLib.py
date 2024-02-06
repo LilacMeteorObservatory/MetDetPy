@@ -200,7 +200,7 @@ class MeteorCollector(object):
             else:
                 x1, y1, x2, y2 = line
                 # 有点奇怪
-                # 此处保留顺序是因为计算方差需要。TODO: 这个要考量下。
+                # 此处保留顺序是因为计算方差需要，但对直线类，面积的应该不能参与方差计算。TODO: 这个要考量下。
                 line = np.array([[x1, y1], [x2, y2], [x2, y1], [x1, y2],
                                  [int((x1 + x2) / 2),
                                   int((y1 + y2) / 2)]])
@@ -233,7 +233,6 @@ class MeteorCollector(object):
 
             active_meteors.append({"position": (pt1, pt2), "color": color})
 
-            # TODO: 检查是否交互计算时也只计算了最近的点。
             # 只打印最近的响应点
             first = np.where(ms.coord_list.frame_num >= frame_num -
                              self.max_acti_frame)[0]

@@ -1,6 +1,16 @@
 
 # Update Log
 
+## Version 2.0.2
+
+✅ Bug Fixed
+
+✅ Modification
+* 修改了响应合并逻辑及输出概率的计算逻辑，改进了输出的预测概率。
+
+✅ Improvement(s)
+* 为loader增加了“曝光时间上限”（upper_bound）选项（非必须项）。
+
 ## Version 2.0.1
 
 ✅ Bug Fixed

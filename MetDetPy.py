@@ -179,7 +179,6 @@ def detect_video(video_name,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=f'MetDetPy {VERSION}')
-    # TODO: Add More Details.
     parser.add_argument(
         'target',
         help="input video. Support common video encoding like H264, HEVC, etc."

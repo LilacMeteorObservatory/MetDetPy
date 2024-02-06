@@ -147,8 +147,8 @@ class BaseDetector(metaclass=ABCMeta):
 
 
 class LineDetector(BaseDetector):
-    """基于"二值化-Hough直线检测"的检测器类。(作为抽象类，并不会产生检测结果)
-    （迭代中，该版本并不稳定）
+    """基于"二值化-Hough直线检测"的检测器类。
+    作为抽象类，并不会产生检测结果。
 
     LineDetector 输入为需要为grayscale。
 
@@ -200,11 +200,6 @@ class LineDetector(BaseDetector):
                                               size=self.mask.shape,
                                               dtype=np.uint8,
                                               force_int=True)
-
-        # 动态间隔()
-        if self.dynamic_cfg.dy_gap:
-            self.max_allow_gap = self.dynamic_cfg.dy_gap
-            self.fill_thre = self.dynamic_cfg.fill_thre
 
         self.visu_param = {}
 
@@ -358,13 +353,8 @@ class M3Detector(LineDetector):
         if self.dynamic_cfg.dy_mask:
             dst = self.calculate_dy_mask(dst)
 
-        # dynamic_gap机制
-        # 根据产生的响应比例适量减少gap
-        # 一定程度上能够改善对低信噪比场景的误检
         self.dst_sum = np.sum(
             dst / 255.) / self.mask_area * 100  # type: ignore
-        #gap = max(
-        #    0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
         # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
@@ -379,20 +369,6 @@ class M3Detector(LineDetector):
         self.lines_num = len(linesp)
         if self.lines_num > NUM_LINES_TOOMUCH:
             linesp = np.array([])
-
-        # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
-        # 这一步骤会造成一些暗弱流星的丢失。
-        if len(linesp) > 0:
-            line_pts = generate_group_interpolate(linesp)
-            line_score = np.array([
-                np.sum(dst[line_pt[1], line_pt[0]]) / (len(line_pt[0]) * 255)
-                for line_pt in line_pts
-            ])
-            #for line, line_pt in zip(linesp,line_pts):
-            #    print(line, line_pt)
-            #    print(dst[line_pt[1], line_pt[0]])
-            linesp = linesp[line_score > self.fill_thre]
-            self.lines_num = len(linesp)
 
         self.dst = dst
         # NMS

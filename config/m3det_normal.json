@@ -32,8 +32,8 @@
             },
             "dynamic": {
                 "dy_mask": true,
-                "dy_gap": 0.05,
-                "fill_thre": 0.6
+                "window_sec": 5,
+                
             }
         }
     },
