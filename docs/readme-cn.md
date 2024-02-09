@@ -1,7 +1,7 @@
   <div align="center">
   <img src="../imgs/banner.png"/>
 
-![version](https://img.shields.io/badge/version-v2.0.1-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
+[![GitHub release](https://img.shields.io/github/release/LilacMeteorObservatory/MetDetPy.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases/latest) [![GitHub Release Date](https://img.shields.io/github/release-date/LilacMeteorObservatory/MetDetPy.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases/latest) [![license](https://img.shields.io/github/license/LilacMeteorObservatory/MetDetPy)](./LICENSE) [![Github All Releases](https://img.shields.io/github/downloads/LilacMeteorObservatory/MetDetPy/total.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases)
 
 <center>语言: <a href="../readme.md">English</a> | 简体中文 </center>
 
@@ -25,7 +25,7 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 
 ## 发行版
 
-你可以从[Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases)处获取最新的MetDetPy发行版。发行版将MetDetPy进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `nuitka` 或 `pyinstaller` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
+你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `nuitka` 或 `pyinstaller` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
 
 此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
 
@@ -77,11 +77,11 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * --end-time：检测的结束时间。可以输入单位为ms的整数或是形如`"HH:MM:SS"`的字符串。不指定将分析到视频结尾。
 
-* --mode：运行模式。从{backend, frontend}中选择。frontend运行时会显示运行相关信息的进度条，backend则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用frontend。
+* --mode：运行模式。从 {backend, frontend} 中选择。frontend 运行时会显示运行相关信息的进度条，backend 则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用frontend。
 
-* --debug: 调试模式。以调试模式启动MetDetPy时，会打印更多调试信息。
+* --debug: 调试模式。以调试模式启动 MetDetPy 时，会打印更详细的日志信息用于调试。
 
-* --visu: 可视模式。以可视模型启动时，创建一个额外调试窗口，显示当前的检测情况。
+* --visu: 可视模式。以可视模式启动时，会创建一个额外视频窗口，显示当前的检测情况。
 
 #### 额外参数
 
@@ -215,18 +215,17 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
      [--apply-upx] [--apply-zip] [--version VERSION]
 ```
 
-* --tool: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
+* --tool: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
 
-* --mingw64: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
+* --mingw64: 使用MinGW64作为编译器。该选项仅在Windows上使用 `nuitka` 进行编译时生效。
 
-* --apply-upx: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
+* --apply-upx: 启用UPX以压缩可执行程序的大小。仅当使用 `nuitka` 进行编译时生效。
 
-* --apply-zip: generate zip package when compiling/packaging is finished.
+* --apply-zip: 打包完成时同时生成Zip压缩包。
 
-* --version: MetDetPy version tag. Used for naming zip package.
+* --version: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用./MetLib/utils.py 中的版本号。
 
-
-就绪之后，运行 `pyinstaller core.spec --clean` 以打包代码。目标可执行程序会生成在 [dist](../dist/) 目录下。
+目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
 
 注意：
 

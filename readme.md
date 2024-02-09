@@ -1,7 +1,7 @@
 <div align="center">
   <img src="imgs/banner.png"/>
 
-![version](https://img.shields.io/badge/version-v2.0.1-success) [![license](https://img.shields.io/badge/license-MPL2.0-success)](./LICENSE) 
+[![GitHub release](https://img.shields.io/github/release/LilacMeteorObservatory/MetDetPy.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases/latest) [![GitHub Release Date](https://img.shields.io/github/release-date/LilacMeteorObservatory/MetDetPy.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases/latest) [![license](https://img.shields.io/github/license/LilacMeteorObservatory/MetDetPy)](./LICENSE) [![Github All Releases](https://img.shields.io/github/downloads/LilacMeteorObservatory/MetDetPy/total.svg)](https://github.com/LilacMeteorObservatory/MetDetPy/releases)
 
 <center>Language: English | <a href="./docs/readme-cn.md">简体中文</a></center>
 
