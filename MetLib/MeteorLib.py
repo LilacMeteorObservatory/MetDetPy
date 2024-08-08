@@ -6,8 +6,9 @@ import numpy as np
 
 from .Model import init_model
 from .Stacker import max_stacker
-from .utils import (color_interpolater, drct, frame2ts, save_img, pt_len_xy,
-                    pt_offset, box_matching, ID2NAME, NUM_CLASS)
+from .utils import (color_interpolater, pt_drct, frame2ts, save_img,
+                    pt_len_sqr, pt_len, pt_offset, box_matching, ID2NAME,
+                    NUM_CLASS)
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
@@ -65,9 +66,9 @@ class MeteorCollector(object):
         self.det_thre = meteor_cfg.det_thre
         self.thre2 = meteor_cfg.thre2 * eframe
         self.active_meteor = [
-            MeteorSeries(np.inf, np.inf, np.array([[-100, -100],
-                                                   [-101, -101]]), np.nan,
-                         np.nan, None)
+            MeteorSeries(np.inf, np.inf,
+                         np.array([[-100, -100], [-101, -101], [-102, -102]]),
+                         np.nan, np.nan, None)
         ]
         self.waiting_meteor = []
         self.ended_meteor = []
@@ -214,7 +215,6 @@ class MeteorCollector(object):
             # 如果不属于已存在的序列，则为其构建新的序列开头
             if is_in_series:
                 continue
-
             self.active_meteor.insert(
                 len(self.active_meteor) - 1,
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
@@ -312,7 +312,7 @@ class MeteorCollector(object):
             dict: _description_
         """
         pt1, pt2 = met.sort_range
-        dist = np.sqrt(pt_len_xy(pt1, pt2))
+        dist = pt_len(pt1, pt2)
         return dict(start_time=self.frame2ts(met.start_frame),
                     start_frame=met.start_frame,
                     end_time=self.frame2ts(met.end_frame),
@@ -351,10 +351,13 @@ class MeteorSeries(object):
             max_acti_frame (_type_): _description_
             cate_prob (_type_): _description_
         """
+        assert len(
+            init_pts
+        ) in (3,5), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(init_pts, cur_frame)
-        self.drct_list.append(drct(init_pts))
+        self.drct_list.append(pt_drct(init_pts[0], init_pts[1]))
         self.start_frame = start_frame
         self.end_frame = cur_frame
         self.last_activate_frame = cur_frame
@@ -412,7 +415,8 @@ class MeteorSeries(object):
 
     @property
     def dist(self):
-        return pt_len_xy(*self.range)**(1 / 2)
+        pt1, pt2 = self.range
+        return pt_len(pt1, pt2)
 
     @property
     def speed(self):
@@ -428,6 +432,9 @@ class MeteorSeries(object):
             new_cate (_type_): _description_
         """
         (x1, y1), (x2, y2) = self.range
+        assert len(
+            new_box
+        ) in (3,5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
         # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
         for pt in new_box:
             if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
@@ -437,7 +444,7 @@ class MeteorSeries(object):
         self.coord_list.extend(new_box, new_frame)
         # range由calc_new_range更新，除去init外每次仅在update时更新
         self.calc_new_range(new_box)
-        self.drct_list.append(drct(new_box))
+        self.drct_list.append(pt_drct(new_box[0], new_box[1]))
         self.cate_prob += new_cate
         self.count += 1
 
@@ -451,7 +458,7 @@ class MeteorSeries(object):
         first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
         for tgt_pt in pts:
             for in_pt in self.coord_list[first:]:
-                if pt_len_xy(tgt_pt, in_pt) < self.max_acceptable_dist:
+                if pt_len_sqr(tgt_pt, in_pt) < self.max_acceptable_dist:
                     return True
         return False
 

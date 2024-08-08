@@ -32,8 +32,7 @@
             },
             "dynamic": {
                 "dy_mask": true,
-                "window_sec": 5,
-                
+                "window_sec": 5
             }
         }
     },

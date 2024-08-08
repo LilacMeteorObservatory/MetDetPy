@@ -15,29 +15,60 @@ EPS = 1e-2
 PI = np.pi / 180.0
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
-drct = lambda pts: np.arccos((pts[1][1] - pts[0][1]) /
-                             (pt_len_xy(pts[0], pts[1]))**(1 / 2))
 logger = get_default_logger()
 
 STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
 SWITCH2BOOL = {"on": True, "off": False}
 
 
-def pt_len_xy(pt1: Union[np.ndarray, list, tuple],
-              pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
-    """返回两点之间的距离的平方。
+def pt_len_sqr(pt1: Union[np.ndarray, list, tuple],
+               pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
+    """Return the square of the distance between two points. 
+    When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
+    返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
 
     Args:
-        pt1 (Union[np.ndarray, list, tuple]): 点1
-        pt2 (Union[np.ndarray, list, tuple]): 点2
+        pt1 (Union[np.ndarray, list, tuple]): point 1
+        pt2 (Union[np.ndarray, list, tuple]): point 2
 
     Returns:
-        int: 距离的平方。
+        Union[int, np.ndarray]: 距离的平方。
     """
     if isinstance(pt1, np.ndarray) and isinstance(pt2, np.ndarray):
         return (pt1[..., 1] - pt2[..., 1])**2 + (pt1[..., 0] - pt2[..., 0])**2
     else:
         return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
+
+
+def pt_len(pt1: Union[np.ndarray, list, tuple],
+           pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
+    """Return the distance between two points. 
+    When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
+    返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
+
+    Args:
+        pt1 (Union[np.ndarray, list, tuple]): _description_
+        pt2 (Union[np.ndarray, list, tuple]): _description_
+
+    Returns:
+        Union[int, np.ndarray]: 距离。
+    """
+    return np.sqrt(pt_len_sqr(pt1, pt2))
+
+
+def pt_drct(pt1: Union[np.ndarray, list, tuple], pt2: Union[np.ndarray, list,
+                                                            tuple]) -> float:
+    """Return the direction of the line of two points, in [0, pi]。
+    返回两点之间连线的角度值，范围为[0, pi]。
+
+    Args:
+        pt1 (Union[np.ndarray, list, tuple]): point 1
+        pt2 (Union[np.ndarray, list, tuple]): point 2
+
+    Returns:
+        float: the angle(direction) of two points, in [0, pi].
+    """
+    return np.arccos((pt2[1] - pt1[1]) / (pt_len(pt1, pt2)))
 
 
 def pt_offset(pt, offset) -> list:
@@ -270,16 +301,19 @@ class EMA(object):
             self.cur_momentum = self.init_momentum
 
 
-def sigma_clip(sequence, sigma=3.00):
-    """Sigma裁剪均值。
+def sigma_clip(sequence: Union[list, np.ndarray],
+               sigma: Union[float, int] = 3.00) -> np.ndarray:
+    """Sigma-clipping average, return the sequence where all values are within the given sigma value.
 
     Args:
-        sequence (_type_): _description_
+        sequence (Union[list, np.ndarray]): the input sequence.
         sigma (float, optional): _description_. Defaults to 3.00.
 
     Returns:
-        _type_: _description_
+        np.ndarray: the output sequence.
     """
+    # sequence should be flatten before execution
+    sequence = np.array(sequence).reshape((-1, ))
     mean, std = np.mean(sequence), np.std(sequence)
     while True:
         # update sequence
@@ -393,7 +427,7 @@ def load_8bit_image(filename):
                         cv2.IMREAD_UNCHANGED)
 
 
-def transpose_wh(size_mat) -> list:
+def transpose_wh(size_mat: Union[list, tuple, np.ndarray]) -> list:
     """
     Convert OpenCV style size (width, height, (channel)) to Numpy style size (height, width, (channel)), vice versa.
     """
@@ -547,7 +581,7 @@ def lineset_nms(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             if nms_mask[idy]: continue
             # 距离小于长线的length_sqr//4 (长线的半径以内) 即收纳.
             # TODO: 这个逻辑和过去并不一样。需要测试以验证稳定性。
-            if pt_len_xy(centers[idx], centers[idy]) < length_sqr[idx] // 4:
+            if pt_len_sqr(centers[idx], centers[idy]) < length_sqr[idx] // 4:
                 nms_mask[idy] = 1
                 # max_width only include Ax+By.
                 max_width = max(
@@ -562,7 +596,7 @@ def lineset_nms(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     # nonline_prob = |(Ax+By)+C|/sqrt(A^2+B^2) / LENGTH
     # *2 to calculate radius.
     nonline_prob = np.abs(width_list) / np.sqrt(
-        np.sum(np.power(length_params[nms_ids,:2], 2), axis=1)) / np.sqrt(
+        np.sum(np.power(length_params[nms_ids, :2], 2), axis=1)) / np.sqrt(
             length_sqr[nms_ids]) * 2
     nonline_prob[nonline_prob > 1] = 1
 
@@ -600,6 +634,16 @@ def generate_group_interpolate(lines):
 
 
 def xywh2xyxy(mat: np.ndarray, inplace=True):
+    """Convert coordinates in format of (x,y,w,h) to (x1,y1,x2,y2).
+    require multi-lines matrix with shape of (n,4).
+
+    Args:
+        mat (np.ndarray): input coordinate list.
+        inplace (bool, optional): Whether generate results inplace. Defaults to True.
+
+    Returns:
+        np.ndarray: output coordinate list.
+    """
     if inplace:
         mat[:, 0] = mat[:, 0] - mat[:, 2] / 2
         mat[:, 1] = mat[:, 1] - mat[:, 3] / 2
@@ -607,7 +651,10 @@ def xywh2xyxy(mat: np.ndarray, inplace=True):
         mat[:, 3] = mat[:, 1] + mat[:, 3]
         return mat
     else:
-        raise NotImplementedError
+        return np.array([
+            mat[:, 0] - mat[:, 2] / 2, mat[:, 1] - mat[:, 3] / 2,
+            mat[:, 0] + mat[:, 2], mat[:, 1] + mat[:, 3]
+        ])
 
 
 def met2xyxy(met):
@@ -681,12 +728,30 @@ def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
     return match_ind
 
 
-def relative2abs_path(path):
-    if path.startswith("./"): path = path[2:]
+def relative2abs_path(path: str) -> str:
+    """Convert relative path to the corresponding absolute path.
+
+    Args:
+        path (str): ./relative/path
+
+    Returns:
+        str: /the/absolute/path
+    """
+    if path.startswith("./"):
+        path = path[2:]
     return os.path.join(WORK_PATH, path)
 
 
 def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
+    """Convert the grayscale image (h,w) to a color one (h,w,3) with the given color。
+
+    Args:
+        gray_image (np.ndarray): the grayscale image.
+        color (np.ndarray): the color array, should be with a length of 3.
+
+    Returns:
+        np.ndarray: colored image.
+    """
     return gray_image[:, :, None] * color
 
 
