@@ -51,7 +51,20 @@ You can install these requirements using:
 pip install -r requirements.txt
 ```
 
-If you have CUDA installed and want to run deep learning models on Nvidia GPU(s), install `onnxruntime-gpu` instead of `onnxruntime`; if you are using macOS, it is recommended to install `onnxruntime-silicon` instead.
+### GPU Support
+
+The above packages enable MetDetPy to run properly, but the deep learning models are only supported on CPU devices. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
+
+* **Windows/Linux Users (Recommended):** If you are using Windows or Linux, it is recommended to additionally install `onnxruntime_directml`. This library utilizes DirectX for model inference acceleration and is suitable for most GPUs (Nvidia, AMD, Intel, etc.).
+
+* **macOS Users (Recommended):** If you are using macOS, it is recommended to install `onnxruntime-silicon` instead of `onnxruntime`. This library utilizes CoreML for model inference acceleration.
+
+* **Nvidia GPU Users (Advanced):** If you are using Nvidia GPUs and have CUDA installed, you can install the matched version of `onnxruntime-gpu` instead of `onnxruntime`. This enables CUDA acceleration, which brings higher performance.
+
+#### ⚠️ Notice
+* When installing `onnxruntime-silicon` and `onnxruntime-gpu`, it is required to uninstall `onnxruntime` first.
+
+* In the current release version, it is `onnxruntime_directml` for Windows packages and `onnxruntime-silicon` for macOS packages. Default CUDA support will be added when it is ready.
 
 ## Usage
 

@@ -52,7 +52,20 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 pip install -r requirements.txt
 ```
 
-如果已有完整的CUDA环境并希望在GPU上运行深度学习模型，可安装 `onnxruntime-gpu` 代替`onnxruntime`；如果在macOS上使用，则推荐安装 `onnxruntime-silicon` 作为`onnxruntime`。
+### GPU 支持
+
+上述软件包能够使 MetDetPy 正常运行，但深度学习模型仅支持在 CPU 设备上运行。如果希望利用 GPU，可以按照以下方式额外安装或替换 onnxruntime 相关库：
+
+* **Windows/Linux 用户（推荐）：** 如果您使用的是 Windows 或 Linux，建议额外安装 `onnxruntime_directml`。该库利用 DirectX 进行模型推理加速，适用于大多数 GPU（包括 Nvidia、AMD、Intel 等厂商的显卡）。
+
+* **macOS 用户（推荐）：** 如果您使用的是 macOS，建议安装 `onnxruntime-silicon` 代替 `onnxruntime`。该库利用 CoreML 进行模型推理加速。
+
+* **Nvidia GPU 用户（高级）：** 如果您使用的是 Nvidia GPU 并且已安装 CUDA，可以安装与 CUDA 版本匹配的 `onnxruntime-gpu` 代替 `onnxruntime`。这可以启用 CUDA 加速，从而带来更高的性能。
+
+#### ⚠️ 注意
+* 安装 `onnxruntime-silicon` 和 `onnxruntime-gpu` 时，需要先卸载 `onnxruntime`。
+
+* 在当前发布版本中，Windows 软件包使用 `onnxruntime_directml`，macOS 软件包使用 `onnxruntime-silicon`。默认的 CUDA 支持将在准备好后添加。
 
 ## 用法
 
