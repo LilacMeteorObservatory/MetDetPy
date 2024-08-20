@@ -34,6 +34,7 @@ None
     1. 期望修复时间索引错位问题。
 5. 其他杂项优化
     1. 引入叠加支持最大值-平均值混合叠加，改善叠加画质。
+    2. 日志中的error需要写到stderr中去。
 
 ## Version 2.0.3
 
@@ -45,6 +46,7 @@ None
 
 ✅ Improvement(s)
 1. 为发行版引入 `onnxruntime_directml`，修复 onnxruntime 在 windows 平台暂时不支持使用GPU的问题，缓解CPU负载。
+
 
 ## Version 2.0.2
 

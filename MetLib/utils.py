@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import cv2
 import numpy as np
+from easydict import EasyDict
 
 from .MetLog import get_default_logger
 
@@ -767,6 +768,25 @@ def expand_cls_pred(cls_pred: np.ndarray) -> np.ndarray:
     num_pred, _ = cls_pred.shape
     return np.concatenate([cls_pred, np.zeros((num_pred, 1))], axis=-1)
 
+def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str, kwargs:dict) -> EasyDict:
+    """ 修改cfg中的对应属性。
+
+    Args:
+        cfg (EasyDict): _description_
+        name (str): _description_
+        action (str): _description_
+    """
+    # currently only "add" action is supported.
+    assert action in ["add",], f"action {action} is not supported!"
+    for key in cfg.keys():
+        if isinstance(cfg[key],EasyDict):
+            mod_all_attrs_to_cfg(cfg[key],name,action,kwargs)
+        if key == name:
+            if action == "add":
+                for (new_key, new_attr) in kwargs.items():
+                    cfg[key][new_key] = new_attr
+    return cfg
+    
 
 ID2NAME: dict[int, str] = {}
 with open(relative2abs_path("./config/class_name.txt")) as f:

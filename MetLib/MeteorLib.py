@@ -351,9 +351,9 @@ class MeteorSeries(object):
             max_acti_frame (_type_): _description_
             cate_prob (_type_): _description_
         """
-        assert len(
-            init_pts
-        ) in (3,5), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
+        assert len(init_pts) in (
+            3, 5
+        ), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
         self.coord_list = PointList()
         self.drct_list = []
         self.coord_list.extend(init_pts, cur_frame)
@@ -432,9 +432,9 @@ class MeteorSeries(object):
             new_cate (_type_): _description_
         """
         (x1, y1), (x2, y2) = self.range
-        assert len(
-            new_box
-        ) in (3,5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
+        assert len(new_box) in (
+            3,
+            5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
         # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
         for pt in new_box:
             if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
@@ -628,7 +628,13 @@ class MetExporter(object):
         for output_dict in final_list:
             stacked_img = max_stacker(video_loader=self.recheck_loader,
                                       start_frame=output_dict["start_frame"],
-                                      end_frame=output_dict["end_frame"])
+                                      end_frame=output_dict["end_frame"],
+                                      logger=self.logger)
+            if stacked_img is None:
+                self.logger.error("Got invalid stacked img. This clip will be dropped."+
+                                  f" Clip start_frame={output_dict['start_frame']};"+
+                                  f"end_frame = {output_dict['end_frame']}")
+                continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
             # 匹配bbox，丢弃未检出box，修改与类别得分为模型预测得分
             raw_bbox_list = [[*x["pt1"], *x["pt2"]]

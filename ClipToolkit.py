@@ -143,11 +143,18 @@ def main():
 
             if cur_mode == "image":
                 results = max_stacker(video_loader)
-                save_img(results, full_path, jpg_quality, png_compress)
+                if results is not None:
+                    save_img(results, full_path, jpg_quality, png_compress)
+                    logger.info(f"Saved: {full_path}")
+                else:
+                    logger.error("Error occured, got empty image.")
             else:
                 video_series = all_stacker(video_loader)
-                save_video(video_series, video_loader.fps, full_path)
-            logger.info(f"Saved: {full_path}")
+                if video_series is not []:
+                    save_video(video_series, video_loader.fps, full_path)
+                    logger.info(f"Saved: {full_path}")
+                else:
+                    logger.error("Error occured, got empty video clip.")
     finally:
         logger.stop()
 

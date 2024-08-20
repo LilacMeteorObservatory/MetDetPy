@@ -9,6 +9,15 @@ from .utils import xywh2xyxy, STR2DTYPE
 ort.set_default_logger_severity(3)
 logger = get_default_logger()
 
+DEVICE_MAPPING = {
+    "cpu": ["CPUExecutionProvider"],
+    "dml": ["DmlExecutionProvider"],
+    "cuda": ["CUDAExecutionProvider"],
+    "default": ort.get_available_providers(),
+    "coreml":["CoreMLExecutionProvider"]
+}
+
+AVAILABLE_DEVICE_ALIAS = [alias for (alias, pvd_list) in DEVICE_MAPPING.items() if pvd_list[0] in ort.get_available_providers()]
 
 class YOLOModel(object):
 
@@ -19,6 +28,7 @@ class YOLOModel(object):
                  warmup: bool = True,
                  pos_thre: float = 0.25,
                  nms_thre: float = 0.45,
+                 providers_key: str = "default",
                  logger=logger) -> None:
         self.weight_path = weight_path
         self.dtype = STR2DTYPE.get(dtype, np.float32)
@@ -34,7 +44,7 @@ class YOLOModel(object):
         assert model_suffix in SUFFIX2BACKEND, f"Model arch not supported: only support {SUFFIX2BACKEND.keys()}, got {model_suffix}."
         self.BackendCls = SUFFIX2BACKEND[model_suffix]
         self.backend: Backend = self.BackendCls(self.weight_path, self.dtype,
-                                                warmup)
+                                                warmup, providers_key)
         self.logger.info(
             f"Sucessfully load {self.weight_path} on device= {self.backend.device} with Warmup={warmup}."
         )
@@ -113,13 +123,12 @@ class Backend(metaclass=ABCMeta):
 
 class ONNXBackend(Backend):
 
-    def __init__(self, weight_path, dtype, warmup) -> None:
+    def __init__(self, weight_path, dtype, warmup, providers_key) -> None:
         self.weight_path = weight_path
         self.dtype = dtype
         # load model
-        # TODO: 手动可以强制降级指定运行的设备
-        available_providers = ort.get_available_providers()
-        self.model_session = ort.InferenceSession(self.weight_path, providers=available_providers)
+        providers = DEVICE_MAPPING.get(providers_key, DEVICE_MAPPING["default"])
+        self.model_session = ort.InferenceSession(self.weight_path, providers=providers)
         self.shapes = [x.shape for x in self.model_session.get_inputs()]
         self.names = [x.name for x in self.model_session.get_inputs()]
 

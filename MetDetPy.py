@@ -12,7 +12,8 @@ from MetLib.Detector import BaseDetector, LineDetector, MLDetector
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.utils import VERSION, frame2time, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
+from MetLib.Model import AVAILABLE_DEVICE_ALIAS
+from MetLib.utils import VERSION, frame2time, mod_all_attrs_to_cfg, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
 
 
 def detect_video(video_name,
@@ -38,7 +39,7 @@ def detect_video(video_name,
         DetectorCls = get_detector(cfg.detector.name)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
-        exp_upper_bound = cfg.loader.get("exp_upper_bound",None)
+        exp_upper_bound = cfg.loader.get("exp_upper_bound", None)
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
@@ -58,7 +59,7 @@ def detect_video(video_name,
                                       end_time=end_time,
                                       grayscale=grayscale,
                                       exp_option=exp_option,
-                                      exp_upper_bound = exp_upper_bound,
+                                      exp_upper_bound=exp_upper_bound,
                                       merge_func=merge_func)
         logger.info(video_loader.summary())
 
@@ -77,11 +78,11 @@ def detect_video(video_name,
         # Init detector
         cfg_det = cfg.detector
         detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
-                               fps=eq_fps,
-                               mask=video_loader.mask,
-                               num_cls = NUM_CLASS,
-                               cfg=cfg_det.cfg,
-                               logger=logger)
+                                             fps=eq_fps,
+                                             mask=video_loader.mask,
+                                             num_cls=NUM_CLASS,
+                                             cfg=cfg_det.cfg,
+                                             logger=logger)
 
         # Init meteor collector
         meteor_cfg = cfg.collector.meteor_cfg
@@ -255,6 +256,12 @@ if __name__ == "__main__":
                         type=str,
                         help="Save rechecked images to the given path.")
 
+    parser.add_argument("--provider",
+                        type=str,
+                        choices=AVAILABLE_DEVICE_ALIAS,
+                        default=None,
+                        help="Force appoint onnxruntime providers.")
+
     args = parser.parse_args()
 
     with open(args.cfg, mode='r', encoding='utf-8') as f:
@@ -283,6 +290,12 @@ if __name__ == "__main__":
     if args.save_rechecked_img:
         cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
 
+    # 如果指定providers，透传选项到所有调用model的位置。
+    if args.provider:
+        cfg = mod_all_attrs_to_cfg(cfg,
+                                   "model",
+                                   action="add",
+                                   kwargs=dict(providers_key=args.provider))
     detect_video(args.target,
                  args.mask,
                  cfg,
