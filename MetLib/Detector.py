@@ -220,7 +220,7 @@ class LineDetector(BaseDetector):
         self.dy_mask_list.update(act)
         # TODO: 进一步使Dy_mask稳定作用在持续产生响应的区域，并提供可调整的阈值。
         dy_mask = np.array(self.dy_mask_list.sum
-                           < (self.dy_mask_list.length - 1) * 255,
+                           <= (self.dy_mask_list.length - 1) * 255,
                            dtype=np.uint8)
         dy_mask = cv2.erode(dy_mask, self.cv_op)
         return np.multiply(act, dy_mask)

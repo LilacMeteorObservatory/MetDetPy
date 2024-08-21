@@ -10,10 +10,11 @@ from easydict import EasyDict
 
 from .MetLog import get_default_logger
 
-VERSION = "V2.0.2"
+VERSION = "V2.1.0"
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
+LIVE_MODE_SPEED_CTRL_CONST = 0.95
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 logger = get_default_logger()

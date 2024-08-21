@@ -13,7 +13,7 @@ from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import AVAILABLE_DEVICE_ALIAS
-from MetLib.utils import VERSION, frame2time, mod_all_attrs_to_cfg, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
+from MetLib.utils import LIVE_MODE_SPEED_CTRL_CONST, VERSION, frame2time, mod_all_attrs_to_cfg, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
 
 
 def detect_video(video_name,
@@ -22,7 +22,8 @@ def detect_video(video_name,
                  debug_mode=False,
                  visual_mode=False,
                  work_mode="frontend",
-                 time_range=(None, None)):
+                 time_range=(None, None),
+                 live_mode: bool = False):
 
     # set output mode
     set_default_logger(debug_mode, work_mode)
@@ -125,18 +126,19 @@ def detect_video(video_name,
         raise e
     # MAIN DETECTION PART
     t1 = time.time()
+    tot_iter_num = (end_frame - start_frame) // exp_frame
     tot_get_time = 0
     visu_info = {}
     try:
         video_loader.start()
-        for i in main_iterator:
+        for prog_int, i in enumerate(main_iterator):
             # Logging for backend only.
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
                 logger.processing(frame2time(i, fps))
-            t0 = time.time()
+            t2 = time.time()
             x = video_loader.pop()
-            tot_get_time += (time.time() - t0)
+            tot_get_time += (time.time() - t2)
             if (video_loader.stopped or x is None):
                 break
 
@@ -160,6 +162,13 @@ def detect_video(video_name,
                 if visual_manager.manual_stop:
                     logger.info('Manual interrupt signal detected.')
                     break
+
+            # 直播模式等待进度
+            if live_mode:
+                expect_time_cost = (prog_int * exp_frame / fps) * LIVE_MODE_SPEED_CTRL_CONST
+                cur_time_cost = time.time() - t0
+                if (cur_time_cost < expect_time_cost):
+                    time.sleep(expect_time_cost - cur_time_cost)
 
         # 仅正常结束时（即 手动结束或视频读取完）打印。
         if not visual_manager.manual_stop:
@@ -262,6 +271,12 @@ if __name__ == "__main__":
                         default=None,
                         help="Force appoint onnxruntime providers.")
 
+    parser.add_argument("--live-mode",
+                        type=str,
+                        choices=['on', 'off'],
+                        default=None,
+                        help="Apply live mode, detect video as real-time.")
+
     args = parser.parse_args()
 
     with open(args.cfg, mode='r', encoding='utf-8') as f:
@@ -296,10 +311,16 @@ if __name__ == "__main__":
                                    "model",
                                    action="add",
                                    kwargs=dict(providers_key=args.provider))
+    if args.live_mode:
+        live_mode = SWITCH2BOOL[args.live_mode]
+    else:
+        live_mode = False
+
     detect_video(args.target,
                  args.mask,
                  cfg,
                  args.debug,
                  args.visual,
                  work_mode=args.mode,
-                 time_range=(args.start_time, args.end_time))
+                 time_range=(args.start_time, args.end_time),
+                 live_mode=live_mode)
