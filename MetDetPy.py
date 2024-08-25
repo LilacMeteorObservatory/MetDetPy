@@ -31,7 +31,6 @@ def detect_video(video_name,
                                    "model",
                                    action="add",
                                    kwargs=dict(providers_key=provider_key))
-
     # set output mode
     set_default_logger(debug_mode, work_mode)
     logger = get_default_logger()
@@ -276,7 +275,7 @@ if __name__ == "__main__":
     parser.add_argument("--provider",
                         type=str,
                         choices=AVAILABLE_DEVICE_ALIAS,
-                        default="None",
+                        default=None,
                         help="Force appoint onnxruntime providers.")
 
     parser.add_argument("--live-mode",

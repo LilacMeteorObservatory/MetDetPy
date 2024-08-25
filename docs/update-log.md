@@ -1,22 +1,11 @@
 
 # Update Log
 
-### Version 2.1.0(开发中)
 
-✅ Bug Fixed
-None
-
-✅ Modification
-None
-
-✅ Improvement(s)
-None
-
-#### TODO for v2.1.0
+### TODO for v2.1.1
 
 1. 实时模式
-    1. 支持使用流数据源输入，如RTMP/RTSP
-    2. 提供 --realtime-mode 选项，预期开启该选项可用于均衡负载，使检测速度与视频时长能够基本持平。
+    1. 支持直接使用流数据源输入，如RTMP/RTSP
 2. 检测效果（正负样本筛选）
     1. 引入对轨迹的序列描述特征（如通过抽样得到序列），排除飞虫类/云类非规则运动。
     2. 改善检测卫星等飞行器是容易断线的不连续性问题（可能需要对检测底层机制进行修改）。
@@ -35,29 +24,31 @@ None
 5. 其他杂项优化
     1. 引入叠加支持最大值-平均值混合叠加，改善叠加画质。
     2. 日志中的error需要写到stderr中去。
+    3. 其他TODO
 
-## Version 2.0.3
+
+## Version 2.1.0
 
 ✅ Bug Fixed
 1. 为Stacker增加出错兜底逻辑，修复Stacker在特定场景下报错会导致序列后续无输出的问题。
-
-✅ Modification
-None
+2. 修复了2.0.1版本因为动态模板机制出错产生的效果差异。
 
 ✅ Improvement(s)
 1. 为发行版引入 `onnxruntime_directml`，修复 onnxruntime 在 windows 平台暂时不支持使用GPU的问题，缓解CPU负载。
+2. 新增 `--live-mode` 选项，开启该选项可使检测速度与视频时长能够基本持平，适用于直播场景。
+3. 更新了评估工具`evaluate.py`，更改了评估标注格式，支持保存结果，与其他版本比较性能和效果等。
 
+⚠️ 提供了 `--provider cpu` 以指定CPU运行模型，如果在未安装 DirectX 12的电脑上使用 `onnxruntime_directml` 造成报错，可以作为降级方案。
 
 ## Version 2.0.2
 
 ✅ Modification
 * 修改了响应合并逻辑及输出概率的计算逻辑，改进了输出的预测概率。
 * 更改了后处理阶段的线段合并机制。
-* 补充了直接运行模型(run_model.py)的支持。
-
 
 ✅ Improvement(s)
 * 为loader增加了“曝光时间上限”（upper_bound）选项（非必须项）。
+* 补充了直接运行模型(run_model.py)的支持。
 
 ## Version 2.0.1
 
@@ -104,11 +95,6 @@ None
 
 * 修复了直线检测获取直线的数目问题，修复了多个流星同屏时的漏报问题。
 * 为流星收集器中引入“面积”类，改善了直线检测算法下对火流星的漏报的情况。
-* 其他的已知问题。
-
-✅ API改进
-
-* 修复了直线检测获取直线的数目问题。
 * 其他的已知问题。
 
 ✅ API改进

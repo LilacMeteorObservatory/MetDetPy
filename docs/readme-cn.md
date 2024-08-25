@@ -9,7 +9,7 @@
 
 ## 简介
 
-MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测流星的检测器。其视频检测受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy强大可靠，具有以下优点：
+MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测流星的检测器。其视频检测受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy具有以下优点：
 
 * **易于使用且可配置：** MetDetPy设计有易用的默认配置，多数情况下无需详细配置参数即可以进行高效的流星检测，并且也支持修改设置以获得更好的检测结果。
 
@@ -28,7 +28,6 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `nuitka` 或 `pyinstaller` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
 
 此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
-
 
 ## 运行需求
 
@@ -236,7 +235,7 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 
 * --apply-zip: 打包完成时同时生成Zip压缩包。
 
-* --version: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用./MetLib/utils.py 中的版本号。
+* --version: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
 
 目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
 
@@ -247,6 +246,10 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 3. 由于Python的特性，上述两种工具均无法跨平台打包生成可执行文件。
 
 4. （原因不明）如果环境中有`matplotlib`或`scipy`，它们很可能会一起打包到最终目录中。 为避免这种情况，建议使用干净的环境进行打包。
+
+## 许可
+
+MetDetPy 遵守 MPL-2.0 协议进行分发。
 
 ## Todo List
 

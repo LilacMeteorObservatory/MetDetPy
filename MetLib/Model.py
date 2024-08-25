@@ -1,3 +1,4 @@
+from typing import Optional
 import cv2
 import numpy as np
 import onnxruntime as ort
@@ -14,10 +15,14 @@ DEVICE_MAPPING = {
     "dml": ["DmlExecutionProvider"],
     "cuda": ["CUDAExecutionProvider"],
     "default": ort.get_available_providers(),
-    "coreml":["CoreMLExecutionProvider"]
+    "coreml": ["CoreMLExecutionProvider"]
 }
 
-AVAILABLE_DEVICE_ALIAS = [alias for (alias, pvd_list) in DEVICE_MAPPING.items() if pvd_list[0] in ort.get_available_providers()]
+AVAILABLE_DEVICE_ALIAS = [
+    alias for (alias, pvd_list) in DEVICE_MAPPING.items()
+    if pvd_list[0] in ort.get_available_providers()
+]
+
 
 class YOLOModel(object):
 
@@ -43,8 +48,11 @@ class YOLOModel(object):
         model_suffix = self.weight_path.split(".")[-1].lower()
         assert model_suffix in SUFFIX2BACKEND, f"Model arch not supported: only support {SUFFIX2BACKEND.keys()}, got {model_suffix}."
         self.BackendCls = SUFFIX2BACKEND[model_suffix]
-        self.backend: Backend = self.BackendCls(self.weight_path, self.dtype,
-                                                warmup, providers_key)
+        self.backend: Backend = self.BackendCls(self.weight_path,
+                                                self.dtype,
+                                                warmup,
+                                                providers_key,
+                                                logger=self.logger)
         self.logger.info(
             f"Sucessfully load {self.weight_path} on device= {self.backend.device} with Warmup={warmup}."
         )
@@ -88,10 +96,10 @@ class YOLOModel(object):
             results = results[list(res)]
         # resize back if necessary
         if self.resize:
-            results[:,0] *= self.scale_w
-            results[:,2] *= self.scale_w
-            results[:,1] *= self.scale_h
-            results[:,3] *= self.scale_h
+            results[:, 0] *= self.scale_w
+            results[:, 2] *= self.scale_w
+            results[:, 1] *= self.scale_h
+            results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
         result_pos = np.array(results[:, :4], dtype=int)
         result_cls = results[:, 5:]
@@ -123,12 +131,26 @@ class Backend(metaclass=ABCMeta):
 
 class ONNXBackend(Backend):
 
-    def __init__(self, weight_path, dtype, warmup, providers_key) -> None:
+    def __init__(self,
+                 weight_path,
+                 dtype,
+                 warmup,
+                 providers_key: Optional[str] = None,
+                 logger=None) -> None:
         self.weight_path = weight_path
         self.dtype = dtype
         # load model
-        providers = DEVICE_MAPPING.get(providers_key, DEVICE_MAPPING["default"])
-        self.model_session = ort.InferenceSession(self.weight_path, providers=providers)
+        if providers_key and (not providers_key in DEVICE_MAPPING) and logger:
+            logger.warning(
+                f"Gicen provider {providers_key} is not supported." +
+                "Fall back to default provider.")
+        if not providers_key:
+            providers = DEVICE_MAPPING["default"]
+        else:
+             providers = DEVICE_MAPPING.get(providers_key,
+                                           DEVICE_MAPPING["default"])
+        self.model_session = ort.InferenceSession(self.weight_path,
+                                                  providers=providers)
         self.shapes = [x.shape for x in self.model_session.get_inputs()]
         self.names = [x.name for x in self.model_session.get_inputs()]
 
