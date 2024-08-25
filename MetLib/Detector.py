@@ -201,6 +201,11 @@ class LineDetector(BaseDetector):
                                               dtype=np.uint8,
                                               force_int=True)
 
+        # 动态间隔()
+        if self.dynamic_cfg.get("dy_gap",0.05):
+            self.max_allow_gap = 0.05
+            self.fill_thre = 0.6
+
         self.visu_param = {}
 
     def detect(self) -> tuple[list, list]:
@@ -355,6 +360,8 @@ class M3Detector(LineDetector):
 
         self.dst_sum = np.sum(
             dst / 255.) / self.mask_area * 100  # type: ignore
+        gap = max(
+            0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
         # 核心步骤：直线检测
         linesp = cv2.HoughLinesP(dst,
@@ -362,7 +369,7 @@ class M3Detector(LineDetector):
                                  theta=PI,
                                  threshold=self.hough_cfg.threshold,
                                  minLineLength=self.hough_cfg.min_len,
-                                 maxLineGap=self.hough_cfg.max_gap)
+                                 maxLineGap=gap)
         linesp = np.array([]) if linesp is None else linesp[:, 0, :]
 
         # 如果产生的响应数目非常多，忽略该帧
@@ -370,6 +377,23 @@ class M3Detector(LineDetector):
         if self.lines_num > NUM_LINES_TOOMUCH:
             linesp = np.array([])
 
+        # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
+        # 这一步骤会造成一些暗弱流星的丢失。
+        if len(linesp) > 0:
+            line_pts = generate_group_interpolate(linesp)
+            line_score = np.array([
+                np.sum(dst[line_pt[1], line_pt[0]]) / (len(line_pt[0]) * 255)
+                for line_pt in line_pts
+            ])
+            #for line, line_pt in zip(linesp,line_pts):
+            #    print(line, line_pt)
+            #    print(dst[line_pt[1], line_pt[0]])
+            linesp = linesp[line_score > self.fill_thre]
+            self.lines_num = len(linesp)
+
+        # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
+        # TODO: 重整类别格式，前置NMS
+        self.linesp = linesp
         self.dst = dst
         # NMS
         # Another TODO: 不确定是否会产生额外的性能开销。
