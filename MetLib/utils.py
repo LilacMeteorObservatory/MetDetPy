@@ -690,6 +690,18 @@ def calculate_area_iou(mat1, mat2):
         met_a (_type_): _description_
         met_b (_type_): _description_
     """
+    # 若x/y轴宽为0，取另一轴做单轴比较
+    if (mat1.x1 == mat1.x2 == mat2.x1 == mat2.x2):
+        o_y = sorted([mat1.y1, mat1.y2, mat2.y1, mat2.y2], reverse=True)[1:-1]
+        if mat1.y1 == mat2.y1 and mat1.y2 == mat2.y2:
+            return 1
+        return (o_y[2] - o_y[1]) / (o_y[3] - o_y[0])
+    if (mat1.y1 == mat1.y2 == mat2.y1 == mat2.y2):
+        o_x = sorted([mat1.x1, mat1.x2, mat2.x1, mat2.x2], reverse=True)[1:-1]
+        if mat1.x1 == mat2.x1 and mat1.x2 == mat2.x2:
+            return 1
+        return (o_x[2] - o_x[1]) / (o_x[3] - o_x[0])
+
     # 若无交集即为0
     if (mat1.x1 >= mat2.x2 or mat1.x2 <= mat2.x1) or (mat1.y1 >= mat2.y2
                                                       or mat1.y2 <= mat2.y1):
@@ -769,7 +781,9 @@ def expand_cls_pred(cls_pred: np.ndarray) -> np.ndarray:
     num_pred, _ = cls_pred.shape
     return np.concatenate([cls_pred, np.zeros((num_pred, 1))], axis=-1)
 
-def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str, kwargs:dict) -> EasyDict:
+
+def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
+                         kwargs: dict) -> EasyDict:
     """ 修改cfg中的对应属性。
 
     Args:
@@ -778,16 +792,18 @@ def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str, kwargs:dict) -> 
         action (str): _description_
     """
     # currently only "add" action is supported.
-    assert action in ["add",], f"action {action} is not supported!"
+    assert action in [
+        "add",
+    ], f"action {action} is not supported!"
     for key in cfg.keys():
-        if isinstance(cfg[key],EasyDict):
-            mod_all_attrs_to_cfg(cfg[key],name,action,kwargs)
+        if isinstance(cfg[key], EasyDict):
+            mod_all_attrs_to_cfg(cfg[key], name, action, kwargs)
         if key == name:
             if action == "add":
                 for (new_key, new_attr) in kwargs.items():
                     cfg[key][new_key] = new_attr
     return cfg
-    
+
 
 ID2NAME: dict[int, str] = {}
 with open(relative2abs_path("./config/class_name.txt")) as f:
