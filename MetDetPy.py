@@ -2,7 +2,7 @@
 import argparse
 import json
 import time
-from typing import Any
+from typing import Any, Optional
 
 import tqdm
 from easydict import EasyDict
@@ -18,12 +18,19 @@ from MetLib.utils import LIVE_MODE_SPEED_CTRL_CONST, VERSION, frame2time, mod_al
 
 def detect_video(video_name,
                  mask_name,
-                 cfg,
+                 cfg: Any,
                  debug_mode=False,
                  visual_mode=False,
                  work_mode="frontend",
                  time_range=(None, None),
-                 live_mode: bool = False):
+                 live_mode: bool = False,
+                 provider_key: Optional[str]=None):
+    if provider_key:
+        # 如果指定providers，透传选项到所有调用model的位置。
+        cfg = mod_all_attrs_to_cfg(cfg,
+                                   "model",
+                                   action="add",
+                                   kwargs=dict(providers_key=provider_key))
 
     # set output mode
     set_default_logger(debug_mode, work_mode)
@@ -165,7 +172,8 @@ def detect_video(video_name,
 
             # 直播模式等待进度
             if live_mode:
-                expect_time_cost = (prog_int * exp_frame / fps) * LIVE_MODE_SPEED_CTRL_CONST
+                expect_time_cost = (prog_int * exp_frame /
+                                    fps) * LIVE_MODE_SPEED_CTRL_CONST
                 cur_time_cost = time.time() - t0
                 if (cur_time_cost < expect_time_cost):
                     time.sleep(expect_time_cost - cur_time_cost)
@@ -268,7 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("--provider",
                         type=str,
                         choices=AVAILABLE_DEVICE_ALIAS,
-                        default=None,
+                        default="None",
                         help="Force appoint onnxruntime providers.")
 
     parser.add_argument("--live-mode",
@@ -276,6 +284,11 @@ if __name__ == "__main__":
                         choices=['on', 'off'],
                         default=None,
                         help="Apply live mode, detect video as real-time.")
+
+    parser.add_argument("--save",
+                        type=str,
+                        default=None,
+                        help="Save detection results as a json file.")
 
     args = parser.parse_args()
 
@@ -305,22 +318,23 @@ if __name__ == "__main__":
     if args.save_rechecked_img:
         cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
 
-    # 如果指定providers，透传选项到所有调用model的位置。
-    if args.provider:
-        cfg = mod_all_attrs_to_cfg(cfg,
-                                   "model",
-                                   action="add",
-                                   kwargs=dict(providers_key=args.provider))
     if args.live_mode:
         live_mode = SWITCH2BOOL[args.live_mode]
     else:
         live_mode = False
 
-    detect_video(args.target,
-                 args.mask,
-                 cfg,
-                 args.debug,
-                 args.visual,
-                 work_mode=args.mode,
-                 time_range=(args.start_time, args.end_time),
-                 live_mode=live_mode)
+    result = detect_video(args.target,
+                          args.mask,
+                          cfg,
+                          args.debug,
+                          args.visual,
+                          work_mode=args.mode,
+                          time_range=(args.start_time, args.end_time),
+                          live_mode=live_mode,
+                          provider_key=args.provider)
+    if args.save:
+        save_path = args.save
+        if not save_path.lower().endswith(".json"):
+            save_path+=".json"
+        with open(save_path,mode="w") as f:
+            json.dump(result, f)
