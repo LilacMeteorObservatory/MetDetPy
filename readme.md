@@ -53,18 +53,17 @@ pip install -r requirements.txt
 
 ### GPU Support
 
-The above packages enable MetDetPy to run properly, but the deep learning models are only supported on CPU devices. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
+The above packages enable MetDetPy to run properly, but the deep learning models are only supported on CPU devices for Windows and Linux users. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
 
-* **Windows/Linux Users (Recommended):** If you are using Windows or Linux, it is recommended to additionally install `onnxruntime_directml`. This library utilizes DirectX for model inference acceleration and is suitable for most GPUs (Nvidia, AMD, Intel, etc.).
-
-* **macOS Users (Recommended):** If you are using macOS, it is recommended to install `onnxruntime-silicon` instead of `onnxruntime`. This library utilizes CoreML for model inference acceleration.
+* **Recommended:** it is recommended to additionally install `onnxruntime-directml`. This library utilizes DirectX for model inference acceleration and is suitable for most GPUs (Nvidia, AMD, Intel, etc.).
 
 * **Nvidia GPU Users (Advanced):** If you are using Nvidia GPUs and have CUDA installed, you can install the matched version of `onnxruntime-gpu` instead of `onnxruntime`. This enables CUDA acceleration, which brings higher performance.
 
 #### ⚠️ Notice
-* When installing `onnxruntime-silicon` and `onnxruntime-gpu`, it is required to uninstall `onnxruntime` first.
 
-* In the current release version, it is `onnxruntime_directml` for Windows packages and `onnxruntime-silicon` for macOS packages. Default CUDA support will be added when it is ready.
+* For macOS users, since CoreML model inference acceleration is integrated into the latest version of `onnxruntime`, there is nothing to do to enable  GPU support.
+
+* In the current release version, it is `onnxruntime_directml` for Windows packages. Default CUDA support will be added when it is ready.
 
 ## Usage
 
@@ -77,6 +76,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
+               [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save SAVE]
 ```
 
 #### Main Arguments
@@ -97,9 +97,15 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * --visu: showing a debug window displaying videos and detected meteors.
 
+* --live-mode: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
+
+* --provider: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
+
+* --save: save detection results (a list) to a json file.
+
 #### Extra Arguments
 
-The following arguments have default values in config files. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
+The following arguments have default values in config files. If they are configured in command line arguments, the default value will be overrided. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
 
 * --resize: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
 
@@ -255,26 +261,6 @@ The target executable file and its zip package version (if applied) will be gene
 2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 3. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment when packaging.
 
-## Todo List
-
- 1. 改善检测效果 (Almost Done, but some potential bugs left)
-    1. 优化速度计算逻辑，包括方向，平均速度等
-    2. 改善对暗弱流星的召回率
- 2. 增加对其他天象的检测能力
- 3. 模型迭代
- 4. 接入其他深度学习框架和模型
- 5. 利用cython改善性能
- 6. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
- 7. 支持导出UFO Analizer格式的文本，用于流星组网联测等需求
- 
-
-P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy的开发中优先级已下调：
-
- 1. 完善的GUI
- 2. 支持rtmp/rtsp/http流直播
- 3. 时间水印（待开发）
- 4. 自动启停
-
 ## Performance and Efficiency
 
 1. When applying default configuration on 3840x2160 10fps video, MetDetPy detect meteors with a 20-30% time cost of video length on average (tested with an Intel i5-7500). Videos with higher FPS may cost more time.
@@ -282,6 +268,16 @@ P.S: 目前结合MeteorMaster已支持/将支持以下功能，它们在MetDetPy
 2. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
 
 3. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcome to contact us or submit issues (if possible and applicable, provide full or clipped video).
+
+## License
+
+This project is licensed under the Mozilla Public License 2.0 (MPL-2.0). This means you are free to use, modify, and distribute this software with the following conditions:
+
+1. **Source Code Availability**: Any modifications you make to the source code must also be made available under the MPL-2.0 license. This ensures that the community can benefit from improvements and changes.
+2. **File-Level Copyleft**: You can combine this software with other code under different licenses, but any modifications to the MPL-2.0 licensed files must remain under the same license.
+3. **No Warranty**: The software is provided "as-is" without any warranty of any kind, either express or implied. Use it at your own risk.
+
+For more detailed information, please refer to the [MPL-2.0 license text](https://www.mozilla.org/en-US/MPL/2.0/).
 
 ## Appendix
 
@@ -315,9 +311,10 @@ Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space
 
 贾昊
 
-### Update Log
+### Update Log / Todo List
 
 See [update log](docs/update-log.md).
+
 
 ### Statistics
 
