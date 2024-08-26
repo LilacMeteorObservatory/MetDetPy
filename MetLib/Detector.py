@@ -373,6 +373,7 @@ class M3Detector(LineDetector):
         linesp = np.array([]) if linesp is None else linesp[:, 0, :]
 
         # 如果产生的响应数目非常多，忽略该帧
+        # TODO: 会造成无法响应面积式的现象。需要调整。
         self.lines_num = len(linesp)
         if self.lines_num > NUM_LINES_TOOMUCH:
             linesp = np.array([])

@@ -140,7 +140,10 @@ class MeteorCollector(object):
         temp_waiting_meteor, drop_list = [], []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
-                if (self.prob_meteor(ms) > self.det_thre):
+                # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
+                # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
+                if (self.prob_meteor(ms) > self.det_thre /
+                        2) and (self.prob_meteor(ms) != self.det_thre):
                     # 没有后校验的情况下，UNKNOWN，PLANE类型不给予输出
                     if self.met_exporter.recheck or not (ms.cate in [
                             Name2Label.UNKNOWN_AREA, Name2Label.PLANE
@@ -169,7 +172,9 @@ class MeteorCollector(object):
         if len(self.waiting_meteor) > 0:
             no_prob_met = True
             for ms in self.active_meteor:
-                if self.prob_meteor(ms) > self.det_thre and \
+                # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
+                # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
+                if self.prob_meteor(ms) > self.det_thre/2 and \
                     (ms.start_frame - self.waiting_meteor[-1].last_activate_frame<= self.max_interval):
                     no_prob_met = False
                     break
@@ -385,6 +390,7 @@ class MeteorSeries(object):
 
     @property
     def duration(self):
+        # TODO: 使用last_activate_frame而不是end_frame是否準確？存疑，需要在下版本驗證。
         return self.last_activate_frame - self.start_frame + 1
 
     def calc_new_range(self, pts):
@@ -631,9 +637,10 @@ class MetExporter(object):
                                       end_frame=output_dict["end_frame"],
                                       logger=self.logger)
             if stacked_img is None:
-                self.logger.error("Got invalid stacked img. This clip will be dropped."+
-                                  f" Clip start_frame={output_dict['start_frame']};"+
-                                  f"end_frame = {output_dict['end_frame']}")
+                self.logger.error(
+                    "Got invalid stacked img. This clip will be dropped." +
+                    f" Clip start_frame={output_dict['start_frame']};" +
+                    f"end_frame = {output_dict['end_frame']}")
                 continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
             # 匹配bbox，丢弃未检出box，修改与类别得分为模型预测得分
@@ -649,6 +656,7 @@ class MetExporter(object):
                     continue
                 sure_meteor = output_dict["target"][r]
                 sure_meteor["category"] = ID2NAME.get(label, "UNDEFINED")
+                # TODO: 最终得分应当被修正。否则可能引起预期外问题。
                 sure_meteor["score"] = np.round(score.astype(np.float64), 2)
                 fixed_output_dict["target"].append(sure_meteor)
             # after fix. to be optimized.
