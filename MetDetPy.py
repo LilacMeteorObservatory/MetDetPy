@@ -245,6 +245,8 @@ if __name__ == "__main__":
         type=str,
         default=None)
     parser.add_argument('--adaptive-thre',
+                        nargs='?',
+                        const='on',
                         choices=['on', 'off'],
                         default=None,
                         type=str,
@@ -277,9 +279,10 @@ if __name__ == "__main__":
                         choices=AVAILABLE_DEVICE_ALIAS,
                         default=None,
                         help="Force appoint onnxruntime providers.")
-
     parser.add_argument("--live-mode",
                         type=str,
+                        nargs='?',
+                        const='on',
                         choices=['on', 'off'],
                         default=None,
                         help="Apply live mode, detect video as real-time.")
