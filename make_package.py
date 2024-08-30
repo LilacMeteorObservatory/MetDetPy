@@ -114,6 +114,11 @@ argparser.add_argument(
     action="store_true",
     help="Generate .zip files after packaging.",
 )
+argparser.add_argument(
+    "--macos-sign-identity",
+    type=str,
+    help="Sign the generated executable files by nuitka.",
+)
 
 args = argparser.parse_args()
 compile_tool = args.tool
@@ -152,10 +157,17 @@ if compile_tool == "nuitka":
         "--no-pyi-file": True,
         "--remove-output": True,
     }
-    if (platform == "win") and args.tool == "nuitka" and args.mingw64:
+    if platform == "win" and args.mingw64:
         print("Apply mingw64 as compiler.")
         nuitka_base["--mingw64"] = True
 
+    if platform == "macos":
+        nuitka_base["--macos-app-version"] = VERSION
+        nuitka_base["--macos-signed-app-name"] = "org.lilacMeteorobservatory.metdetpy"
+        # for macos dev only
+        if args.macos_sign_identity:
+            nuitka_base["--macos-sign-identity"] = args.macos_sign_identity
+    
     # upx启用时，利用which获取upx路径
     if apply_upx:
         upx_cmd = subprocess.run(["which", "upx"])
