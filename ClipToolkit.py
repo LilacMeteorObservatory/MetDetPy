@@ -1,10 +1,30 @@
+"""
+
+ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视频段的堆栈图像。
+
+从v2.2.0开始，扩增了支持的输入风格，以支持更灵活的使用和更通用的场景。支持了以下主要调用方法：
+
+1. 同时提供target视频与复数个片段的json。（延续v1.3.0开始的风格。）
+    示例：python evaluate.py "test/20220413_annotation.json"
+
+2. 当仅处理单张图像时，可以仅指定target视频，并在 optional args中使用简化的输入接口：
+    示例：python ClipToolkit.py target --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name 123.jpg
+
+3. 当处理检测结果（或标注）时，可以仅指定v2.2.0之后的evaluate或MetDetPy生成的json作为输入。
+    示例：python ClipToolkit.py execution_result.json --mode video
+
+可选参数：
+[--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING]
+
+"""
+
 import argparse
 import json
 import os
 import cv2
 
 from MetLib.Stacker import max_stacker, all_stacker
-from MetLib.utils import save_img, save_video, ts2frame
+from MetLib.utils import frame2ts, save_img, save_video, ts2frame
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 from MetLib.MetLog import get_default_logger, set_default_logger
@@ -19,10 +39,23 @@ def main():
     argparser.add_argument(
         "json",
         type=str,
+        nargs='?',
         default=None,
         help=
         "a json-format string or the path to a json file where start-time and end-time are listed."
     )
+    argparser.add_argument(
+        "--start-time",
+        type=str,
+        help=
+        "start time of the video. Optional. Support int in ms or format like \"HH:MM:SS\". "
+        "If not provided, it will start at 0 frame as default")
+    argparser.add_argument(
+        "--end-time",
+        type=str,
+        help=
+        "end time of the clip. Optional. Support int in ms or format like \"HH:MM:SS\". "
+        "If not provided, it will use END_TIME as default.")
     argparser.add_argument("--mode",
                            choices=['image', 'video'],
                            default='image',
@@ -75,25 +108,46 @@ def main():
     args = argparser.parse_args()
 
     # basic option
-    video_name, json_str, mode, default_suffix, resize, save_path, debug_mode  = \
+    target_name, json_str, mode, default_suffix, resize, save_path, debug_mode  = \
         args.target, args.json, args.mode, args.suffix, args.resize, args.save_path, args.debug
 
     # image option
     jpg_quality, png_compress = args.jpg_quality, args.png_compressing
+
+    if json_str is not None:
+        # 提供json_str时，按照旧版本逻辑执行
+        video_name = target_name
+        # parse json argument
+        data = None
+        if os.path.isfile(json_str):
+            with open(json_str, mode='r', encoding='utf-8') as f:
+                data = json.load(f)
+        else:
+            data = json.loads(json_str)
+    elif target_name.split(".")[-1].lower() == "json":
+        # 仅提供json时，按照判断符合格式，具有足够信息
+        if os.path.isfile(target_name):
+            with open(target_name, mode='r', encoding='utf-8') as f:
+                raw_data: dict = json.load(f)
+        else:
+            raise FileNotFoundError(
+                f"{target_name} can not be opened as a file.")
+        if not (raw_data.get("basic_info", None)
+                or raw_data.get("results", None)):
+            raise ValueError(
+                f"{target_name} is not a valid json file for ClipToolkit.")
+        video_name = raw_data["basic_info"]["video"]
+        data = raw_data["results"]
+    else:
+        # target被作为视频解析。从参数构造单个使用的data。
+        video_name = target_name
+        data = [dict(start_time=args.start_time, end_time=args.end_time)]
 
     video_loader = ThreadVideoLoader(OpenCVVideoWrapper,
                                      video_name,
                                      resize_option=resize,
                                      exp_option="real-time",
                                      resize_interpolation=cv2.INTER_LANCZOS4)
-
-    # parse json argument
-    data = None
-    if os.path.isfile(json_str):
-        with open(json_str, mode='r', encoding='utf-8') as f:
-            data = json.load(f)
-    else:
-        data = json.loads(json_str)
 
     # get video name
     _, video_name_nopath = os.path.split(video_name)
@@ -121,6 +175,12 @@ def main():
             else:
                 start_time, end_time = single_data["start_time"], single_data[
                     "end_time"]
+            # 如果未给定起止时间，使用视频的起止时间
+            if start_time is None:
+                start_time = frame2ts(video_loader.start_frame,
+                                      video_loader.fps)
+            if end_time is None:
+                end_time = frame2ts(video_loader.end_frame, video_loader.fps)
             # 如果未给定名称则使用缺省名称
             tgt_name = single_data.get(
                 "filename",
