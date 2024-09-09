@@ -277,6 +277,16 @@ def generate_result(video, raw_basic_info, cfg, performance,
         results=results)
 
 
+def generate_full_result(results, performance):
+    # 补充必要信息
+    results["basic_info"][
+        "desc"] = "待检测视频的基础信息 | Basic infomation about the video"
+    performance["desc"] = "硬件指标 | Hardware performance"
+    performance["cpu_core"] = psutil.cpu_count(logical=True)
+    results["performance"] = performance
+    return EasyDict(results)
+
+
 def main():
     # 可选模式
     # 1. 生成报告：对视频片段进行检测，给出当前版本下给定配置的报告。
@@ -350,11 +360,20 @@ def main():
             performance, results = monitor_performance(
                 detect_video, [video_name, mask_name, cfg, args.debug],
                 dict(work_mode="frontend", time_range=(start_time, end_time)))
-            new_result = generate_result(video,
-                                         raw_basic_info=video_dict.basic_info,
-                                         cfg=cfg,
-                                         performance=performance,
-                                         results=results)
+            if isinstance(results, list):
+                # version<=2.1.0 返回值为list，整理以生成完整报告
+                new_result = generate_result(
+                    video,
+                    raw_basic_info=video_dict.basic_info,
+                    cfg=cfg,
+                    performance=performance,
+                    results=results)
+            elif isinstance(results, dict):
+                # 为version>=2.1.1补充performance信息
+                new_result = generate_full_result(results, performance)
+            else:
+                raise NotImplementedError(
+                    f"not support result type: {results.type}!")
             if args.save:
                 # List of predictions
                 with open(args.save, mode='w', encoding="utf-8") as f:

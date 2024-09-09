@@ -385,7 +385,19 @@ class VanillaVideoLoader(BaseVideoLoader):
     def eq_int_fps(self) -> int:
         return floor(self.eq_fps)
 
-    def summary(self) -> str:
+    def summary(self) -> dict:
+        return dict(loader=self.__class__.__name__,
+                    video=self.video_name,
+                    mask=self.mask_name,
+                    start_time=self.start_time,
+                    end_time=self.end_time,
+                    resolution=self.raw_size,
+                    runtime_resolution=self.runtime_size,
+                    exp_time=self.exp_time,
+                    total_frames=self.iterations,
+                    fps=self.fps)
+
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__} summary:\n"+\
             f"    Video path: \"{self.video_name}\";"+\
             (f" Mask path: \"{self.mask_name}\";" if self.mask_name else " Mask: None")+ "\n" +\
@@ -501,8 +513,8 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.maxsize = maxsize
         self.queue = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, exp_option, exp_upper_bound, 
-                         merge_func, **kwargs)
+                         start_time, end_time, grayscale, exp_option,
+                         exp_upper_bound, merge_func, **kwargs)
 
     def clear_queue(self):
         """clear queue.
@@ -629,8 +641,8 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.maxsize = maxsize
         self.notify_queue = MQueue(maxsize=self.maxsize - 1)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, exp_option, exp_upper_bound, 
-                         merge_func, **kwargs)
+                         start_time, end_time, grayscale, exp_option,
+                         exp_upper_bound, merge_func, **kwargs)
 
     def start(self):
         w, h = self.runtime_size
