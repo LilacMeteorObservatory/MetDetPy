@@ -32,12 +32,12 @@ class SNR_SW(SlidingWindow):
     """
 
     def __init__(self,
-                 n,
-                 mask,
-                 est_snr=True,
-                 est_area=0,
-                 noise_moment=0.99,
-                 nz_interval=1) -> None:
+                 n: int,
+                 mask: np.ndarray,
+                 est_snr: bool = True,
+                 est_area: float = 0,
+                 noise_moment: float = 0.99,
+                 nz_interval: float = 1) -> None:
         self.est_snr = est_snr
         self.n = n
         self.nz_interval = nz_interval
@@ -202,7 +202,7 @@ class LineDetector(BaseDetector):
                                               force_int=True)
 
         # 动态间隔()
-        if self.dynamic_cfg.get("dy_gap",0.05):
+        if self.dynamic_cfg.get("dy_gap", 0.05):
             self.max_allow_gap = 0.05
             self.fill_thre = 0.6
 

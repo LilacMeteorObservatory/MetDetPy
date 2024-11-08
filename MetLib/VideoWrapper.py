@@ -5,9 +5,12 @@ API to obtain metadata and frame data.
 VideoWrapper对读取视频的API进行初步包装, 使VideoLoader能够使用统一的接口获取元数据及帧数据。
 """
 
-import cv2
-from typing import Union
+import os
 from abc import ABCMeta, abstractmethod
+from typing import Union
+
+import cv2
+
 
 class BaseVideoWrapper(metaclass=ABCMeta):
     """
@@ -37,17 +40,22 @@ class BaseVideoWrapper(metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def fps(self)->float:
+    def fps(self) -> float:
         pass
 
     @property
     @abstractmethod
-    def num_frames(self)->int:
+    def num_frames(self) -> int:
         pass
 
     @property
     @abstractmethod
-    def size(self)->list:
+    def size(self) -> list:
+        pass
+
+    @property
+    @abstractmethod
+    def backend_name(self) -> str:
         pass
 
     @abstractmethod
@@ -58,7 +66,7 @@ class BaseVideoWrapper(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def read(self)->Union[tuple, list]:
+    def read(self) -> Union[tuple, list]:
         pass
 
 
@@ -93,6 +101,10 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
             int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)),
             int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT))
         ]
+
+    @property
+    def backend_name(self):
+        return self.video.getBackendName()
 
     def read(self):
         return self.video.read()

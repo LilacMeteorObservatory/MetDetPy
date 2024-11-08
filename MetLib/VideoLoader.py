@@ -403,6 +403,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             (f" Mask path: \"{self.mask_name}\";" if self.mask_name else " Mask: None")+ "\n" +\
             f"    Video frames = {self.video_total_frames}; Apply grayscale = {self.grayscale};\n"+\
             f"    Raw resolution = {self.raw_size}; Running-time resolution = {self.runtime_size};\n"+\
+            f"    Video decode backend: {self.video.backend_name};\n" +\
             f"Apply exposure time of {self.exp_time:.2f}s."+\
             f"(MinTimeFlag = {frame2time(self.exp_frame * self.eq_int_fps, self.fps)})\n" +\
             f"Total frames = {self.iterations} ; FPS = {self.fps:.2f} (rFPS = {self.eq_fps:.2f})"

@@ -209,7 +209,7 @@ class OpenCVMetVisu(object):
         # 渲染图像并通过OpenCV句柄展示
         rendered_img = self.rend_frame(data)
 
-        # TODO: Add "save_sample_img" function for debug.
+        # TODO: Add "save_sample_img / save_detect_video" function for debug.
         cv2.imshow(
             f"Debug Window (Press {chr(self.interrupt_key).upper()} to exit)",
             rendered_img)

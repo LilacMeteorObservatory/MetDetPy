@@ -42,6 +42,9 @@ if args.visu:
     for b, p in zip(boxes, preds):
         x1, y1, x2, y2 = b
         img = cv2.rectangle(img, (x1, y1), (x2, y2), [255, 0, 0], 2)
-        print(ID2NAME[np.argmax(preds)])
+        print(ID2NAME[np.argmax(p)])
+    h, w, c = img.shape
+    w = w / h * 720
+    img = cv2.resize(img, (int(w), 720))
     cv2.imshow("show", img)
     cv2.waitKey(0)

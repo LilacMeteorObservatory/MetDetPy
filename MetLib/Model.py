@@ -84,7 +84,6 @@ class YOLOModel(object):
         x = x.astype(self.dtype).transpose(2, 0, 1)
         x = x[None, ...] / 255
         results = self.backend.forward(x)[0][0]
-
         # for yolo results, [0:4] for pos(xywh), 4 for conf, [5:] for cls_score.
         xywh2xyxy(results[:, :4], inplace=True)
         if self.nms:
@@ -147,7 +146,7 @@ class ONNXBackend(Backend):
         if not providers_key:
             providers = DEVICE_MAPPING["default"]
         else:
-             providers = DEVICE_MAPPING.get(providers_key,
+            providers = DEVICE_MAPPING.get(providers_key,
                                            DEVICE_MAPPING["default"])
         self.model_session = ort.InferenceSession(self.weight_path,
                                                   providers=providers)
