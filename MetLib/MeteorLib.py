@@ -16,11 +16,33 @@ color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
 
 
 class Name2Label(object):
+    """类别名称映射到Label的类。
+    如果使用自定义的模型，并且输出标签与以下标签不同，
+    则需要构建映射标签以确保同一名称映射到相同标签下。
+
+    目前的映射表配置如下：
+    
+    * 0 - METEOR - 流星
+    * 1 - PLANE_SATELLITE 卫星/飞机
+    * 2 - RED_SPRITE  普通红色精灵。所有常规精灵目前统一归属该标签下。
+    * 3 - LIGHTNING  常规闪电事件。
+    * 4 - JET  喷流类精灵。包含巨大喷流，蓝色喷流，次生喷流，蓝色启辉器等。
+    * 5 - RARE_SPRITE  稀有类型的精灵。主要是红环，红晕类的大面积黯淡精灵。目前也包含鬼火等样本极少的类别。
+    * 6 - SPACECRAFT 人造天体引起的大气景观集合。如发射时的火箭云，航天器再入，燃料排空等。目前类别较少，因此集成。
+    * 7 - BUGS  飞虫或小型动物飞行产生的轨迹。
+    * 8 - OTHERS  目前未归类的，但能确认并非噪声的响应。(自动生成)
+    * 9 - DROPPED 应当被丢弃的类别。(自动生成)
+    """
     METEOR = 0
     PLANE_SATELLITE = 1
     RED_SPRITE = 2
     LIGHTNING = 3
-    UNKNOWN_AREA = NUM_CLASS - 1
+    JET = 4
+    RARE_SPRITE = 5
+    SPACECRAFT = 6
+    BUGS = 7
+    OTHERS = NUM_CLASS - 2
+    DROPPED = NUM_CLASS - 1
 
 
 def scale_to(pt, rescale):
@@ -144,7 +166,7 @@ class MeteorCollector(object):
                         2) and (self.prob_meteor(ms) != self.det_thre):
                     # 没有后校验的情况下，UNKNOWN，PLANE_SATELLITE类型不给予输出
                     if self.met_exporter.recheck or not (ms.cate in [
-                            Name2Label.UNKNOWN_AREA, Name2Label.PLANE
+                            Name2Label.OTHERS, Name2Label.PLANE_SATELLITE
                     ]):
                         temp_waiting_meteor.append(ms)
                     else:

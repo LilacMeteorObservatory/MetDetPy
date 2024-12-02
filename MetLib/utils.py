@@ -818,6 +818,8 @@ with open(relative2abs_path("./config/class_name.txt")) as f:
     mapper = [x.strip().split() for x in f.readlines()]
     for num, name in mapper:
         ID2NAME[int(num)] = name
-ID2NAME[3] = "UNKNOWN_AREA"
-# NUM_CLASS here includes "UNKNOWN AREA" with the last label
+MAX_EXISTING_ID = max(ID2NAME.keys())
+ID2NAME[MAX_EXISTING_ID + 1] = "OTHERS"
+ID2NAME[MAX_EXISTING_ID + 2] = "DROPPED"
+# NUM_CLASS here includes "OTHERS" with the last label
 NUM_CLASS = len(ID2NAME)
