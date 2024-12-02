@@ -24,13 +24,41 @@ import os
 import cv2
 
 from MetLib.Stacker import max_stacker, all_stacker
-from MetLib.utils import frame2ts, save_img, save_video, ts2frame
+from MetLib.utils import frame2ts, list2xyxy, save_img, save_video, ts2frame, xyxy2wxwh
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 from MetLib.MetLog import get_default_logger, set_default_logger
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
+
+
+def generate_labelme(single_data: dict, img_fn: str) -> dict:
+    if not "target" in single_data:
+        return {}
+    w, h = single_data["video_size"]
+    shapes_list = []
+    for object in single_data["target"]:
+        bbox = list2xyxy([*object["pt1"], *object["pt2"]])
+        #xywh_list = xyxy2wxwh(bbox)
+        shapes_list.append({
+            "label": object["category"],
+            "points": [[bbox.x1, bbox.y1], [bbox.x2, bbox.y2]],
+            "group_id": None,
+            "description": "",
+            "shape_type": "rectangle",
+            "flags": {},
+            "mask": None
+        })
+    return {
+        "version": "5.5.0",
+        "flags": {},
+        "imagePath": img_fn,
+        "shapes": shapes_list,
+        "imageData": None,
+        "imageHeight": h,
+        "imageWidth": w
+    }
 
 
 def main():
@@ -100,6 +128,10 @@ def main():
         "the quality of generated jpg image. It should be int ranged Z in [0,100];\
             By default, it is 95.",
         default=95)
+
+    argparser.add_argument("--with-annotation",
+                           action="store_true",
+                           help="generate labelme style annotation.")
 
     argparser.add_argument("--debug",
                            action="store_true",
@@ -208,6 +240,15 @@ def main():
                     logger.info(f"Saved: {full_path}")
                 else:
                     logger.error("Error occured, got empty image.")
+                # 在有target的情况下，同时生成labelme风格的标注
+                if args.with_annotation:
+                    res_dict = generate_labelme(single_data, img_fn=tgt_name)
+                    if res_dict:
+                        anno_path = os.path.join(
+                            save_path,
+                            ".".join(tgt_name.split(".")[:-1]) + ".json")
+                        with open(anno_path, mode="w") as f:
+                            json.dump(res_dict, f, ensure_ascii=False)
             else:
                 video_series = all_stacker(video_loader)
                 if video_series is not []:

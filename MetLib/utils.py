@@ -659,6 +659,14 @@ def xywh2xyxy(mat: np.ndarray, inplace=True):
         ])
 
 
+def xyxy2wxwh(xyxy: box) -> list[list]:
+    x = (xyxy.x1 + xyxy.x2) / 2
+    y = (xyxy.y1 + xyxy.y2) / 2
+    w = (xyxy.x2 - xyxy.x1) / 2
+    h = (xyxy.y2 - xyxy.y1) / 2
+    return [[x, y], [w, h]]
+
+
 def met2xyxy(met):
     """将met的字典转换为xyxy形式的坐标。
 
