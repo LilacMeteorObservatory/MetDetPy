@@ -87,6 +87,7 @@ def detect_video(video_name: str,
                                       exp_option=exp_option,
                                       exp_upper_bound=exp_upper_bound,
                                       merge_func=merge_func)
+        video_info = video_loader.summary()
         logger.info(video_loader.__repr__())
 
         # get properties from VideoLoader
@@ -211,11 +212,11 @@ def detect_video(video_name: str,
         logger.stop()
 
     return dict(version=VERSION,
-                basic_info=video_loader.summary(),
+                basic_info=video_info,
                 config=cfg,
                 type="prediction",
-                anno_size=video_loader.runtime_size,
-                results=meteor_collector.ended_meteor)
+                anno_size=video_info["resolution"],
+                results=meteor_collector.met_exporter.meteor_list)
 
 
 if __name__ == "__main__":
@@ -363,4 +364,4 @@ if __name__ == "__main__":
         if not save_path.lower().endswith(".json"):
             save_path += ".json"
         with open(save_path, mode="w") as f:
-            json.dump(result, f)
+            json.dump(result, f, ensure_ascii=False)

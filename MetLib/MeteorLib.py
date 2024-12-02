@@ -1,3 +1,4 @@
+import copy
 import threading
 import queue
 import json
@@ -16,7 +17,7 @@ color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
 
 class Name2Label(object):
     METEOR = 0
-    PLANE = 1
+    PLANE_SATELLITE = 1
     RED_SPRITE = 2
     LIGHTNING = 3
     UNKNOWN_AREA = NUM_CLASS - 1
@@ -68,20 +69,16 @@ class MeteorCollector(object):
         self.active_meteor = [
             MeteorSeries(np.inf, np.inf,
                          np.array([[-100, -100], [-101, -101], [-102, -102]]),
-                         np.nan, np.nan, None)
+                         np.nan, np.nan, None, fps)
         ]
         self.waiting_meteor = []
-        self.ended_meteor = []
         self.cur_frame = 0
         self.eframe = eframe
         self.fps = fps
         self.raw_size = raw_size
-        # 调整time的验证下界
-        # TODO: 梳理一下time_range相关逻辑
-        meteor_cfg.time_range[0] *= fps
-        meteor_cfg.time_range[1] *= fps
+        # 用于过滤较短的响应的机制需要调整，否则无法捕获到瞬态大气现象（如闪电，红色精灵）
         meteor_cfg.time_range[0] = max(meteor_cfg.time_range[0],
-                                       int(4 * self.eframe + 2))
+                                       (4 * self.eframe + 2) / self.fps)
         self.time_prob_func = create_prob_func(meteor_cfg.time_range)
         self.speed_prob_func = create_prob_func(meteor_cfg.speed_range)
         self.len_prob_func = create_prob_func((self.min_len, np.inf))
@@ -93,7 +90,8 @@ class MeteorCollector(object):
                                         recheck_cfg=recheck_cfg,
                                         video_loader=video_loader,
                                         logger=logger,
-                                        max_interval=self.max_interval)
+                                        max_interval=self.max_interval,
+                                        det_thre=self.det_thre)
 
         # 定义可视化接口字段及格式
         self.visu_param = dict(
@@ -144,7 +142,7 @@ class MeteorCollector(object):
                 # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
                 if (self.prob_meteor(ms) > self.det_thre /
                         2) and (self.prob_meteor(ms) != self.det_thre):
-                    # 没有后校验的情况下，UNKNOWN，PLANE类型不给予输出
+                    # 没有后校验的情况下，UNKNOWN，PLANE_SATELLITE类型不给予输出
                     if self.met_exporter.recheck or not (ms.cate in [
                             Name2Label.UNKNOWN_AREA, Name2Label.PLANE
                     ]):
@@ -156,10 +154,8 @@ class MeteorCollector(object):
         # 维护
         for ms in drop_list:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(self.get_met_attr(ms))
         for ms in temp_waiting_meteor:
             self.active_meteor.remove(ms)
-            self.ended_meteor.append(self.get_met_attr(ms))
 
         # drop的部分不进行合并，直接构建序列
         self.met_exporter.export(self.met_exporter.DROP_FLAG,
@@ -184,7 +180,7 @@ class MeteorCollector(object):
                 ]
                 # sort meteors in ASC order to avoid time fmt error
                 waiting_meteor.sort(key=lambda ms: ms["start_frame"])
-                self.met_exporter.export(self.met_exporter.ACTIVE_FALG,
+                self.met_exporter.export(self.met_exporter.ACTIVE_FLAG,
                                          waiting_meteor)
                 self.waiting_meteor.clear()
 
@@ -200,7 +196,7 @@ class MeteorCollector(object):
             # 对于直线类型（流星，飞机），使用头尾及中间点作为点集
             # 对于面积类型（未知类别，闪电，精灵），使用边界点及中心点作为点集
             # TODO: 目前使用硬编码。未来优化。
-            if cate_id in [Name2Label.METEOR, Name2Label.PLANE]:
+            if cate_id in [Name2Label.METEOR, Name2Label.PLANE_SATELLITE]:
                 line = np.array(
                     [line[:2], line[2:], (line[:2] + line[2:]) // 2])
             else:
@@ -227,7 +223,8 @@ class MeteorCollector(object):
                              line,
                              max_acceptable_dist=self.thre2,
                              max_acti_frame=self.max_acti_frame,
-                             cate_prob=cate_prob))
+                             cate_prob=cate_prob,
+                             fps=self.fps))
 
     def visu(self, frame_num):
         active_meteors, active_pts = [], []
@@ -323,13 +320,14 @@ class MeteorCollector(object):
                     end_time=self.frame2ts(met.end_frame),
                     last_activate_frame=met.last_activate_frame,
                     last_activate_time=self.frame2ts(met.last_activate_frame),
-                    duration=met.duration,
+                    duration=np.round(met.duration, 3),
                     speed=np.round(met.speed, 3),
                     dist=np.round(dist, 3),
                     num_pts=len(met.coord_list),
                     category=ID2NAME[met.cate],
                     pt1=pt1,
                     pt2=pt2,
+                    center_point_list=met.center_list.get_pts_as_list(),
                     drct_loss=np.round(met.drst_std, 3),
                     score=np.round(self.prob_meteor(met), 2))
 
@@ -344,8 +342,9 @@ class MeteorSeries(object):
         object (_type_): _description_
     """
 
-    def __init__(self, start_frame, cur_frame, init_pts, max_acceptable_dist,
-                 max_acti_frame, cate_prob):
+    def __init__(self, start_frame: int, cur_frame: int, init_pts: list,
+                 max_acceptable_dist: int, max_acti_frame: int, cate_prob,
+                 fps: float):
         """_summary_
 
         Args:
@@ -355,13 +354,22 @@ class MeteorSeries(object):
             max_acceptable_dist (_type_): _description_
             max_acti_frame (_type_): _description_
             cate_prob (_type_): _description_
+        
+        MeteorSeries Property:
+            start_frame [int] 起始帧
+            end_frame [int] 运动结束帧
+            last_activate_frame [int] 最后响应帧
+            
+        NOTE: MeteorSeries 的 end_frame 与 MeteorCollector 的 end_frame 语义不同。
         """
         assert len(init_pts) in (
             3, 5
         ), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
         self.coord_list = PointList()
+        self.center_list = PointList()
         self.drct_list = []
         self.coord_list.extend(init_pts, cur_frame)
+        self.center_list.extend(np.mean(init_pts, axis=0)[None, :], cur_frame)
         self.drct_list.append(pt_drct(init_pts[0], init_pts[1]))
         self.start_frame = start_frame
         self.end_frame = cur_frame
@@ -370,6 +378,7 @@ class MeteorSeries(object):
         self.max_acceptable_dist = max_acceptable_dist
         self.count = 1
         self.cate_prob = cate_prob
+        self.fps = fps
         self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
         self.calc_new_range(init_pts)
 
@@ -389,14 +398,22 @@ class MeteorSeries(object):
         return np.argmax(self.cate_prob, axis=0)
 
     @property
-    def duration(self):
-        # TODO: 使用last_activate_frame而不是end_frame是否準確？存疑，需要在下版本驗證。
-        return self.last_activate_frame - self.start_frame + 1
-
-    def calc_new_range(self, pts):
+    def duration(self) -> float:
         """
+        duration 描述了该流星片段的完整持续秒数，因此使用 last_activate_frame 而不是 end_frame 进行计算。
+        
+        由于上述原因，在计算速度时，不应直接使用 duration。
+
         Returns:
-            _type_: _description_
+            int: 片段的完整持续帧数
+        """
+        return (self.last_activate_frame - self.start_frame + 1) / self.fps
+
+    def calc_new_range(self, pts) -> None:
+        """基于输入的新点集，更新该 MeteorSeries 的范围值 (self.range). 
+
+        Args:
+            pts (list): 点集合
         """
         self.range = [
             min(int(min([pt[0] for pt in pts])), self.range[0][0]),
@@ -426,8 +443,16 @@ class MeteorSeries(object):
 
     @property
     def speed(self):
-        # TODO: 有个问题：我这个速度是不是应该考虑fps的影响来着...
-        return self.dist / (self.end_frame - self.start_frame + 1e-6)
+        """返回流星序列的平均速度。其中距离通过直接求最大跨度获得，时间仅使用运动期间的时长。
+        
+        NOTE: v2.2.0中对速度信息乘以了fps值以进行修正，该版本前后的速度值会有较大差异。
+        TODO: 非标准配置文件的速度值需要被更新。
+
+        Returns:
+            _type_: _description_
+        """
+        return self.dist / (self.end_frame - self.start_frame +
+                            1e-6) * self.fps
 
     def update(self, new_frame, new_box, new_cate):
         """为序列更新新的响应
@@ -448,6 +473,7 @@ class MeteorSeries(object):
                 break
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
+        self.center_list.extend(np.mean(new_box, axis=0)[None, :], new_frame)
         # range由calc_new_range更新，除去init外每次仅在update时更新
         self.calc_new_range(new_box)
         self.drct_list.append(pt_drct(new_box[0], new_box[1]))
@@ -501,9 +527,8 @@ class PointList(object):
         else:
             return self.pts[self.iteration]
 
-    def __repr__(self) -> str:
-        return "[" + ",".join(
-            ["[" + ",".join(str(p) for p in x) + "]" for x in self.pts]) + "]"
+    def get_pts_as_list(self) -> list:
+        return [[np.round(x[0], 3), np.round(x[1], 3)] for x in self.pts]
 
     def __getitem__(self, i):
         return self.pts[i]
@@ -526,14 +551,15 @@ class MetExporter(object):
     """
     END_FLAG = "END_FLAG"
     DROP_FLAG = "DROP_FLAG"
-    ACTIVE_FALG = "ACTIVE_FLAG"
+    ACTIVE_FLAG = "ACTIVE_FLAG"
 
     def __init__(self, runtime_size, raw_size, recheck_cfg, video_loader,
-                 logger, max_interval) -> None:
+                 logger, max_interval, det_thre) -> None:
         self.queue = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.logger = logger
         self.max_interval = max_interval
+        self.det_thre = det_thre
         if self.recheck:
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model)
@@ -543,6 +569,7 @@ class MetExporter(object):
         self.export_loop = threading.Thread(target=self.loop, daemon=True)
         self.export_loop.start()
         self.save_path = recheck_cfg.save_path
+        self.meteor_list = []
         if self.save_path:
             self.logger.info(
                 f"Rechecked imgs will be saved to \"{self.save_path}\".")
@@ -559,12 +586,16 @@ class MetExporter(object):
             KeyError: _description_
         """
         flag, data = self.queue.get()
-        while flag in [self.ACTIVE_FALG, self.DROP_FLAG]:
+        while flag in [self.ACTIVE_FLAG, self.DROP_FLAG]:
             if flag == self.DROP_FLAG:
                 for ms_attr in data:
-                    met = self.init_output_dict(ms_attr)
+                    # 标签修正
+                    ms_attr["category"] = Name2Label.DROPPED
                     # 坐标修正和序列化
-                    self.logger.dropped(self.cvt2json(met))
+                    output_dict = self.init_output_dict(ms_attr)
+                    output_dict = self.rescale(output_dict)
+                    self.meteor_list.append(output_dict)
+                    self.logger.dropped(self.cvt2json(output_dict))
             else:
                 # ACTIVE_FLAG
                 output_dict = dict()
@@ -593,24 +624,60 @@ class MetExporter(object):
                     final_list = self.recheck_progress(final_list)
                 for met in final_list:
                     # 坐标修正和序列化
+                    met = self.rescale(met)
+                    self.meteor_list.append(met)
                     self.logger.meteor(self.cvt2json(met))
             # get next
             flag, data = self.queue.get()
         if flag != self.END_FLAG:
             raise KeyError(
-                f"Unexpected flag received. Except [{self.ACTIVE_FALG}"
+                f"Unexpected flag received. Except [{self.ACTIVE_FLAG}"
                 f"{self.DROP_FLAG},{self.END_FLAG}], got {flag} instead.")
 
-    def cvt2json(self, meteor_dict: dict) -> str:
-        """将流星列表转化为JSON-string列表.
+    def rescale(self, meteor_dict: dict) -> dict:
+        """将复合的meteor_dict中的坐标映射回真实分辨率下。
+
+        Args:
+            meteor_dict (dict): _description_
+
+        Returns:
+            dict: _description_
+        """
+
+        # TODO: 这一段的写法应该还得优化下。
+        def _rescale(meteor):
+            """将单个meteor中的坐标映射回真实分辨率下。
+
+            Args:
+                meteor (_type_): _description_
+            """
+            meteor["pt1"] = scale_to(meteor["pt1"], self.rescale_ratio)
+            meteor["pt2"] = scale_to(meteor["pt2"], self.rescale_ratio)
+            for i in range(len(meteor["center_point_list"])):
+                meteor["center_point_list"][i] = scale_to(
+                    meteor["center_point_list"][i], self.rescale_ratio)
+            return meteor
+
+        meteor_dict["target"] = [
+            _rescale(single_meteor) for single_meteor in meteor_dict["target"]
+        ]
+
+        return meteor_dict
+
+    def cvt2json(self,
+                 meteor_dict: dict,
+                 remove_list: list = ["center_point_list"]) -> str:
+        """将流星列表转化为JSON-string列表. 移除一部分非必要的字段以简化命令行输出。
 
         Args:
             meteor_list (_type_): _description_
         """
         # 转换尺寸，将输出的所有尺寸放缩回真实位置
-        for meteor in meteor_dict["target"]:
-            meteor["pt1"] = scale_to(meteor["pt1"], self.rescale_ratio)
-            meteor["pt2"] = scale_to(meteor["pt2"], self.rescale_ratio)
+        meteor_dict = copy.deepcopy(meteor_dict)
+        for x in meteor_dict["target"]:
+            for key in remove_list:
+                if key in x:
+                    x.pop(key)
         return json.dumps(meteor_dict)
 
     def init_output_dict(self, attributes):
@@ -644,6 +711,7 @@ class MetExporter(object):
                 continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
             # 匹配bbox，丢弃未检出box，修改与类别得分为模型预测得分
+            # TODO: 未匹配的需要落到丢弃列表中
             raw_bbox_list = [[*x["pt1"], *x["pt2"]]
                              for x in output_dict["target"]]
             matched_pairs = box_matching(bbox_list, raw_bbox_list)
@@ -652,12 +720,22 @@ class MetExporter(object):
             for l, r in matched_pairs:
                 label = np.argmax(score_list[l, :], axis=0)
                 score = score_list[l, label]
-                if label == Name2Label.PLANE:
+                if label == Name2Label.PLANE_SATELLITE:
                     continue
                 sure_meteor = output_dict["target"][r]
                 sure_meteor["category"] = ID2NAME.get(label, "UNDEFINED")
-                # TODO: 最终得分应当被修正。否则可能引起预期外问题。
-                sure_meteor["score"] = np.round(score.astype(np.float64), 2)
+                sure_meteor["raw_score"] = sure_meteor["score"]
+                sure_meteor["recheck_score"] = score.astype(np.float64)
+                # 当预测为流星时，求分数均值作为最终得分。
+                if label == Name2Label.METEOR:
+                    mge_score = (sure_meteor["recheck_score"] +
+                                 sure_meteor["raw_score"]) / 2
+                    # 如果分数低于卡控分数，则仍应跳过
+                    if sure_meteor["score"] < self.det_thre:
+                        continue
+                else:
+                    mge_score = score.astype(np.float64)
+                sure_meteor["score"] = np.round(mge_score, 2)
                 fixed_output_dict["target"].append(sure_meteor)
             # after fix. to be optimized.
             if len(fixed_output_dict["target"]) == 0:

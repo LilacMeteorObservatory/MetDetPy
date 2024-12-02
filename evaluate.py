@@ -377,7 +377,7 @@ def main():
             if args.save:
                 # List of predictions
                 with open(args.save, mode='w', encoding="utf-8") as f:
-                    json.dump(new_result, f)
+                    json.dump(new_result, f, ensure_ascii=False)
 
         if args.metric:
             compare(video, base_dict=video_dict, new_dict=new_result)
