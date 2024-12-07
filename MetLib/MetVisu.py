@@ -82,7 +82,7 @@ class OpenCVMetVisu(object):
                  radius: int = 2,
                  dist2boarder: int = 10,
                  fontface=cv2.FONT_HERSHEY_COMPLEX) -> None:
-        """基于OpenCV的流星检测可视化类。
+        """基于OpenCV的流星检测可视化组件。
 
         Args:
             exp_time (int): exposure_time
@@ -197,6 +197,14 @@ class OpenCVMetVisu(object):
                 self.text_visu_param[key] = cfg
 
     def display_a_frame(self, data: dict) -> bool:
+        """使用传入参数渲染完整的一帧。
+
+        Args:
+            data (dict): _description_
+
+        Returns:
+            bool: 状态值，代表是否成功渲染并展示。
+        """
         # 通过键盘中断时返回失败信号
         # 如果不渲染则固定返回成功
         if not self.flag:
@@ -294,6 +302,14 @@ class OpenCVMetVisu(object):
                                        fontScale=cfg["fontScale"],
                                        color=self.parse_color(cfg["color"]),
                                        thickness=cfg["thickness"])
+
+        # 放缩到指定的分辨率
+        # TODO: 会导致字体类看不清楚...
+        # h, w, _ = base_img.shape
+        # tgt_w, tgt_w = self.resolution
+        if self.resolution[0]!=base_img.shape[1] or self.resolution[1]!=base_img.shape[0]:
+            base_img = cv2.resize(base_img, self.resolution)
+
         return base_img
 
     def fill_cfg_w_default(self, cfg, default_cfg):
