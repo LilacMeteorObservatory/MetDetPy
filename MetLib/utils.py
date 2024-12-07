@@ -429,6 +429,50 @@ def load_8bit_image(filename):
                         cv2.IMREAD_UNCHANGED)
 
 
+def load_mask(mask_fname: Optional[str] = None,
+              opencv_resize: Optional[list[int]] = None,
+              grayscale: bool = False) -> np.ndarray:
+    """
+    Load mask from the given path `mask_fname` and rescale it to the given size (if required).
+    If `None` is provided, then a all-one mask will be returned.
+        
+    Args:
+        mask_fname (Optional[str], optional): path to the mask. Defaults to None.
+        opencv_resize (Optional[list[int]], optional): required resize params (in opencv style, W x H). Defaults to None.
+        grayscale (bool, optional): whether to return a grayscale mask (1-channel ndarray). Defaults to False.
+
+    Raises:
+        ValueError: raised when mask_fname and opencv_resize are both empty.
+
+    Returns:
+        np.ndarray: the resized mask.
+    """
+    
+    if mask_fname == None:
+        if opencv_resize is None:
+            raise ValueError(
+                "opencv_resize is required when mask_fname is empty!")
+        if grayscale:
+            return np.ones(transpose_wh(opencv_resize), dtype=np.uint8)
+        else:
+            return np.ones(transpose_wh(opencv_resize + [3]), dtype=np.uint8)
+    mask = load_8bit_image(mask_fname)
+    mask_transformer = Transform()
+    mask_transformer.opencv_resize(opencv_resize)
+    if mask_fname.lower().endswith(".jpg"):
+        mask_transformer.opencv_BGR2GRAY()
+        mask_transformer.opencv_binary(128, 1)
+    elif mask_fname.lower().endswith(".png"):
+        # 对于png，仅取透明度层，且逻辑取反
+        mask = mask[:, :, -1]
+        mask_transformer.opencv_binary(128, 1, inv=True)
+
+    if not grayscale:
+        mask_transformer.expand_3rd_channel(3)
+
+    return mask_transformer.exec_transform(mask)
+
+
 def transpose_wh(size_mat: Union[list, tuple, np.ndarray]) -> list:
     """
     Convert OpenCV style size (width, height, (channel)) to Numpy style size (height, width, (channel)), vice versa.

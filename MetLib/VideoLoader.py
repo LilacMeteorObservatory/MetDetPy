@@ -26,8 +26,8 @@ import numpy as np
 
 from .MetLog import get_default_logger
 from .utils import (MergeFunction, Transform, frame2time, load_8bit_image,
-                    parse_resize_param, sigma_clip, time2frame, timestr2int,
-                    transpose_wh)
+                    load_mask, parse_resize_param, sigma_clip, time2frame,
+                    timestr2int, transpose_wh)
 from .VideoWrapper import BaseVideoWrapper
 
 UP_EXPOSURE_BOUND = 0.5
@@ -221,7 +221,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         # load video and mask
         self.video = video_wrapper(video_name)
         self.runtime_size = parse_resize_param(resize_option, self.raw_size)
-        self.mask = self.load_mask(self.mask_name)
+        self.mask = load_mask(self.mask_name, self.runtime_size,
+                              self.grayscale)
 
         # init reader status (start and end time)
         start_frame = time2frame(timestr2int(start_time),
@@ -254,37 +255,6 @@ class VanillaVideoLoader(BaseVideoLoader):
         assert not (
             self.merge_func == MergeFunction.not_merge and self.exp_frame != 1
         ), "Cannot \"not_merge\" frames when num of exposure frames > 1. Please specify a merge function."
-
-    def load_mask(self, mask_fname: Union[str, None]) -> np.ndarray:
-        """Load mask from the given path `mask_fname` and rescale it.
-
-        Args:
-            mask_fname (str): path to the mask.
-
-        Returns:
-            np.ndarray: the resized mask.
-        """
-        if mask_fname == None:
-            if self.grayscale:
-                return np.ones(transpose_wh(self.runtime_size), dtype=np.uint8)
-            else:
-                return np.ones(transpose_wh(self.runtime_size + [3]),
-                               dtype=np.uint8)
-        mask = load_8bit_image(mask_fname)
-        mask_transformer = Transform()
-        mask_transformer.opencv_resize(self.runtime_size)
-        if mask_fname.lower().endswith(".jpg"):
-            mask_transformer.opencv_BGR2GRAY()
-            mask_transformer.opencv_binary(128, 1)
-        elif mask_fname.lower().endswith(".png"):
-            # 对于png，仅取透明度层，且逻辑取反
-            mask = mask[:, :, -1]
-            mask_transformer.opencv_binary(128, 1, inv=True)
-
-        if not self.grayscale:
-            mask_transformer.expand_3rd_channel(3)
-
-        return mask_transformer.exec_transform(mask)
 
     def start(self):
         self.cur_iter = self.iterations
