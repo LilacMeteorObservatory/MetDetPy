@@ -133,6 +133,10 @@ def main():
                            action="store_true",
                            help="generate labelme style annotation.")
 
+    argparser.add_argument("--debayer",
+                           action="store_true",
+                           help="apply debayer for video mode.")
+
     argparser.add_argument("--debug",
                            action="store_true",
                            help="apply debug mode.")
@@ -196,7 +200,8 @@ def main():
                                      video_name,
                                      resize_option=resize,
                                      exp_option="real-time",
-                                     resize_interpolation=cv2.INTER_LANCZOS4)
+                                     resize_interpolation=cv2.INTER_LANCZOS4,
+                                     debayer=args.debayer)
 
     # get video name
     _, video_name_nopath = os.path.split(video_name)

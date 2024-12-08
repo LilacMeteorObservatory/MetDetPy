@@ -166,7 +166,8 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
     video = ThreadVideoLoader(OpenCVVideoWrapper,
                               input_path,
                               mask_name=args.mask,
-                              exp_option="real-time")
+                              exp_option="real-time",
+                              debayer=args.debayer)
     tot_frames = video.iterations
     video.start()
     visual_manager = OpenCVMetVisu(exp_time=1,
@@ -177,17 +178,12 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
     for i in tqdm.tqdm(range(tot_frames)):
         img = video.pop()
         if img is None: continue
-        # TODO: 整合debayer到预处理步骤
-        if args.debayer:
-            img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
-                               cv2.COLOR_BAYER_BGGR2BGR,
-                               dstCn=3)
         boxes, preds = model.forward(img)
-        if len(boxes)>0:
+        if len(boxes) > 0:
             results.append({
                 "num_frame":
                 i,
-                "boxes": [list(map(int,x)) for x in boxes],
+                "boxes": [list(map(int, x)) for x in boxes],
                 "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds]
             })
         if args.visu:

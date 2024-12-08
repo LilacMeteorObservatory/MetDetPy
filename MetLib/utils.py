@@ -82,6 +82,10 @@ class Transform(object):
     """图像变换方法的集合类，及一个用于执行集成变换的方法。
     """
     MASK_FLAG = "MASK"
+    PATTERN_MAPPING = {
+        "BGGR": cv2.COLOR_BAYER_BGGR2BGR,
+        "RGGB": cv2.COLOR_BAYER_RGGB2BGR
+    }
 
     def __init__(self) -> None:
         self.transform = []
@@ -121,6 +125,13 @@ class Transform(object):
                  maxval=maxval,
                  type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)
         ])
+
+    def opencv_debayer(self, pattern="BGGR"):
+        assert pattern in self.PATTERN_MAPPING, f"unsupport debayer pattern! choice from {self.PATTERN_MAPPING}"
+        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)])
+        self.transform.append(
+            [cv2.cvtColor,
+             dict(code=self.PATTERN_MAPPING[pattern], dstCn=3)])
 
     def exec_transform(self, img: np.ndarray) -> np.ndarray:
         """按顺序执行给定的变换。
@@ -447,7 +458,7 @@ def load_mask(mask_fname: Optional[str] = None,
     Returns:
         np.ndarray: the resized mask.
     """
-    
+
     if mask_fname == None:
         if opencv_resize is None:
             raise ValueError(
