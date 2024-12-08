@@ -519,7 +519,7 @@ def ts2frame(time: str, fps: float) -> int:
     else:
         dt = datetime.datetime.strptime(time, "%H:%M:%S")
     dt_time = dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
-    return int(dt_time * fps)
+    return int(round(dt_time * fps))
 
 
 def time2frame(time: int, fps: float) -> int:
@@ -532,7 +532,7 @@ def time2frame(time: int, fps: float) -> int:
     Returns:
         int: the frame num.
     """
-    return int(time / 1000 * fps)
+    return int(round(time / 1000 * fps))
 
 
 def frame2time(frame: int, fps: float) -> int:
@@ -545,7 +545,7 @@ def frame2time(frame: int, fps: float) -> int:
     Returns:
         int: the time num.
     """
-    return int(frame * 1000 / fps)
+    return int(round(frame * 1000 / fps))
 
 
 def timestr2int(time: str) -> int:

@@ -5,7 +5,7 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
 从v2.2.0开始，扩增了支持的输入风格，以支持更灵活的使用和更通用的场景。支持了以下主要调用方法：
 
 1. 同时提供target视频与复数个片段的json。（延续v1.3.0开始的风格。）
-    示例：python evaluate.py "test/20220413_annotation.json"
+    示例：python ClipToolkit.py target "test/20220413_annotation.json"
 
 2. 当仅处理单张图像时，可以仅指定target视频，并在 optional args中使用简化的输入接口：
     示例：python ClipToolkit.py target --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name 123.jpg
@@ -170,6 +170,23 @@ def main():
                 f"{target_name} is not a valid json file for ClipToolkit.")
         video_name = raw_data["basic_info"]["video"]
         data = raw_data["results"]
+        if raw_data["type"] == "image-prediction":
+            # 图像模式下，data需要进行一定预处理
+            # 将 num_frame 转换为实际起止时间戳，并整理标注。
+            for i in range(len(data)):
+                raw_anno = data[i]
+                start_time = frame2ts(raw_anno["num_frame"],
+                                      raw_data["basic_info"]["fps"])
+                end_time = frame2ts(raw_anno["num_frame"] + 1,
+                                    raw_data["basic_info"]["fps"])
+                target = []
+                for (box, pred) in zip(raw_anno["boxes"], raw_anno["preds"]):
+                    target.append(dict(pt1=box[:2], pt2=box[2:],
+                                       category=pred))
+                data[i].update(video_size=raw_data["anno_size"],
+                               start_time=start_time,
+                               end_time=end_time,
+                               target=target)
     else:
         # target被作为视频解析。从参数构造单个使用的data。
         video_name = target_name
