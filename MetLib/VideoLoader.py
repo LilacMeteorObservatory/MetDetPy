@@ -182,7 +182,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  debayer: bool = False,
-                 debayer_option: str = "BGGR",
+                 debayer_pattern: str = "BGGR",
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
@@ -220,7 +220,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.status = True
         self.read_stopped = True
         self.debayer = debayer
-        self.debayer_option = debayer_option
+        self.debayer_pattern = debayer_pattern
 
         # load video and mask
         self.video = video_wrapper(video_name)
@@ -247,7 +247,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         if self.raw_size != self.runtime_size:
             self.preprocess.opencv_resize(self.runtime_size, **kwargs)
         if self.debayer:
-            self.preprocess.opencv_debayer(pattern=self.debayer_option)
+            self.preprocess.opencv_debayer(pattern=self.debayer_pattern)
         if self.grayscale:
             self.preprocess.opencv_BGR2GRAY()
         if self.mask_name:
@@ -483,7 +483,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  debayer: bool = False,
-                 debayer_option: str = "BGGR",
+                 debayer_pattern: str = "BGGR",
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
@@ -493,7 +493,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.queue = queue.Queue(maxsize=self.maxsize)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
-                         debayer_option, exp_option, exp_upper_bound,
+                         debayer_pattern, exp_option, exp_upper_bound,
                          merge_func, **kwargs)
 
     def clear_queue(self):
@@ -614,7 +614,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
                  debayer: bool = False,
-                 debayer_option: str = "BGGR",
+                 debayer_pattern: str = "BGGR",
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
@@ -624,7 +624,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.notify_queue = MQueue(maxsize=self.maxsize - 1)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
-                         debayer_option, exp_option, exp_upper_bound,
+                         debayer_pattern, exp_option, exp_upper_bound,
                          merge_func, **kwargs)
 
     def start(self):

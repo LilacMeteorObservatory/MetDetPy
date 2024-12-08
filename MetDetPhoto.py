@@ -116,6 +116,8 @@ parser.add_argument("--model-type",
 parser.add_argument("--debayer",
                     help="apply debayer to the given image/video.",
                     action="store_true")
+parser.add_argument("--debayer-pattern",
+                       help="debayer pattern, like RGGB or BGGR.")
 parser.add_argument("--visu",
                     "-V",
                     action="store_true",
@@ -167,7 +169,8 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
                               input_path,
                               mask_name=args.mask,
                               exp_option="real-time",
-                              debayer=args.debayer)
+                              debayer=args.debayer,
+                              debayer_pattern=args.debayer_pattern)
     tot_frames = video.iterations
     video.start()
     visual_manager = OpenCVMetVisu(exp_time=1,

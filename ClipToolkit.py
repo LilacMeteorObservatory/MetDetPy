@@ -136,6 +136,8 @@ def main():
     argparser.add_argument("--debayer",
                            action="store_true",
                            help="apply debayer for video mode.")
+    argparser.add_argument("--debayer-pattern",
+                           help="debayer pattern, like RGGB or BGGR.")
 
     argparser.add_argument("--debug",
                            action="store_true",
@@ -201,7 +203,8 @@ def main():
                                      resize_option=resize,
                                      exp_option="real-time",
                                      resize_interpolation=cv2.INTER_LANCZOS4,
-                                     debayer=args.debayer)
+                                     debayer=args.debayer,
+                                     debayer_pattern=args.debayer_pattern)
 
     # get video name
     _, video_name_nopath = os.path.split(video_name)
