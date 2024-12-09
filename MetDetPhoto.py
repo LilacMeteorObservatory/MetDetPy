@@ -184,6 +184,14 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
         img = video.pop()
         if img is None: continue
         boxes, preds = model.forward(img)
+        if args.visu:
+            visu_info = construct_visu_info(
+                img, boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
+            visual_manager.display_a_frame(visu_info)
+            if visual_manager.manual_stop:
+                logger.info('Manual interrupt signal detected.')
+                break
+        # TODO: fix this in the future.
         preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
         if args.exclude_noise:
             selected_id = [
@@ -196,16 +204,9 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
                 "num_frame":
                 i,
                 "boxes": [list(map(int, x)) for x in boxes],
-                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds]
+                "preds": preds
             })
-            # TODO: fix this in the future.
-        if args.visu:
-            visu_info = construct_visu_info(
-                img, boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
-            visual_manager.display_a_frame(visu_info)
-            if visual_manager.manual_stop:
-                logger.info('Manual interrupt signal detected.')
-                break
+               
     # 保存结果
     if args.output_path:
         if args.output_type == "MDRF":
