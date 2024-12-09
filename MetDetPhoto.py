@@ -30,6 +30,7 @@ from MetLib.VideoWrapper import OpenCVVideoWrapper
 
 SUPPORT_IMG_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_VIDEO_FORMAT = ["avi", "mp4", "mkv", "mpeg"]
+EXCLUDE_LIST = ["PLANE/SATELLITE", "BUGS"]
 DEFAULT_COLOR = [64, 64, 64]
 CATE2COLOR_MAPPING = {
     "METEOR": [0, 255, 0],
@@ -110,6 +111,7 @@ parser.add_argument("--mask", help="path to the mask file.")
 parser.add_argument("--model-path",
                     help="/path/to/the/model",
                     default="./weights/yolov5s.onnx")
+parser.add_argument("--exclude-noise", action="store_true")
 parser.add_argument("--model-type",
                     help="type of the model. Support YOLO.",
                     default="YOLOModel")
@@ -117,7 +119,7 @@ parser.add_argument("--debayer",
                     help="apply debayer to the given image/video.",
                     action="store_true")
 parser.add_argument("--debayer-pattern",
-                       help="debayer pattern, like RGGB or BGGR.")
+                    help="debayer pattern, like RGGB or BGGR.")
 parser.add_argument("--visu",
                     "-V",
                     action="store_true",
@@ -182,6 +184,13 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
         img = video.pop()
         if img is None: continue
         boxes, preds = model.forward(img)
+        preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
+        if args.exclude_noise:
+            selected_id = [
+                i for i, pred in enumerate(preds) if pred not in EXCLUDE_LIST
+            ]
+            boxes = [boxes[i] for i in selected_id]
+            preds = [preds[i] for i in selected_id]
         if len(boxes) > 0:
             results.append({
                 "num_frame":
@@ -189,6 +198,7 @@ elif suffix in SUPPORT_VIDEO_FORMAT:
                 "boxes": [list(map(int, x)) for x in boxes],
                 "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds]
             })
+            # TODO: fix this in the future.
         if args.visu:
             visu_info = construct_visu_info(
                 img, boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
