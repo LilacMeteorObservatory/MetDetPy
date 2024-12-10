@@ -21,13 +21,15 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
 import argparse
 import json
 import os
+
 import cv2
 
-from MetLib.Stacker import max_stacker, all_stacker
-from MetLib.utils import frame2ts, list2xyxy, save_img, save_video, ts2frame, xyxy2wxwh
+from MetLib.MetLog import get_default_logger, set_default_logger
+from MetLib.Stacker import max_stacker
+from MetLib.utils import (frame2ts, list2xyxy, save_img, save_video_by_stream,
+                          ts2frame)
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
-from MetLib.MetLog import get_default_logger, set_default_logger
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
@@ -275,12 +277,14 @@ def main():
                         with open(anno_path, mode="w") as f:
                             json.dump(res_dict, f, ensure_ascii=False)
             else:
-                video_series = all_stacker(video_loader)
-                if video_series is not []:
-                    save_video(video_series, video_loader.fps, full_path)
+                status_code = save_video_by_stream(video_loader,
+                                                   video_loader.fps, full_path)
+                if status_code == 0:
                     logger.info(f"Saved: {full_path}")
                 else:
-                    logger.error("Error occured, got empty video clip.")
+                    logger.error(
+                        f"Error occured when writing the video to {full_path}."
+                    )
     finally:
         logger.stop()
 

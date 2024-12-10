@@ -1,20 +1,25 @@
-import numpy as np
+from logging import Logger
 from typing import Optional
 
+import numpy as np
 
-def all_stacker(video_loader,
-                start_frame=None,
-                end_frame=None,
-                logger=None) -> list:
-    """Load all frames to a mat(list, actually).
+from .VideoLoader import BaseVideoLoader, VanillaVideoLoader
+
+
+def all_stacker(video_loader: BaseVideoLoader,
+                start_frame: Optional[int]=None,
+                end_frame: Optional[int]=None,
+                logger: Optional[Logger]=None) -> list:
+    """ Load all frames to a matrix(list, actually).
 
     Args:
-        video (_type_): _description_
-        start_frame (_type_): _description_
-        end_frame (_type_): _description_
+        video_loader (BaseVideoLoader): initialized video loader.
+        start_frame (Optional[int], optional): the start frame of the stacker. Defaults to None.
+        end_frame (Optional[int], optional): the end frame of the stacker.. Defaults to None.
+        logger (Optional[Logger], optional): a logging.Logger object for logging use. Defaults to None.
 
     Returns:
-        _type_: _description_
+        list: a list containing all frames.
     """
     if start_frame != None or end_frame != None:
         video_loader.reset(start_frame=start_frame, end_frame=end_frame)
@@ -32,11 +37,21 @@ def all_stacker(video_loader,
 
     return mat
 
+def max_stacker(video_loader: VanillaVideoLoader,
+                start_frame: Optional[int]=None,
+                end_frame: Optional[int]=None,
+                logger: Optional[Logger]=None) -> Optional[np.ndarray]:
+    """Stack frames within range and return a stacked image.
 
-def max_stacker(video_loader,
-                start_frame=None,
-                end_frame=None,
-                logger=None) -> Optional[np.ndarray]:
+    Args:
+        video_loader (BaseVideoLoader): initialized video loader.
+        start_frame (Optional[int], optional): the start frame of the stacker. Defaults to None.
+        end_frame (Optional[int], optional): the end frame of the stacker.. Defaults to None.
+        logger (Optional[Logger], optional): a logging.Logger object for logging use. Defaults to None.
+
+    Returns:
+        Optional[np.ndarray]: the stacked image. If there is no frames to stack, return None.
+    """
     if start_frame != None or end_frame != None:
         video_loader.reset(start_frame=start_frame, end_frame=end_frame)
     base_frame = None

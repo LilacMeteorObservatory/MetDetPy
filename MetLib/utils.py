@@ -1,16 +1,19 @@
 import datetime
+from logging import Logger
 import os
 import warnings
 from collections import namedtuple
-from typing import Any, Callable, List, Optional, Type, Union
+from typing import Optional, Type, Union
 
 import cv2
 import numpy as np
 from easydict import EasyDict
 
+from MetLib.VideoLoader import VanillaVideoLoader
+
 from .MetLog import get_default_logger
 
-VERSION = "V2.1.0"
+VERSION = "V2.2.0"
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
@@ -338,7 +341,7 @@ def sigma_clip(sequence: Union[list, np.ndarray],
 
 
 def parse_resize_param(tgt_wh: Union[None, list, str, int],
-                       raw_wh: Union[list, tuple]) -> List[int]:
+                       raw_wh: Union[list, tuple]) -> list[int]:
     """Parse resize tgt_wh according to the video size, and return a list includes target width and height.
 
     This function accepts and returns in [w,h] order (i.e. OpenCV style).
@@ -419,7 +422,15 @@ def save_img(img, filename, quality, compressing):
         raise Exception("imencode failed.")
 
 
-def save_video(video_series, fps, video_path):
+def save_video(video_series: Union[np.ndarray, list], fps: Union[int, float],
+               video_path: str):
+    """ Save a given video clip.
+    
+    Args:
+        video_series (BaseVideoLoader): existing video series storage in np.ndarray or list format.
+        fps (Union[int, float]): video fps.
+        video_path (str): full output path of the video.
+    """
     cv_writer = None
     try:
         real_size = list(reversed(video_series[0].shape[:2]))
@@ -433,6 +444,48 @@ def save_video(video_series, fps, video_path):
     finally:
         if cv_writer:
             cv_writer.release()
+
+
+def save_video_by_stream(video_loader: VanillaVideoLoader,
+                         fps: Union[int, float],
+                         video_path: str,
+                         start_frame: Optional[int] = None,
+                         end_frame: Optional[int] = None,
+                         logger: Optional[Logger] = None) -> int:
+    """ Save video with stream (to avoid OutOfMemory).
+
+    Args:
+        video_loader (BaseVideoLoader): initialized video loader.
+        fps (Union[int, float]): video fps.
+        video_path (str): full output path of the video.
+        start_frame (Optional[int], optional): the start frame of the stacker. Defaults to None.
+        end_frame (Optional[int], optional): the end frame of the stacker.. Defaults to None.
+        logger (Optional[Logger], optional): a logging.Logger object for logging use. Defaults to None.
+    
+    Return:
+        int - return code. 0 for success.
+    """
+    if start_frame != None or end_frame != None:
+        video_loader.reset(start_frame=start_frame, end_frame=end_frame)
+    cv_writer = None
+    try:
+        video_loader.start()
+        cv_writer = cv2.VideoWriter(
+            video_path,
+            cv2.VideoWriter_fourcc(*"MJPG"),  # type: ignore
+            fps,
+            video_loader.runtime_size)
+        for i in range(video_loader.iterations):
+            cv_writer.write(video_loader.pop())
+    except Exception as e:
+        if logger:
+            logger.error(e.__repr__())
+        return -1
+    finally:
+        video_loader.stop()
+        if cv_writer:
+            cv_writer.release()
+    return 0
 
 
 def load_8bit_image(filename):

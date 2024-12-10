@@ -19,10 +19,12 @@ import queue
 import threading
 from abc import ABCMeta, abstractmethod
 from math import floor
-from multiprocess import freeze_support, Process, RawArray, Queue as MQueue  # type: ignore
 from typing import Any, Optional, Type, Union
 
 import numpy as np
+from multiprocess import Process # type: ignore
+from multiprocess import Queue as MQueue  # type: ignore
+from multiprocess import RawArray, freeze_support # type: ignore
 
 from .MetLog import get_default_logger
 from .utils import (MergeFunction, Transform, frame2time, load_8bit_image,
@@ -139,6 +141,11 @@ class BaseVideoLoader(metaclass=ABCMeta):
     @property
     @abstractmethod
     def raw_size(self):
+        pass
+
+    @property
+    @abstractmethod
+    def iterations(self) -> int:
         pass
 
 
@@ -297,7 +304,6 @@ class VanillaVideoLoader(BaseVideoLoader):
         if reset_time_attr:
             self.start_time = frame2time(self.start_frame, self.fps)
             self.end_time = frame2time(self.end_frame, self.fps)
-        self.iterations = self.end_frame - self.start_frame
         self.read_stopped = True
 
         self.logger.debug(
@@ -360,6 +366,10 @@ class VanillaVideoLoader(BaseVideoLoader):
     @property
     def eq_int_fps(self) -> int:
         return floor(self.eq_fps)
+
+    @property
+    def iterations(self) -> int:
+        return self.end_frame - self.start_frame
 
     def summary(self) -> dict:
         return dict(loader=self.__class__.__name__,
