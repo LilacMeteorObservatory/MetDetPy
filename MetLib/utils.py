@@ -1,15 +1,13 @@
 import datetime
-from logging import Logger
 import os
 import warnings
 from collections import namedtuple
+from logging import Logger
 from typing import Optional, Type, Union
 
 import cv2
 import numpy as np
 from easydict import EasyDict
-
-from MetLib.VideoLoader import VanillaVideoLoader
 
 from .MetLog import get_default_logger
 
@@ -446,7 +444,7 @@ def save_video(video_series: Union[np.ndarray, list], fps: Union[int, float],
             cv_writer.release()
 
 
-def save_video_by_stream(video_loader: VanillaVideoLoader,
+def save_video_by_stream(video_loader,
                          fps: Union[int, float],
                          video_path: str,
                          start_frame: Optional[int] = None,
