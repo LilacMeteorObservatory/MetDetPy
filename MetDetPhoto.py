@@ -32,6 +32,7 @@ SUPPORT_IMG_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_VIDEO_FORMAT = ["avi", "mp4", "mkv", "mpeg"]
 EXCLUDE_LIST = ["PLANE/SATELLITE", "BUGS"]
 DEFAULT_COLOR = [64, 64, 64]
+DEFAULT_VISUAL_WINDOW_SIZE = [960, 540]
 CATE2COLOR_MAPPING = {
     "METEOR": [0, 255, 0],
     "PLANE/SATELLITE": DEFAULT_COLOR,
@@ -41,6 +42,16 @@ CATE2COLOR_MAPPING = {
     "RARE_SPRITE": [0, 0, 255],
     "SPACECRAFT": [255, 0, 255]
 }
+
+
+class MockVideoObject(object):
+
+    def __init__(self, raw_summary) -> None:
+        self.raw_summary = raw_summary
+
+    def summary(self):
+        return self.raw_summary
+
 
 # 可视化参数组
 visu_param = dict(
@@ -53,7 +64,7 @@ visu_param = dict(
             "type": "rectangle",
             "position": "as-input",
             "color": "as-input",
-            "thickness": -1
+            "thickness": -1,
         }
     ],
     score_text=["text", {
@@ -143,86 +154,129 @@ model = YOLOModel(model_path,
                   nms=True,
                   warmup=True,
                   logger=logger)
-suffix = input_path.split(".")[-1].lower()
 
-if suffix in SUPPORT_IMG_FORMAT:
-    # img mode
-    img = load_8bit_image(input_path)
-    if img is None:
-        raise ValueError(f"Failed to load image file from {input_path}.")
-    mask = load_mask(args.mask, list(img.shape[1::-1]))
-    img = img * mask
+if os.path.isdir(input_path):
+    # img folder mode
+    img_list = [
+        os.path.join(input_path, x) for x in os.listdir(input_path)
+        if x.split(".")[-1].lower() in SUPPORT_IMG_FORMAT
+    ]
     visual_manager = OpenCVMetVisu(exp_time=1,
-                                   resolution=(960, 540),
-                                   flag=args.visu,
-                                   visu_param_list=[visu_param],
-                                   delay=-1)
-    boxes, preds = model.forward(img)
-    if args.visu:
-        visu_info = construct_visu_info(img,
-                                        boxes,
-                                        preds,
-                                        watermark_text=input_path)
-        visual_manager.display_a_frame(visu_info)
-        cv2.waitKey(0)
-elif suffix in SUPPORT_VIDEO_FORMAT:
-    # video mode
-    video = ThreadVideoLoader(OpenCVVideoWrapper,
-                              input_path,
-                              mask_name=args.mask,
-                              exp_option="real-time",
-                              debayer=args.debayer,
-                              debayer_pattern=args.debayer_pattern)
-    tot_frames = video.iterations
-    video.start()
-    visual_manager = OpenCVMetVisu(exp_time=1,
-                                   resolution=(960, 540),
+                                   resolution=(1920,1080),
                                    flag=args.visu,
                                    visu_param_list=[visu_param])
     results = []
-    for i in tqdm.tqdm(range(tot_frames)):
-        img = video.pop()
-        if img is None: continue
+
+    # temp fix: mock video object
+    summary_dict = dict(image_folder=input_path, resolution=None)
+    video = MockVideoObject(summary_dict)
+    for img_path in tqdm.tqdm(img_list):
+        img = load_8bit_image(img_path)
+        if img is None:
+            logger.error(f"Failed to load image file from {input_path}.")
+            continue
+        mask = load_mask(args.mask, list(img.shape[1::-1]))
+        img = img * mask
         boxes, preds = model.forward(img)
         if args.visu:
-            visu_info = construct_visu_info(
-                img, boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
+            visu_info = construct_visu_info(img,
+                                            boxes,
+                                            preds,
+                                            watermark_text=img_path)
             visual_manager.display_a_frame(visu_info)
             if visual_manager.manual_stop:
                 logger.info('Manual interrupt signal detected.')
                 break
-        # TODO: fix this in the future.
-        preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
-        if args.exclude_noise:
-            selected_id = [
-                i for i, pred in enumerate(preds) if pred not in EXCLUDE_LIST
-            ]
-            boxes = [boxes[i] for i in selected_id]
-            preds = [preds[i] for i in selected_id]
         if len(boxes) > 0:
             results.append({
-                "num_frame":
-                i,
+                "img_filename":
+                img_path,
                 "boxes": [list(map(int, x)) for x in boxes],
-                "preds": preds
+                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds]
             })
-               
-    # 保存结果
-    if args.output_path:
-        if args.output_type == "MDRF":
-            result_json = dict(version=VERSION,
-                               basic_info=video.summary(),
-                               type="image-prediction",
-                               anno_size=video.summary()["resolution"],
-                               results=results)
-            with open(os.path.join(
-                    args.output_path,
-                    os.path.splitext(os.path.split(input_path)[-1])[0] +
-                    ".json"),
-                      mode="w",
-                      encoding="utf-8") as f:
-                json.dump(result_json, f, ensure_ascii=False)
-else:
-    raise NotImplementedError(
-        f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_IMG_FORMAT}."
-    )
+
+elif os.path.isfile(input_path):
+    suffix = input_path.split(".")[-1].lower()
+
+    if suffix in SUPPORT_IMG_FORMAT:
+        # img mode
+        img = load_8bit_image(input_path)
+        if img is None:
+            raise ValueError(f"Failed to load image file from {input_path}.")
+        mask = load_mask(args.mask, list(img.shape[1::-1]))
+        img = img * mask
+        visual_manager = OpenCVMetVisu(exp_time=1,
+                                       resolution=(1920,1080),
+                                       flag=args.visu,
+                                       visu_param_list=[visu_param],
+                                       delay=-1)
+        boxes, preds = model.forward(img)
+        print(boxes, preds)
+        #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
+        if args.visu:
+            visu_info = construct_visu_info(img,
+                                            boxes,
+                                            preds,
+                                            watermark_text=input_path)
+            visual_manager.display_a_frame(visu_info)
+            cv2.waitKey(0)
+    elif suffix in SUPPORT_VIDEO_FORMAT:
+        # video mode
+        video = ThreadVideoLoader(OpenCVVideoWrapper,
+                                  input_path,
+                                  mask_name=args.mask,
+                                  exp_option="real-time",
+                                  debayer=args.debayer,
+                                  debayer_pattern=args.debayer_pattern)
+        tot_frames = video.iterations
+        video.start()
+        visual_manager = OpenCVMetVisu(exp_time=1,
+                                       resolution=(1920,1080),
+                                       flag=args.visu,
+                                       visu_param_list=[visu_param])
+        results = []
+        for i in tqdm.tqdm(range(tot_frames)):
+            img = video.pop()
+            if img is None: continue
+            boxes, preds = model.forward(img)
+            if args.visu:
+                visu_info = construct_visu_info(
+                    img, boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
+                visual_manager.display_a_frame(visu_info)
+                if visual_manager.manual_stop:
+                    logger.info('Manual interrupt signal detected.')
+                    break
+            # TODO: fix this in the future.
+            preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
+            if args.exclude_noise:
+                selected_id = [
+                    i for i, pred in enumerate(preds)
+                    if pred not in EXCLUDE_LIST
+                ]
+                boxes = [boxes[i] for i in selected_id]
+                preds = [preds[i] for i in selected_id]
+            if len(boxes) > 0:
+                results.append({
+                    "num_frame": i,
+                    "boxes": [list(map(int, x)) for x in boxes],
+                    "preds": preds
+                })
+    else:
+        raise NotImplementedError(
+            f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_IMG_FORMAT}."
+        )
+
+# 保存结果
+if args.output_path:
+    if args.output_type == "MDRF":
+        result_json = dict(version=VERSION,
+                           basic_info=video.summary(),
+                           type="image-prediction",
+                           anno_size=video.summary()["resolution"],
+                           results=results)
+        with open(os.path.join(
+                args.output_path,
+                os.path.splitext(os.path.split(input_path)[-1])[0] + ".json"),
+                  mode="w",
+                  encoding="utf-8") as f:
+            json.dump(result_json, f, ensure_ascii=False)
