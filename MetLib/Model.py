@@ -41,7 +41,7 @@ class YOLOModel(object):
         self.pos_thre = pos_thre
         self.nms_thre = nms_thre
         self.logger = logger
-        self.unchecked = True
+        self.unwarning = True
         self.resize = False
 
         # init model
@@ -62,19 +62,19 @@ class YOLOModel(object):
         self.scale_w, self.scale_h = 1, 1
 
     def forward(self, x):
-        # 仅在第一次运行时检查
-        if self.unchecked:
-            h, w, c = x.shape
-            assert c == self.c, "num_channel must match."
-            if (h != self.h or w != self.w):
+        h, w, c = x.shape
+        assert c == self.c, "num_channel must match."
+        # 仅在第一次运行时抛出Warning
+        if (h != self.h or w != self.w):
+            self.resize = True
+            self.scale_h, self.scale_w = h / self.h, w / self.w
+            if self.unwarning:
                 self.logger.warning(
                     f"Model input shape ({self.h}x{self.w}) is "
                     f"not strictly matched with config ({h}x{w}). "
                     f"Extra resize is applied to avoid error (which may increase time cost.)"
                 )
-                self.resize = True
-                self.scale_h, self.scale_w = h / self.h, w / self.w
-            self.unchecked = False
+                self.unwarning = False
 
         # resize if necessary
         if self.resize:
@@ -101,7 +101,53 @@ class YOLOModel(object):
             results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
         result_pos = np.array(results[:, :4], dtype=int)
-        result_cls = results[:, 5:]
+        # TODO: 当这样修正分数时得分会很低
+        result_cls =results[:, 5:]
+        return result_pos, result_cls
+
+    def forward_with_raw_size(self, x, clip_num: Optional[int] = None):
+        """forward function with no rescaling. Instead, this function partition the input image to blocks and forward each part.
+        
+        Results will be recombined then.
+
+        Args:
+            x (_type_): _description_
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        h, w, c = x.shape
+        assert c == self.c, "num_channel must match."
+        h_rep, w_rep = (h - 1) // self.h + 1, (w - 1) // self.w + 1
+        h_overlap, w_overlap = (h_rep * self.h - h) // (h_rep - 1), (
+            w_rep * self.w - w) // (w_rep - 1)
+        result_pos, result_cls = [], []
+
+        for i in range(h_rep):
+            for j in range(w_rep):
+                clip_img = x[i * self.h - i * h_overlap:(i + 1) * self.h -
+                             i * h_overlap, j * self.w -
+                             j * w_overlap:(j + 1) * self.w - j * w_overlap]
+                clip_pos, clip_cls = self.forward(clip_img)
+                clip_pos[:, 1] += i * self.h - i * h_overlap
+                clip_pos[:, 3] += i * self.h - i * h_overlap
+                clip_pos[:, 0] += j * self.w - j * w_overlap
+                clip_pos[:, 2] += j * self.w - j * w_overlap
+                result_pos.append(clip_pos)
+                result_cls.append(clip_cls)
+        result_pos = np.concatenate(result_pos, axis=0)
+        result_cls = np.concatenate(result_cls, axis=0)
+        # 重整后 NMS
+        res = cv2.dnn.NMSBoxes(bboxes=result_pos[:, :4],
+                               scores=np.max(result_cls, axis=-1),
+                               score_threshold=self.pos_thre,
+                               nms_threshold=self.nms_thre)
+        result_pos = result_pos[list(res)]
+        result_cls = result_cls[list(res)]
+
         return result_pos, result_cls
 
 
