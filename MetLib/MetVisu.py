@@ -250,6 +250,13 @@ class OpenCVMetVisu(object):
         # 转换灰度图像为BGR图像。
         if len(base_img.shape) == 2:
             base_img = self.img_gray2bgr.exec_transform(base_img)
+        # 放缩到指定的分辨率
+        h_scaler, w_scaler = 1, 1
+        if self.resolution[0] != base_img.shape[1] or self.resolution[
+                1] != base_img.shape[0]:
+            h_scaler, w_scaler = base_img.shape[0] / self.resolution[
+                1], base_img.shape[1] / self.resolution[0]
+            base_img = cv2.resize(base_img, self.resolution)
         # 渲染顺序：优先所有img，然后绘图，最后是text
         # img: 仅支持在背景上继续叠加。
         for key, base_cfg in self.img_visu_param.items():
@@ -258,7 +265,7 @@ class OpenCVMetVisu(object):
                 continue
             for cfg in data[key]:
                 img = cfg["img"]
-                self.fill_cfg_w_default(cfg, base_cfg)
+                self.fill_cfg_w_default(cfg, base_cfg, w_scaler, h_scaler)
                 if len(img.shape) == 2:
                     if "color" in cfg:
                         img = gray2colorimg(
@@ -267,6 +274,10 @@ class OpenCVMetVisu(object):
                                      dtype=np.uint8).reshape((1, -1)))
                     else:
                         img = self.img_gray2bgr.exec_transform(img)
+                    # 图像级叠加的 image 也需要放缩。
+                    if self.resolution[0] != img.shape[1] or self.resolution[
+                            1] != img.shape[0]:
+                        img = cv2.resize(img, self.resolution)
                 base_img = cv2.addWeighted(base_img, 1, img, cfg["weight"], 1)
         # 绘图类操作
         for key, base_cfg in self.draw_visu_param.items():
@@ -274,12 +285,13 @@ class OpenCVMetVisu(object):
             if not key in data:
                 continue
             for cfg in data[key]:
-                self.fill_cfg_w_default(cfg, base_cfg)
+                # TODO: 作为文字背景的Rectangle会被缩放，没有正常渲染。
+                self.fill_cfg_w_default(cfg, base_cfg, w_scaler, h_scaler)
                 if cfg["type"] == "rectangle":
                     pt1, pt2 = cfg["position"]
-                    base_img = cv2.rectangle(base_img, pt1, pt2,
-                                             self.parse_color(cfg["color"]),
-                                             cfg["thickness"])
+                    base_img = cv2.rectangle(
+                        base_img, pt1, pt2, self.parse_color(cfg["color"]),
+                        cfg["thickness"])
                 elif cfg["type"] == "circle":
                     pt = cfg["position"]
                     base_img = cv2.circle(base_img, pt, cfg["radius"],
@@ -294,31 +306,39 @@ class OpenCVMetVisu(object):
             for cfg in data[key]:
                 # 对于固定位置的，应当在输入时已确定唯一渲染位置；
                 # 对于不确定位置的，不允许在运行时使用对应可变位置。<-没有检查
-                self.fill_cfg_w_default(cfg, base_cfg)
-                base_img = cv2.putText(base_img,
-                                       cfg["text"],
-                                       org=cfg["position"],
-                                       fontFace=cfg["fontFace"],
-                                       fontScale=cfg["fontScale"],
-                                       color=self.parse_color(cfg["color"]),
-                                       thickness=cfg["thickness"])
-
-        # 放缩到指定的分辨率
-        # TODO: 会导致字体类看不清楚...
-        # h, w, _ = base_img.shape
-        # tgt_w, tgt_w = self.resolution
-        if self.resolution[0]!=base_img.shape[1] or self.resolution[1]!=base_img.shape[0]:
-            base_img = cv2.resize(base_img, self.resolution)
-
+                self.fill_cfg_w_default(cfg, base_cfg, w_scaler, h_scaler)
+                base_img = cv2.putText(
+                    base_img,
+                    cfg["text"],
+                    org=cfg["position"],
+                    fontFace=cfg["fontFace"],
+                    fontScale=cfg["fontScale"],
+                    color=self.parse_color(cfg["color"]),
+                    thickness=cfg["thickness"])
         return base_img
 
-    def fill_cfg_w_default(self, cfg, default_cfg):
+    def fill_cfg_w_default(self, cfg, default_cfg, w_scaler, h_scaler):
         """将default_cfg的值填充到cfg中，构建完整的参数列表。
         TODO: 如果default_cfg中有as_input的值没有在cfg中被填充，则抛出警告并忽略对应可视化。
         Args:
             cfg (_type_): _description_
             default_cfg (_type_): _description_
         """
+        if ("position" in cfg) and cfg.get("scale_flag",True):
+            # TODO: this is a temp fix.
+            # TODO: 背景框类在放缩时可能会出问题。需要修改MetVisu的使用方法来修复这个问题。
+            if not isinstance(cfg["position"][0], (list, np.ndarray, tuple)):
+                cfg["position"] = [
+                    int(cfg["position"][0] / w_scaler),
+                    int(cfg["position"][1] / h_scaler)
+                ]
+            else:
+                cfg["position"] = list(cfg["position"])
+                for i in range(len(cfg["position"])):
+                    cfg["position"][i] = [
+                        int(cfg["position"][i][0] / w_scaler),
+                        int(cfg["position"][i][1] / h_scaler)
+                    ]
         for key, value in default_cfg.items():
             if key in cfg: continue
             if value == "as_input":
