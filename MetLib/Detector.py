@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from .Model import init_model
-from .utils import EMA, PI, SlidingWindow, generate_group_interpolate, expand_cls_pred, lineset_nms
+from .utils import EMA, PI, SlidingWindow, Uint8EMA, generate_group_interpolate, expand_cls_pred, lineset_nms
 
 NUM_LINES_TOOMUCH = 100
 
@@ -375,22 +375,22 @@ class M3Detector(LineDetector):
         # 如果产生的响应数目非常多，忽略该帧
         # TODO: 会造成无法响应面积式的现象。需要调整。
         self.lines_num = len(linesp)
-        if self.lines_num > NUM_LINES_TOOMUCH:
-            linesp = np.array([])
+        #if self.lines_num > NUM_LINES_TOOMUCH:
+        #    linesp = np.array([])
 
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
         # 这一步骤会造成一些暗弱流星的丢失。
-        if len(linesp) > 0:
-            line_pts = generate_group_interpolate(linesp)
-            line_score = np.array([
-                np.sum(dst[line_pt[1], line_pt[0]]) / (len(line_pt[0]) * 255)
-                for line_pt in line_pts
-            ])
-            #for line, line_pt in zip(linesp,line_pts):
-            #    print(line, line_pt)
-            #    print(dst[line_pt[1], line_pt[0]])
-            linesp = linesp[line_score > self.fill_thre]
-            self.lines_num = len(linesp)
+        #if len(linesp) > 0:
+        #    line_pts = generate_group_interpolate(linesp)
+        #    line_score = np.array([
+        #        np.sum(dst[line_pt[1], line_pt[0]]) / (len(line_pt[0]) * 255)
+        #        for line_pt in line_pts
+        #    ])
+        #    #for line, line_pt in zip(linesp,line_pts):
+        #    #    print(line, line_pt)
+        #    #    print(dst[line_pt[1], line_pt[0]])
+        #    linesp = linesp[line_score > self.fill_thre]
+        #    self.lines_num = len(linesp)
 
         # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
         # TODO: 重整类别格式，前置NMS
@@ -402,6 +402,7 @@ class M3Detector(LineDetector):
             linesp, nonline_probs = lineset_nms(linesp)
             self.filtered_line_num = len(linesp)
             cls_pred = np.zeros((self.filtered_line_num, self.num_cls))
+            # -1 为OTHERS 所以实际上需要约定该值为OTHERS。
             cls_pred[:, -1] = nonline_probs
             cls_pred[:, 0] = 1 - nonline_probs
         else:
@@ -441,6 +442,81 @@ class M3Detector(LineDetector):
             std_roi_area=[{
                 "position": [(y1, x1), (y2, x2)]
             }])
+
+
+class DiffAreaGuidingDetecor(BaseDetector):
+    """差值面积引导的检测器，是从M3Detector在实践中的开发和缺陷综合提出的实验性检测器。
+    
+    主要工作原理：
+    1. 使用 EMA 维护背景图像，使用当前帧作为亮值图像。
+    2. 通过直方图统计将当前帧的亮部区分出给定面积比例需要的阈值，记为H_T；通过历史使用的阈值记为E_T。通过卡尔曼滤波计算出当前帧使用的二值化阈值。
+    3. 对图像计算二值化，经过简单噪点滤波，动态掩模等机制过滤噪声。
+    4. 使用封闭区域查找，将当前帧的前景转换为若干个区域响应。
+    5. 重整化响应，输出结果。
+    
+    主要预期改进点：
+    1. 背景图像和亮帧图像的维护更简单。
+    2. 通过卡尔曼滤波代替滑窗和噪声估计。（1，2预期能够显著降低计算量）
+    3. 通过确保前景的划分比例，相比公式估算，自适应程度有更加显著的提升，对不同噪声的输入灵敏度近似。
+    4. 使用区域检测，减少对直线检测的依赖。
+
+    需要解决的问题：
+    1. 目前EMA工作方式仍然存在问题，计算差值有逐渐变大的趋势。
+    2. 对于多云等复杂天气情况，固定比例分割可能会导致无法正确检测到目标。
+    3. 大量可能的噪声的追踪会导致性能下降，需要考虑合适的处理机制。
+    
+    Args:
+        BaseDetector (_type_): _description_
+    """
+
+    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+        self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
+        self.visu_param = dict(
+            mix_bg=["img", {
+                "weight": 1
+            }],
+            diff_mask=["img", {
+                "color": "yellow",
+                "weight": 0.5
+            }],
+            cur_emo_value=["text", {
+                "position": "left-top",
+                "color": "green"
+            }],
+        )
+
+    def update(self, new_frame) -> None:
+        self.cur_frame = new_frame
+
+    def post_update(self) -> None:
+        """DiffAreaGuidingDetecor后置了实际序列的update函数，以便更好计算背景图像与前景的差值。
+        """
+        self.bg_maintainer.update(self.cur_frame)
+
+    def detect(self):
+        if self.bg_maintainer.t == 0:
+            # 第一帧仍然填充
+            self.bg_maintainer.update(self.cur_frame)
+            self.diff_img = np.zeros_like(self.cur_frame)
+            return [], []
+        neg_value_mask = self.cur_frame < self.bg_maintainer.cur_value + 5
+        self.diff_img = self.cur_frame - self.bg_maintainer.cur_value - 5
+        self.diff_img[neg_value_mask] = 0
+        self.post_update()
+        return [], []
+
+    def visu(self) -> dict:
+        #return dict()
+        return dict(mix_bg=[{
+            "img": self.bg_maintainer.cur_value
+        }],
+                    diff_mask=[{
+                        "img": self.diff_img
+                    }],
+                    cur_emo_value=[{
+                        "text":
+                        f"EMA: {self.bg_maintainer.cur_momentum:.4f}"
+                    }])
 
 
 class MLDetector(BaseDetector):

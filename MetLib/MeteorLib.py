@@ -30,8 +30,8 @@ class Name2Label(object):
     * 5 - RARE_SPRITE  稀有类型的精灵。主要是红环，红晕类的大面积黯淡精灵。目前也包含鬼火等样本极少的类别。
     * 6 - SPACECRAFT 人造天体引起的大气景观集合。如发射时的火箭云，航天器再入，燃料排空等。目前类别较少，因此集成。
     * 7 - BUGS  飞虫或小型动物飞行产生的轨迹。
-    * 8 - OTHERS  目前未归类的，但能确认并非噪声的响应。(自动生成)
-    * 9 - DROPPED 应当被丢弃的类别。(自动生成)
+    * 8 - DROPPED 应当被丢弃的类别。(自动生成)
+    * 9 - OTHERS  目前未归类的，但能确认并非噪声的响应。(自动生成)
     """
     METEOR = 0
     PLANE_SATELLITE = 1
@@ -98,9 +98,6 @@ class MeteorCollector(object):
         self.eframe = eframe
         self.fps = fps
         self.raw_size = raw_size
-        # 用于过滤较短的响应的机制需要调整，否则无法捕获到瞬态大气现象（如闪电，红色精灵）
-        meteor_cfg.time_range[0] = max(meteor_cfg.time_range[0],
-                                       (4 * self.eframe + 2) / self.fps)
         self.time_prob_func = create_prob_func(meteor_cfg.time_range)
         self.speed_prob_func = create_prob_func(meteor_cfg.speed_range)
         self.len_prob_func = create_prob_func((self.min_len, np.inf))
@@ -137,7 +134,8 @@ class MeteorCollector(object):
                     "type": "rectangle",
                     "position": "as-input",
                     "color": "as-input",
-                    "thickness": -1
+                    "thickness": -1,
+                    "scale_flag": False
                 }
             ],
             score_text=["text", {
@@ -342,8 +340,10 @@ class MeteorCollector(object):
                     end_time=self.frame2ts(met.end_frame),
                     last_activate_frame=met.last_activate_frame,
                     last_activate_time=self.frame2ts(met.last_activate_frame),
-                    duration=np.round(met.duration, 3),
-                    speed=np.round(met.speed, 3),
+                    duration=met.duration * met.fps,
+                    duration_s=np.round(met.duration, 3),
+                    speed=np.round(met.speed, 3) / met.fps,
+                    speed_s=np.round(met.speed, 3),
                     dist=np.round(dist, 3),
                     num_pts=len(met.coord_list),
                     category=ID2NAME[met.cate],
@@ -575,8 +575,8 @@ class MetExporter(object):
     DROP_FLAG = "DROP_FLAG"
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
-    def __init__(self, runtime_size, raw_size, recheck_cfg, video_loader,
-                 logger, max_interval, det_thre) -> None:
+    def __init__(self, runtime_size: list, raw_size: list, recheck_cfg,
+                 video_loader, logger, max_interval, det_thre) -> None:
         self.queue = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.logger = logger
@@ -590,11 +590,7 @@ class MetExporter(object):
         self.rescale_ratio = [x / y for x, y in zip(raw_size, runtime_size)]
         self.export_loop = threading.Thread(target=self.loop, daemon=True)
         self.export_loop.start()
-        self.save_path = recheck_cfg.save_path
         self.meteor_list = []
-        if self.save_path:
-            self.logger.info(
-                f"Rechecked imgs will be saved to \"{self.save_path}\".")
 
     def export(self, flag, data):
         self.queue.put([flag, data])
@@ -612,7 +608,7 @@ class MetExporter(object):
             if flag == self.DROP_FLAG:
                 for ms_attr in data:
                     # 标签修正
-                    ms_attr["category"] = Name2Label.DROPPED
+                    ms_attr["category"] = ID2NAME[Name2Label.DROPPED]
                     # 坐标修正和序列化
                     output_dict = self.init_output_dict(ms_attr)
                     output_dict = self.rescale(output_dict)
@@ -643,12 +639,22 @@ class MetExporter(object):
                 if len(output_dict) != 0:
                     final_list.append(output_dict)
                 if self.recheck:
-                    final_list = self.recheck_progress(final_list)
+                    final_list, drop_list = self.recheck_progress(final_list)
                 for met in final_list:
                     # 坐标修正和序列化
                     met = self.rescale(met)
                     self.meteor_list.append(met)
                     self.logger.meteor(self.cvt2json(met))
+                for ms_attr in drop_list:
+                    # 标签修正，得分修正字段名称
+                    ms_attr["category"] = ID2NAME[Name2Label.DROPPED]
+                    # 坐标修正和序列化
+                    output_dict = self.init_output_dict(ms_attr)
+                    output_dict = self.rescale(output_dict)
+                    self.meteor_list.append(output_dict)
+                    self.logger.dropped(self.cvt2json(output_dict))
+                    
+
             # get next
             flag, data = self.queue.get()
         if flag != self.END_FLAG:
@@ -710,8 +716,9 @@ class MetExporter(object):
                     video_size=self.raw_size,
                     target=[attributes])
 
-    def recheck_progress(self, final_list):
-        """_summary_
+    def recheck_progress(
+            self, final_list: list[dict]) -> tuple[list[dict], list[dict]]:
+        """重校验。
 
         Args:
             final_list (_type_): 包含若干个整片段
@@ -720,6 +727,7 @@ class MetExporter(object):
         # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。此处逻辑可能需要重新处置。
         # 重构Collector时修复。
         new_final_list = []
+        new_drop_list = []
         for output_dict in final_list:
             stacked_img = max_stacker(video_loader=self.recheck_loader,
                                       start_frame=output_dict["start_frame"],
@@ -739,6 +747,7 @@ class MetExporter(object):
             matched_pairs = box_matching(bbox_list, raw_bbox_list)
             fixed_output_dict = dict(video_size=output_dict["video_size"],
                                      target=[])
+            unmatched_proposal_list = [True for _ in output_dict["target"]]
             for l, r in matched_pairs:
                 label = np.argmax(score_list[l, :], axis=0)
                 score = score_list[l, label]
@@ -749,6 +758,7 @@ class MetExporter(object):
                 sure_meteor["raw_score"] = sure_meteor["score"]
                 sure_meteor["recheck_score"] = score.astype(np.float64)
                 # 当预测为流星时，求分数均值作为最终得分。
+                # TODO: 前置预测输出多类别分数。
                 if label == Name2Label.METEOR:
                     mge_score = (sure_meteor["recheck_score"] +
                                  sure_meteor["raw_score"]) / 2
@@ -759,23 +769,24 @@ class MetExporter(object):
                     mge_score = score.astype(np.float64)
                 sure_meteor["score"] = np.round(mge_score, 2)
                 fixed_output_dict["target"].append(sure_meteor)
+                unmatched_proposal_list[r] = False
             # after fix. to be optimized.
-            if len(fixed_output_dict["target"]) == 0:
-                continue
-            # 为fixed_output_dict重新计算准确的起止时间
-            fixed_output_dict["start_time"] = min(
-                [x["start_time"] for x in fixed_output_dict["target"]])
-            fixed_output_dict["end_frame"] = max([
-                x["last_activate_frame"] for x in fixed_output_dict["target"]
-            ])
-            fixed_output_dict["end_time"] = max(
-                [x["last_activate_time"] for x in fixed_output_dict["target"]])
-            new_final_list.append(fixed_output_dict)
-            # 用于观察效果的临时打点。后续可以转为进行时截图生成
-            if self.save_path:
-                save_img(
-                    stacked_img,
-                    f"{self.save_path}/test_{fixed_output_dict['start_time'].replace(':','.')}_{fixed_output_dict['end_time'].replace(':','.')}.jpg",
-                    quality=80,
-                    compressing=0)
-        return new_final_list
+            if len(fixed_output_dict["target"]) > 0:
+                # 为fixed_output_dict重新计算准确的起止时间
+                fixed_output_dict["start_time"] = min(
+                    [x["start_time"] for x in fixed_output_dict["target"]])
+                fixed_output_dict["end_frame"] = max([
+                    x["last_activate_frame"]
+                    for x in fixed_output_dict["target"]
+                ])
+                fixed_output_dict["end_time"] = max([
+                    x["last_activate_time"]
+                    for x in fixed_output_dict["target"]
+                ])
+                new_final_list.append(fixed_output_dict)
+            # 整理所有未被配对的结果，输出为单独的drop条目。
+            for (idx, i) in enumerate(unmatched_proposal_list):
+                if not i: continue
+                new_drop_list.append(output_dict["target"][idx])
+
+        return new_final_list, new_drop_list

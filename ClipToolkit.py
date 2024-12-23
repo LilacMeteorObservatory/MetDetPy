@@ -274,8 +274,11 @@ def main():
                         anno_path = os.path.join(
                             save_path,
                             ".".join(tgt_name.split(".")[:-1]) + ".json")
-                        with open(anno_path, mode="w") as f:
-                            json.dump(res_dict, f, ensure_ascii=False)
+                        with open(anno_path, mode="w", encoding="utf-8") as f:
+                            json.dump(res_dict,
+                                      f,
+                                      ensure_ascii=False,
+                                      indent=4)
             else:
                 status_code = save_video_by_stream(video_loader,
                                                    video_loader.fps, full_path)

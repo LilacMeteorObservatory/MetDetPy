@@ -8,14 +8,15 @@ import tqdm
 from easydict import EasyDict
 
 from MetLib import get_detector, get_loader, get_wrapper
-from MetLib.Detector import BaseDetector, LineDetector, MLDetector
+from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
+                             LineDetector, MLDetector)
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import AVAILABLE_DEVICE_ALIAS
 from MetLib.utils import (LIVE_MODE_SPEED_CTRL_CONST, NUM_CLASS, SWITCH2BOOL,
                           VERSION, frame2time, frame2ts, mod_all_attrs_to_cfg,
-                          relative2abs_path)
+                          relative2abs_path, save_path_handler)
 
 
 def detect_video(video_name: str,
@@ -69,7 +70,7 @@ def detect_video(video_name: str,
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
-        if issubclass(DetectorCls, LineDetector):
+        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor)):
             assert grayscale, "Require grayscale ON when using subclass of LineDetector."
         elif issubclass(DetectorCls, MLDetector):
             assert not grayscale, "Require grayscale OFF when using subclass of LineDetector."
@@ -295,10 +296,6 @@ if __name__ == "__main__":
                         help="Apply recheck before the result is printed"
                         " (the model must specified in the config file).")
 
-    parser.add_argument('--save-rechecked-img',
-                        type=str,
-                        help="Save rechecked images to the given path.")
-
     parser.add_argument("--provider",
                         type=str,
                         choices=AVAILABLE_DEVICE_ALIAS,
@@ -312,7 +309,7 @@ if __name__ == "__main__":
                         default=None,
                         help="Apply live mode, detect video as real-time.")
 
-    parser.add_argument("--save",
+    parser.add_argument("--save-path",
                         type=str,
                         default=None,
                         help="Save detection results as a json file.")
@@ -342,8 +339,6 @@ if __name__ == "__main__":
 
     if args.recheck:
         cfg.collector.recheck_cfg.switch = SWITCH2BOOL[args.recheck]
-    if args.save_rechecked_img:
-        cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
 
     if args.live_mode:
         live_mode = SWITCH2BOOL[args.live_mode]
@@ -359,9 +354,7 @@ if __name__ == "__main__":
                           time_range=(args.start_time, args.end_time),
                           live_mode=live_mode,
                           provider_key=args.provider)
-    if args.save:
-        save_path = args.save
-        if not save_path.lower().endswith(".json"):
-            save_path += ".json"
-        with open(save_path, mode="w") as f:
-            json.dump(result, f, ensure_ascii=False)
+    if args.save_path:
+        save_path = save_path_handler(args.save_path, args.target, ext="json")
+        with open(save_path, mode="w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=4)

@@ -7,7 +7,7 @@ import psutil
 import numpy as np
 from easydict import EasyDict
 from MetDetPy import detect_video
-from MetLib.utils import met2xyxy, ts2frame, calculate_area_iou, relative2abs_path, VERSION
+from MetLib.utils import met2xyxy, save_path_handler, ts2frame, calculate_area_iou, relative2abs_path, VERSION
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 from typing import Any
 
@@ -311,7 +311,7 @@ def main():
         help="Load a result file instead of running on datasets.",
         default=None)
 
-    parser.add_argument('--save',
+    parser.add_argument('--save-path',
                         '-S',
                         help="Save a result files.",
                         default=None)
@@ -376,8 +376,11 @@ def main():
                     f"not support result type: {results.type}!")
             if args.save:
                 # List of predictions
-                with open(args.save, mode='w', encoding="utf-8") as f:
-                    json.dump(new_result, f, ensure_ascii=False)
+                save_path = save_path_handler(args.save,
+                                              video_name,
+                                              ext="json")
+                with open(save_path, mode='w', encoding="utf-8") as f:
+                    json.dump(new_result, f, ensure_ascii=False, indent=4)
 
         if args.metric:
             compare(video, base_dict=video_dict, new_dict=new_result)

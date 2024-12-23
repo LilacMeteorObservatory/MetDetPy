@@ -315,6 +315,54 @@ class EMA(object):
             self.cur_momentum = self.init_momentum
 
 
+class Uint8EMA(EMA):
+    """
+    ## 适用于Uint8矩阵的整数移动指数平均
+    用于计算图像的平稳评估。
+
+    Args:
+        momentum (float, optional): 移动指数平均的动量. Defaults to 0.99.
+        warmup (bool, optional): 是否对动量WARMUP. Defaults to True.
+    """
+
+    def __init__(self,
+                 momentum: float = 0.99,
+                 warmup_speed: Union[int, float] = 1) -> None:
+        """
+        ## 移动指数平均
+        可用于对平稳序列的评估。
+
+        Args:
+            momentum (float, optional): 移动指数平均的动量. Defaults to 0.99.
+            warmup (bool, optional): 是否对动量WARMUP. 设置为0时不进行warmup。
+        """
+        assert 0 <= momentum <= 1, "momentum should be [0,1]"
+        self.init_momentum = momentum
+        self.cur_momentum = momentum
+        self.cur_value = 0
+        self.t = 0
+        self.warmup_speed = warmup_speed
+
+    def update(self, value: np.ndarray) -> None:
+        if self.warmup_speed:
+            self.adjust_weight()
+        value_copy = np.array(value, dtype=np.int16)
+        self.cur_value = (self.cur_momentum * self.cur_value +
+                          (1 - self.cur_momentum) *
+                          value_copy).astype(np.uint8)
+        self.t += 1
+
+    def adjust_weight(self) -> None:
+        if self.t * (1 - self.init_momentum) * self.warmup_speed < 1:
+            self.cur_momentum = self.init_momentum * (
+                1 - (1 - self.t *
+                     (1 - self.init_momentum) * self.warmup_speed)**2)
+        else:
+            # 结束冷启动，关闭warmup
+            self.warmup_speed = 0
+            self.cur_momentum = self.init_momentum
+
+
 def sigma_clip(sequence: Union[list, np.ndarray],
                sigma: Union[float, int] = 3.00) -> np.ndarray:
     """Sigma-clipping average, return the sequence where all values are within the given sigma value.
@@ -869,6 +917,24 @@ def relative2abs_path(path: str) -> str:
         path = path[2:]
     return os.path.join(WORK_PATH, path)
 
+def save_path_handler(save_path: str, filename: str, ext: str = "json")->str:
+    """处理保存路径。
+
+    Args:
+        save_path (str): 保存路径
+        filename (str): 文件名
+        ext (str, optional): 文件后缀名. Defaults to "json".
+
+    Returns:
+        str: 完整路径
+    """
+    # 若路径为文件夹，则在文件夹下保存文件
+    if os.path.isdir(save_path):
+        filename_only = os.path.splitext(os.path.split(filename)[-1])[0]
+        return os.path.join(save_path, f"{filename_only}.{ext}")
+    else:
+        # 若路径为文件，则直接保存
+        return save_path
 
 def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
     """Convert the grayscale image (h,w) to a color one (h,w,3) with the given color。
@@ -925,7 +991,7 @@ with open(relative2abs_path("./config/class_name.txt")) as f:
     for num, name in mapper:
         ID2NAME[int(num)] = name
 MAX_EXISTING_ID = max(ID2NAME.keys())
-ID2NAME[MAX_EXISTING_ID + 1] = "OTHERS"
-ID2NAME[MAX_EXISTING_ID + 2] = "DROPPED"
+ID2NAME[MAX_EXISTING_ID + 1] = "DROPPED"
+ID2NAME[MAX_EXISTING_ID + 2] = "OTHERS"
 # NUM_CLASS here includes "OTHERS" with the last label
 NUM_CLASS = len(ID2NAME)
