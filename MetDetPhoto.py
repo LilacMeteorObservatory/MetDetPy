@@ -24,7 +24,7 @@ from MetLib.MetLog import get_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import YOLOModel
 from MetLib.utils import (ID2NAME, VERSION, load_8bit_image, load_mask,
-                          pt_offset)
+                          pt_offset, save_path_handler)
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 
@@ -162,7 +162,7 @@ if os.path.isdir(input_path):
         if x.split(".")[-1].lower() in SUPPORT_IMG_FORMAT
     ]
     visual_manager = OpenCVMetVisu(exp_time=1,
-                                   resolution=(1920,1080),
+                                   resolution=DEFAULT_VISUAL_WINDOW_SIZE,
                                    flag=args.visu,
                                    visu_param_list=[visu_param])
     results = []
@@ -206,7 +206,7 @@ elif os.path.isfile(input_path):
         mask = load_mask(args.mask, list(img.shape[1::-1]))
         img = img * mask
         visual_manager = OpenCVMetVisu(exp_time=1,
-                                       resolution=(1920,1080),
+                                       resolution=DEFAULT_VISUAL_WINDOW_SIZE,
                                        flag=args.visu,
                                        visu_param_list=[visu_param],
                                        delay=-1)
@@ -231,7 +231,7 @@ elif os.path.isfile(input_path):
         tot_frames = video.iterations
         video.start()
         visual_manager = OpenCVMetVisu(exp_time=1,
-                                       resolution=(1920,1080),
+                                       resolution=DEFAULT_VISUAL_WINDOW_SIZE,
                                        flag=args.visu,
                                        visu_param_list=[visu_param])
         results = []
@@ -274,9 +274,7 @@ if args.output_path:
                            type="image-prediction",
                            anno_size=video.summary()["resolution"],
                            results=results)
-        with open(os.path.join(
-                args.output_path,
-                os.path.splitext(os.path.split(input_path)[-1])[0] + ".json"),
+        with open(save_path_handler(args.output_path, input_path, ext="json"),
                   mode="w",
                   encoding="utf-8") as f:
-            json.dump(result_json, f, ensure_ascii=False)
+            json.dump(result_json, f, ensure_ascii=False, indent=4)
