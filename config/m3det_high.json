@@ -42,11 +42,11 @@
             "max_interval": 4,
             "time_range": [
                 0,
-                15
+                10
             ],
             "speed_range": [
-                20,
-                150
+                1.5,
+                15
             ],
             "drct_range": [
                 0,

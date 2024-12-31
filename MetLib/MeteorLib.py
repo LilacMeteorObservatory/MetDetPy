@@ -76,6 +76,275 @@ def create_prob_func(range):
     return get_prob
 
 
+class PointList(object):
+
+    def __init__(self) -> None:
+        self.pts = np.zeros((0, 2), dtype=np.int32)
+        self.frame_num = np.zeros((0, ), dtype=np.int16)
+
+    def append(self, new_pt: np.ndarray, frame: int):
+        if new_pt.shape == (2, ):
+            new_pt = new_pt.reshape(-1, 2)
+        self.pts = np.concatenate([self.pts, new_pt], axis=0)
+        self.frame_num = np.concatenate(
+            [self.frame_num, np.array(frame)], axis=0)
+
+    def extend(self, new_pts: np.ndarray, frame: int):
+        self.pts = np.concatenate([self.pts, np.array(new_pts)], axis=0)
+        self.frame_num = np.concatenate(
+            [self.frame_num, np.ones((len(new_pts), )) * frame], axis=0)
+
+    def __iter__(self):
+        self.iteration = -1
+        return self
+
+    def get_pts(self):
+        return self.pts
+
+    def __next__(self):
+        self.iteration += 1
+        if self.iteration == len(self.pts):
+            raise StopIteration
+        else:
+            return self.pts[self.iteration]
+
+    def get_pts_as_list(self) -> list:
+        return [[np.round(x[0], 3), np.round(x[1], 3)] for x in self.pts]
+
+    def __getitem__(self, i: int):
+        return self.pts[i]
+
+    def __len__(self):
+        return len(self.pts)
+
+
+class MeteorSeries(object):
+    """用于整合检测结果，排异和给出置信度的流星序列。
+
+    Args:
+        object (_type_): _description_
+    """
+
+    def __init__(self, start_frame: int, cur_frame: int, init_pts: list,
+                 max_acceptable_dist: int, max_acti_frame: int, cate_prob,
+                 fps: float, runtime_size: list):
+        """_summary_
+
+        Args:
+            start_frame (_type_): _description_
+            cur_frame (_type_): _description_
+            init_box (_type_): shape [n, 2]
+            max_acceptable_dist (_type_): _description_
+            max_acti_frame (_type_): _description_
+            cate_prob (_type_): _description_
+        
+        MeteorSeries Property:
+            start_frame [int] 起始帧
+            end_frame [int] 运动结束帧
+            last_activate_frame [int] 最后响应帧
+            
+        NOTE: MeteorSeries 的 end_frame 与 MeteorCollector 的 end_frame 语义不同。
+        """
+        assert len(init_pts) in (
+            3, 5
+        ), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
+        self.coord_list = PointList()
+        self.center_list = PointList()
+        self.drct_list = []
+        self.coord_list.extend(init_pts, cur_frame)
+        self.center_list.extend(np.mean(init_pts, axis=0)[None, :], cur_frame)
+        self.drct_list.append(pt_drct(init_pts[0], init_pts[1]))
+        self.start_frame = start_frame
+        self.end_frame = cur_frame
+        self.last_activate_frame = cur_frame
+        self.max_acti_frame = max_acti_frame
+        self.max_acceptable_dist = max_acceptable_dist
+        self.count = 1
+        self.cate_prob = cate_prob
+        self.fps = fps
+        self.runtime_length = max(runtime_size)
+        self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
+        self.calc_new_range(init_pts)
+
+    @property
+    def drst_std(self):
+        if len(self.drct_list) == 0: return 0
+        drct_copy = np.array(self.drct_list.copy())
+        std1 = np.std(np.sort(drct_copy)[:-1]) if len(
+            drct_copy) >= 3 else np.std(drct_copy)
+        drct_copy[drct_copy > np.pi / 2] -= np.pi
+        std2 = np.std(np.sort(drct_copy)[:-1]) if len(
+            drct_copy) >= 3 else np.std(drct_copy)
+        return min(std1, std2)  # type: ignore
+
+    @property
+    def cate(self):
+        return np.argmax(self.cate_prob, axis=0)
+
+    @property
+    def duration(self) -> int:
+        """
+        duration 描述了该(流星)片段的完整持续帧数，因此使用 last_activate_frame 而不是 end_frame 进行计算。
+        
+        由于上述原因，在计算速度时，不应直接使用 duration，应使用fix_motion_duration。
+
+        Returns:
+            int: 片段的完整持续帧数
+        """
+        return (self.last_activate_frame - self.start_frame + 1)
+
+    @property
+    def fix_duration(self) -> float:
+        """流星序列的真实持续时间（单位为秒）。
+
+        Returns:
+            float: _description_
+        """
+        return self.duration / self.fps
+
+    @property
+    def fix_motion_duration(self) -> float:
+        """流星序列的真实运动时间（单位为秒）。
+        """
+        return (self.end_frame - self.start_frame) / self.fps
+
+    @property
+    def sort_range(self):
+        """range的增强版，按照时间顺序给出起止点组合
+        """
+        [x0, y0], [x1, y1] = self.range
+        e_x, e_y = self.coord_list[np.argmin(self.coord_list.frame_num)]
+        l_x, l_y = self.coord_list[np.argmax(self.coord_list.frame_num)]
+        if e_x > l_x:
+            x0, x1 = x1, x0
+        if e_y > l_y:
+            y0, y1 = y1, y0
+        return [x0, y0], [x1, y1]
+
+    @property
+    def dist(self):
+        pt1, pt2 = self.range
+        return pt_len(pt1, pt2)
+
+    @property
+    def fix_dist(self):
+        """返回流星序列的真实长度。单位为移动距离（长边画幅移动比例），数值会 x100 以放缩到常规数值范围。
+
+        Returns:
+            _type_: _description_
+        """
+        return self.dist / self.runtime_length * 100
+
+    @property
+    def speed(self) -> float:
+        """返回流星序列的平均速度。其中距离通过直接求最大跨度获得，时间仅使用运动期间的时长。
+        
+        NOTE: `speed` 属性是相对的（运行时分辨率，时间长为帧）。真实速度需要使用 `fix_speed` 接口。
+
+        Returns:
+            _type_: _description_
+        """
+        return self.dist / (self.end_frame - self.start_frame + 1e-6)
+
+    @property
+    def fix_speed(self) -> float:
+        """返回流星序列的真实平均速度。
+        
+        运行速度单位为移动距离（长边画幅移动比例）/时间（秒），数值会 x100 以放缩到常规数值范围。
+
+        Returns:
+            float: _description_
+        """
+        return self.speed * self.fps / self.runtime_length * 100
+
+    def get_met_attr(self, decimals: int = 3) -> dict:
+        """
+        将自身当前状态转换为属性字典。
+        
+        NOTE: 部分数值会被截断以适应输出格式。
+
+        Returns:
+            dict: _description_
+        """
+        pt1, pt2 = self.sort_range
+        dist: float = pt_len(pt1, pt2)
+
+        return dict(start_time=frame2ts(self.start_frame, self.fps),
+                    start_frame=self.start_frame,
+                    end_time=frame2ts(self.end_frame, self.fps),
+                    last_activate_frame=self.last_activate_frame,
+                    last_activate_time=frame2ts(self.last_activate_frame,
+                                                self.fps),
+                    duration=self.duration,
+                    speed=np.round(self.speed, decimals),
+                    dist=np.round(dist, decimals),
+                    fix_dist=np.round(self.fix_dist, decimals),
+                    fix_speed=np.round(self.fix_speed, decimals),
+                    fix_motion_duration=np.round(self.fix_motion_duration,
+                                                 decimals),
+                    fix_duration=np.round(self.fix_duration, decimals),
+                    num_pts=len(self.coord_list),
+                    category=ID2NAME[self.cate],
+                    pt1=pt1,
+                    pt2=pt2,
+                    center_point_list=self.center_list.get_pts_as_list(),
+                    drct_loss=np.round(self.drst_std, 3))
+
+    def calc_new_range(self, pts) -> None:
+        """基于输入的新点集，更新该 MeteorSeries 的范围值 (self.range). 
+
+        Args:
+            pts (list): 点集合
+        """
+        self.range = [
+            min(int(min([pt[0] for pt in pts])), self.range[0][0]),
+            min(int(min([pt[1] for pt in pts])), self.range[0][1])
+        ], [
+            max(int(max([pt[0] for pt in pts])), self.range[1][0]),
+            max(int(max([pt[1] for pt in pts])), self.range[1][1])
+        ]
+
+    def update(self, new_frame, new_box, new_cate):
+        """为序列更新新的响应
+
+        Args:
+            new_frame (_type_): _description_
+            new_box (_type_): _description_
+            new_cate (_type_): _description_
+        """
+        (x1, y1), (x2, y2) = self.range
+        assert len(new_box) in (
+            3,
+            5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
+        # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
+        for pt in new_box:
+            if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
+                self.end_frame = new_frame
+                break
+        self.last_activate_frame = new_frame
+        self.coord_list.extend(new_box, new_frame)
+        self.center_list.extend(np.mean(new_box, axis=0)[None, :], new_frame)
+        # range由calc_new_range更新，除去init外每次仅在update时更新
+        self.calc_new_range(new_box)
+        self.drct_list.append(pt_drct(new_box[0], new_box[1]))
+        self.cate_prob += new_cate
+        self.count += 1
+
+    def may_in_series(self, pts, cur_frame):
+        # 策略一：最后近邻法（对于有尾迹的判断不准确）
+        #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
+        #    return True
+        # 策略二：近邻法（对于距离中间点近的，采取收入但不作为边界点策略）
+        first = np.where(self.coord_list.frame_num >= cur_frame -
+                         self.max_acti_frame)[0]
+        first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
+        for tgt_pt in pts:
+            for in_pt in self.coord_list[first:]:
+                if pt_len_sqr(tgt_pt, in_pt) < self.max_acceptable_dist:
+                    return True
+        return False
+
+
 class MeteorCollector(object):
     """
     全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列，执行必要的重校验。
@@ -88,10 +357,11 @@ class MeteorCollector(object):
         self.max_acti_frame = meteor_cfg.max_interval * fps
         self.det_thre = meteor_cfg.det_thre
         self.thre2 = meteor_cfg.thre2 * eframe
+        self.runtime_size = runtime_size
         self.active_meteor = [
             MeteorSeries(np.inf, np.inf,
                          np.array([[-100, -100], [-101, -101], [-102, -102]]),
-                         np.nan, np.nan, None, fps)
+                         np.nan, np.nan, None, fps, runtime_size)
         ]
         self.waiting_meteor = []
         self.cur_frame = 0
@@ -110,7 +380,8 @@ class MeteorCollector(object):
                                         video_loader=video_loader,
                                         logger=logger,
                                         max_interval=self.max_interval,
-                                        det_thre=self.det_thre)
+                                        det_thre=self.det_thre,
+                                        fps=self.fps)
 
         # 定义可视化接口字段及格式
         self.visu_param = dict(
@@ -244,7 +515,8 @@ class MeteorCollector(object):
                              max_acceptable_dist=self.thre2,
                              max_acti_frame=self.max_acti_frame,
                              cate_prob=cate_prob,
-                             fps=self.fps))
+                             fps=self.fps,
+                             runtime_size=self.runtime_size))
 
     def visu(self, frame_num):
         active_meteors, active_pts = [], []
@@ -299,7 +571,7 @@ class MeteorCollector(object):
         self.met_exporter.export(self.met_exporter.END_FLAG, [])
         self.met_exporter.export_loop.join()
 
-    def prob_meteor(self, met):
+    def prob_meteor(self, met: MeteorSeries) -> float:
         # 用于估计met实例属于流星序列的概率。
         # 拟借助几个指标
         # 1. 总速度/总长度
@@ -312,19 +584,19 @@ class MeteorCollector(object):
             # 对短样本实现一定的宽容
             len_prob = self.len_prob_func(met.dist)
             # 排除总时长过长/过短
-            time_prob = self.time_prob_func(met.duration)
+            time_prob = self.time_prob_func(met.fix_duration)
             # 排除速度过快/过慢
-            speed_prob = self.speed_prob_func(met.speed)
+            speed_prob = self.speed_prob_func(met.fix_speed)
             # 计算直线情况
             drct_prob = self.drct_prob_func(met.drst_std)
             return np.float64(time_prob * speed_prob * len_prob * drct_prob)
         else:
             if np.any(np.isnan(met.cate_prob)):
                 print("nan detected.", met.cate_prob)
-                exit
+                exit()
             return met.cate_prob[met.cate] / met.count
 
-    def get_met_attr(self, met) -> dict:
+    def get_met_attr(self, met: MeteorSeries) -> dict:
         """将met的点集序列转换为属性字典。
 
         Args:
@@ -333,230 +605,12 @@ class MeteorCollector(object):
         Returns:
             dict: _description_
         """
-        pt1, pt2 = met.sort_range
-        dist = pt_len(pt1, pt2)
-        return dict(start_time=self.frame2ts(met.start_frame),
-                    start_frame=met.start_frame,
-                    end_time=self.frame2ts(met.end_frame),
-                    last_activate_frame=met.last_activate_frame,
-                    last_activate_time=self.frame2ts(met.last_activate_frame),
-                    duration=met.duration * met.fps,
-                    duration_s=np.round(met.duration, 3),
-                    speed=np.round(met.speed, 3) / met.fps,
-                    speed_s=np.round(met.speed, 3),
-                    dist=np.round(dist, 3),
-                    num_pts=len(met.coord_list),
-                    category=ID2NAME[met.cate],
-                    pt1=pt1,
-                    pt2=pt2,
-                    center_point_list=met.center_list.get_pts_as_list(),
-                    drct_loss=np.round(met.drst_std, 3),
-                    score=np.round(self.prob_meteor(met), 2))
+        met_attr_dict = met.get_met_attr()
+        met_attr_dict["score"] = np.round(self.prob_meteor(met), 2)
+        return met_attr_dict
 
     def frame2ts(self, frame: int) -> str:
         return frame2ts(frame, self.fps)
-
-
-class MeteorSeries(object):
-    """用于整合检测结果，排异和给出置信度的流星序列。
-
-    Args:
-        object (_type_): _description_
-    """
-
-    def __init__(self, start_frame: int, cur_frame: int, init_pts: list,
-                 max_acceptable_dist: int, max_acti_frame: int, cate_prob,
-                 fps: float):
-        """_summary_
-
-        Args:
-            start_frame (_type_): _description_
-            cur_frame (_type_): _description_
-            init_box (_type_): shape [n, 2]
-            max_acceptable_dist (_type_): _description_
-            max_acti_frame (_type_): _description_
-            cate_prob (_type_): _description_
-        
-        MeteorSeries Property:
-            start_frame [int] 起始帧
-            end_frame [int] 运动结束帧
-            last_activate_frame [int] 最后响应帧
-            
-        NOTE: MeteorSeries 的 end_frame 与 MeteorCollector 的 end_frame 语义不同。
-        """
-        assert len(init_pts) in (
-            3, 5
-        ), f"invalid init_pts length: should be 3 but {len(init_pts)} got."
-        self.coord_list = PointList()
-        self.center_list = PointList()
-        self.drct_list = []
-        self.coord_list.extend(init_pts, cur_frame)
-        self.center_list.extend(np.mean(init_pts, axis=0)[None, :], cur_frame)
-        self.drct_list.append(pt_drct(init_pts[0], init_pts[1]))
-        self.start_frame = start_frame
-        self.end_frame = cur_frame
-        self.last_activate_frame = cur_frame
-        self.max_acti_frame = max_acti_frame
-        self.max_acceptable_dist = max_acceptable_dist
-        self.count = 1
-        self.cate_prob = cate_prob
-        self.fps = fps
-        self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
-        self.calc_new_range(init_pts)
-
-    @property
-    def drst_std(self):
-        if len(self.drct_list) == 0: return 0
-        drct_copy = np.array(self.drct_list.copy())
-        std1 = np.std(np.sort(drct_copy)[:-1]) if len(
-            drct_copy) >= 3 else np.std(drct_copy)
-        drct_copy[drct_copy > np.pi / 2] -= np.pi
-        std2 = np.std(np.sort(drct_copy)[:-1]) if len(
-            drct_copy) >= 3 else np.std(drct_copy)
-        return min(std1, std2)  # type: ignore
-
-    @property
-    def cate(self):
-        return np.argmax(self.cate_prob, axis=0)
-
-    @property
-    def duration(self) -> float:
-        """
-        duration 描述了该流星片段的完整持续秒数，因此使用 last_activate_frame 而不是 end_frame 进行计算。
-        
-        由于上述原因，在计算速度时，不应直接使用 duration。
-
-        Returns:
-            int: 片段的完整持续帧数
-        """
-        return (self.last_activate_frame - self.start_frame + 1) / self.fps
-
-    def calc_new_range(self, pts) -> None:
-        """基于输入的新点集，更新该 MeteorSeries 的范围值 (self.range). 
-
-        Args:
-            pts (list): 点集合
-        """
-        self.range = [
-            min(int(min([pt[0] for pt in pts])), self.range[0][0]),
-            min(int(min([pt[1] for pt in pts])), self.range[0][1])
-        ], [
-            max(int(max([pt[0] for pt in pts])), self.range[1][0]),
-            max(int(max([pt[1] for pt in pts])), self.range[1][1])
-        ]
-
-    @property
-    def sort_range(self):
-        """range的增强版，按照时间顺序给出起止点组合
-        """
-        [x0, y0], [x1, y1] = self.range
-        e_x, e_y = self.coord_list[np.argmin(self.coord_list.frame_num)]
-        l_x, l_y = self.coord_list[np.argmax(self.coord_list.frame_num)]
-        if e_x > l_x:
-            x0, x1 = x1, x0
-        if e_y > l_y:
-            y0, y1 = y1, y0
-        return [x0, y0], [x1, y1]
-
-    @property
-    def dist(self):
-        pt1, pt2 = self.range
-        return pt_len(pt1, pt2)
-
-    @property
-    def speed(self):
-        """返回流星序列的平均速度。其中距离通过直接求最大跨度获得，时间仅使用运动期间的时长。
-        
-        NOTE: v2.2.0中对速度信息乘以了fps值以进行修正，该版本前后的速度值会有较大差异。
-        TODO: 非标准配置文件的速度值需要被更新。
-
-        Returns:
-            _type_: _description_
-        """
-        return self.dist / (self.end_frame - self.start_frame +
-                            1e-6) * self.fps
-
-    def update(self, new_frame, new_box, new_cate):
-        """为序列更新新的响应
-
-        Args:
-            new_frame (_type_): _description_
-            new_box (_type_): _description_
-            new_cate (_type_): _description_
-        """
-        (x1, y1), (x2, y2) = self.range
-        assert len(new_box) in (
-            3,
-            5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
-        # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
-        for pt in new_box:
-            if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
-                self.end_frame = new_frame
-                break
-        self.last_activate_frame = new_frame
-        self.coord_list.extend(new_box, new_frame)
-        self.center_list.extend(np.mean(new_box, axis=0)[None, :], new_frame)
-        # range由calc_new_range更新，除去init外每次仅在update时更新
-        self.calc_new_range(new_box)
-        self.drct_list.append(pt_drct(new_box[0], new_box[1]))
-        self.cate_prob += new_cate
-        self.count += 1
-
-    def may_in_series(self, pts, cur_frame):
-        # 策略一：最后近邻法（对于有尾迹的判断不准确）
-        #if pt_len(self.box2coord(new_box)+self.coord_list[-1])<self.max_acceptable_dist:
-        #    return True
-        # 策略二：近邻法（对于距离中间点近的，采取收入但不作为边界点策略）
-        first = np.where(self.coord_list.frame_num >= cur_frame -
-                         self.max_acti_frame)[0]
-        first = len(self.coord_list.frame_num) if len(first) == 0 else first[0]
-        for tgt_pt in pts:
-            for in_pt in self.coord_list[first:]:
-                if pt_len_sqr(tgt_pt, in_pt) < self.max_acceptable_dist:
-                    return True
-        return False
-
-
-class PointList(object):
-
-    def __init__(self) -> None:
-        self.pts = np.zeros((0, 2), dtype=np.int32)
-        self.frame_num = np.zeros((0, ), dtype=np.int16)
-
-    def append(self, new_pt, frame):
-        if new_pt.shape == (2, ):
-            new_pt = new_pt.reshape(-1, 2)
-        self.pts = np.concatenate([self.pts, new_pt], axis=0)
-        self.frame_num = np.concatenate(
-            [self.frame_num, np.array(frame)], axis=0)
-
-    def extend(self, new_pts, frame):
-        self.pts = np.concatenate([self.pts, np.array(new_pts)], axis=0)
-        self.frame_num = np.concatenate(
-            [self.frame_num, np.ones((len(new_pts), )) * frame], axis=0)
-
-    def __iter__(self):
-        self.iteration = -1
-        return self
-
-    def get_pts(self):
-        return self.pts
-
-    def __next__(self):
-        self.iteration += 1
-        if self.iteration == len(self.pts):
-            raise StopIteration
-        else:
-            return self.pts[self.iteration]
-
-    def get_pts_as_list(self) -> list:
-        return [[np.round(x[0], 3), np.round(x[1], 3)] for x in self.pts]
-
-    def __getitem__(self, i):
-        return self.pts[i]
-
-    def __len__(self):
-        return len(self.pts)
 
 
 class MetExporter(object):
@@ -576,12 +630,14 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
     def __init__(self, runtime_size: list, raw_size: list, recheck_cfg,
-                 video_loader, logger, max_interval, det_thre) -> None:
+                 video_loader, logger, max_interval: float, det_thre: float,
+                 fps: float) -> None:
         self.queue = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.logger = logger
         self.max_interval = max_interval
         self.det_thre = det_thre
+        self.fps = fps
         if self.recheck:
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model)
@@ -653,7 +709,6 @@ class MetExporter(object):
                     output_dict = self.rescale(output_dict)
                     self.meteor_list.append(output_dict)
                     self.logger.dropped(self.cvt2json(output_dict))
-                    
 
             # get next
             flag, data = self.queue.get()
@@ -663,33 +718,24 @@ class MetExporter(object):
                 f"{self.DROP_FLAG},{self.END_FLAG}], got {flag} instead.")
 
     def rescale(self, meteor_dict: dict) -> dict:
-        """将复合的meteor_dict中的坐标映射回真实分辨率下。
+        """将复合的meteor_dict中的所有target的起止坐标和距离映射回真实分辨率下。
 
         Args:
-            meteor_dict (dict): _description_
+            meteor_dict (dict): 复合的meteor_dict，其target参数为一个列表，包含若干个流星片段。
 
         Returns:
-            dict: _description_
+            dict: 处理后的meteor_dict。
         """
-
-        # TODO: 这一段的写法应该还得优化下。
-        def _rescale(meteor):
-            """将单个meteor中的坐标映射回真实分辨率下。
-
-            Args:
-                meteor (_type_): _description_
-            """
-            meteor["pt1"] = scale_to(meteor["pt1"], self.rescale_ratio)
-            meteor["pt2"] = scale_to(meteor["pt2"], self.rescale_ratio)
-            for i in range(len(meteor["center_point_list"])):
-                meteor["center_point_list"][i] = scale_to(
-                    meteor["center_point_list"][i], self.rescale_ratio)
-            return meteor
-
-        meteor_dict["target"] = [
-            _rescale(single_meteor) for single_meteor in meteor_dict["target"]
-        ]
-
+        for single_meteor in meteor_dict["target"]:
+            single_meteor["pt1"] = scale_to(single_meteor["pt1"],
+                                            self.rescale_ratio)
+            single_meteor["pt2"] = scale_to(single_meteor["pt2"],
+                                            self.rescale_ratio)
+            single_meteor["real_dist"] = single_meteor["dist"] * max(
+                self.rescale_ratio)
+            for i in range(len(single_meteor["center_point_list"])):
+                single_meteor["center_point_list"][i] = scale_to(
+                    single_meteor["center_point_list"][i], self.rescale_ratio)
         return meteor_dict
 
     def cvt2json(self,
@@ -721,7 +767,7 @@ class MetExporter(object):
         """重校验。
 
         Args:
-            final_list (_type_): 包含若干个整片段
+            final_list (list[dict]): 包含若干个整片段
         """
         # 片段级重校验
         # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。此处逻辑可能需要重新处置。
@@ -740,8 +786,8 @@ class MetExporter(object):
                     f"end_frame = {output_dict['end_frame']}")
                 continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
-            # 匹配bbox，丢弃未检出box，修改与类别得分为模型预测得分
-            # TODO: 未匹配的需要落到丢弃列表中
+            # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list。
+            # 未检出box收集到drop_list中。
             raw_bbox_list = [[*x["pt1"], *x["pt2"]]
                              for x in output_dict["target"]]
             matched_pairs = box_matching(bbox_list, raw_bbox_list)
