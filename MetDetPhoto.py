@@ -23,8 +23,15 @@ import tqdm
 from MetLib.MetLog import get_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import YOLOModel
-from MetLib.utils import (ID2NAME, VERSION, load_8bit_image, load_mask,
-                          pt_offset, save_path_handler)
+from MetLib.utils import (
+    ID2NAME,
+    VERSION,
+    load_8bit_image,
+    load_mask,
+    parse_resize_param,
+    pt_offset,
+    save_path_handler,
+)
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 
@@ -135,6 +142,10 @@ parser.add_argument("--visu",
                     "-V",
                     action="store_true",
                     help="show detect results.")
+parser.add_argument("--visu-resolution",
+                    "-R",
+                    type=str,
+                    help="detect results showing resolution.")
 parser.add_argument("--output-path",
                     "-O",
                     type=str,
@@ -148,6 +159,9 @@ args = parser.parse_args()
 
 input_path = args.target
 model_path = args.model_path
+visu_resolution = parse_resize_param(
+    args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE
+) if args.visu_resolution else DEFAULT_VISUAL_WINDOW_SIZE
 logger = get_default_logger()
 model = YOLOModel(model_path,
                   dtype="float32",
@@ -162,7 +176,7 @@ if os.path.isdir(input_path):
         if x.split(".")[-1].lower() in SUPPORT_IMG_FORMAT
     ]
     visual_manager = OpenCVMetVisu(exp_time=1,
-                                   resolution=DEFAULT_VISUAL_WINDOW_SIZE,
+                                   resolution=visu_resolution,
                                    flag=args.visu,
                                    visu_param_list=[visu_param])
     results = []
@@ -206,7 +220,7 @@ elif os.path.isfile(input_path):
         mask = load_mask(args.mask, list(img.shape[1::-1]))
         img = img * mask
         visual_manager = OpenCVMetVisu(exp_time=1,
-                                       resolution=DEFAULT_VISUAL_WINDOW_SIZE,
+                                       resolution=visu_resolution,
                                        flag=args.visu,
                                        visu_param_list=[visu_param],
                                        delay=-1)
@@ -231,7 +245,7 @@ elif os.path.isfile(input_path):
         tot_frames = video.iterations
         video.start()
         visual_manager = OpenCVMetVisu(exp_time=1,
-                                       resolution=DEFAULT_VISUAL_WINDOW_SIZE,
+                                       resolution=visu_resolution,
                                        flag=args.visu,
                                        visu_param_list=[visu_param])
         results = []

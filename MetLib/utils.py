@@ -11,7 +11,7 @@ from easydict import EasyDict
 
 from .MetLog import get_default_logger
 
-VERSION = "V2.2.0"
+VERSION = "V2.2.0-dev"
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0
@@ -43,8 +43,9 @@ def pt_len_sqr(pt1: Union[np.ndarray, list, tuple],
         return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 
-def pt_len(pt1: Union[np.ndarray, list, tuple],
-           pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
+def pt_len(
+        pt1: Union[np.ndarray, list, tuple],
+        pt2: Union[np.ndarray, list, tuple]) -> Union[int, float, np.ndarray]:
     """Return the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
     返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
@@ -348,8 +349,8 @@ class Uint8EMA(EMA):
             self.adjust_weight()
         value_copy = np.array(value, dtype=np.int16)
         self.cur_value = (self.cur_momentum * self.cur_value +
-                          (1 - self.cur_momentum) *
-                          value_copy).astype(np.uint8)
+                          (1 - self.cur_momentum) * value_copy).astype(
+                              np.uint8)
         self.t += 1
 
     def adjust_weight(self) -> None:
@@ -917,7 +918,8 @@ def relative2abs_path(path: str) -> str:
         path = path[2:]
     return os.path.join(WORK_PATH, path)
 
-def save_path_handler(save_path: str, filename: str, ext: str = "json")->str:
+
+def save_path_handler(save_path: str, filename: str, ext: str = "json") -> str:
     """处理保存路径。
 
     Args:
@@ -935,6 +937,7 @@ def save_path_handler(save_path: str, filename: str, ext: str = "json")->str:
     else:
         # 若路径为文件，则直接保存
         return save_path
+
 
 def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
     """Convert the grayscale image (h,w) to a color one (h,w,3) with the given color。

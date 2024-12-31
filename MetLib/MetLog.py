@@ -110,7 +110,7 @@ class ThreadMetLog(BaseMetLog):
 met_logger = ThreadMetLog()
 
 
-def set_default_logger(debug_mode, work_mode):
+def set_default_logger(debug_mode: bool, work_mode: str):
     # debug_mode: output LV_DROPPED information.
     # work_mode == backend: LV_DEBUG information only + flush=True force
     # work_mode == frontend: LV_INFO information.

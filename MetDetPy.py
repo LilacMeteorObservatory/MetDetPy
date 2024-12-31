@@ -155,6 +155,7 @@ def detect_video(video_name: str,
     t1 = time.time()
     tot_iter_num = (end_frame - start_frame) // exp_frame
     tot_get_time = 0
+    tot_wait_time = 0
     visu_info = {}
     try:
         video_loader.start()
@@ -196,6 +197,7 @@ def detect_video(video_name: str,
                                     fps) * LIVE_MODE_SPEED_CTRL_CONST
                 cur_time_cost = time.time() - t0
                 if (cur_time_cost < expect_time_cost):
+                    tot_wait_time += (expect_time_cost - cur_time_cost)
                     time.sleep(expect_time_cost - cur_time_cost)
 
         # 仅正常结束时（即 手动结束或视频读取完）打印。
@@ -208,8 +210,10 @@ def detect_video(video_name: str,
         video_loader.release()
         meteor_collector.clear()
         visual_manager.stop()
-        logger.info("Time cost: %.4ss." % (time.time() - t1))
+        logger.info("Time cost: %.4fs." % (time.time() - t1))
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
+        if live_mode:
+            logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
         logger.stop()
 
     return dict(version=VERSION,

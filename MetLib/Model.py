@@ -101,7 +101,7 @@ class YOLOModel(object):
             results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
         result_pos = np.array(results[:, :4], dtype=int)
-        # TODO: 当这样修正分数时得分会很低
+        # TODO: 如果加上prob以修正分数，得分会很低
         result_cls =results[:, 5:]
         return result_pos, result_cls
 
