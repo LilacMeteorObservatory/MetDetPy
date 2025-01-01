@@ -13,7 +13,7 @@ try:
 except AttributeError:
     sys.stdout.writelines("Unable to set output encoding.")
     sys.stdout.flush()
-level_header = ("Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor")
+level_header = ["Dropped", "Debug","Processing","Info", "Warning", "Error", "Meteor"]
 
 LV_DROPPED = 0
 LV_DEBUG = 1
@@ -123,10 +123,10 @@ def set_default_logger(debug_mode: bool, work_mode: str):
         met_logger.with_strf=True
     elif work_mode=="backend":
         met_logger.flush=True
-        met_logger.log_level=LV_DEBUG
+        met_logger.log_level=LV_DROPPED
+        level_header[LV_DROPPED] = "Meteor"
     else:
         met_logger.log_level=LV_INFO
-
     return 0
 
 

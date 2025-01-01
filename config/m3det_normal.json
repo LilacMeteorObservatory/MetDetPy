@@ -59,7 +59,7 @@
             "switch": true,
             "model": {
                 "name": "YOLOModel",
-                "weight_path": "./weights/yolov5s.onnx",
+                "weight_path": "./weights/yolov5s_v2.onnx",
                 "dtype": "float32",
                 "nms": true,
                 "warmup": true,

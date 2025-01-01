@@ -1,9 +1,9 @@
 {
     "description": {
-        "preset_name_cn": "M3Det-灵敏",
-        "preset_name_en": "M3Det-sensitive",
-        "intro_cn": "自适应检测器，适用于画面纯净的场景。",
-        "intro_en": "Adaptive meteor detector. Suitable for scenarios with low noise."
+        "preset_name_cn": "M3Det-通用（旧）",
+        "preset_name_en": "M3Det-general-old",
+        "intro_cn": "使用旧版本模型的通用自适应检测器。",
+        "intro_en": "Adaptive meteor detector. Suitable for most detection scenarios."
     },
     "loader": {
         "name": "ThreadVideoLoader",
@@ -20,8 +20,8 @@
         "cfg": {
             "binary": {
                 "adaptive_bi_thre": true,
-                "init_value": 10,
-                "sensitivity": "high",
+                "init_value": 7,
+                "sensitivity": "normal",
                 "area": 0.1,
                 "interval": 2
             },
@@ -32,7 +32,7 @@
             },
             "dynamic": {
                 "dy_mask": true,
-                "interval":2
+                "window_sec": 5
             }
         }
     },
@@ -42,11 +42,11 @@
             "max_interval": 4,
             "time_range": [
                 0,
-                10
+                8
             ],
             "speed_range": [
-                1.5,
-                15
+                2,
+                12
             ],
             "drct_range": [
                 0,
@@ -58,15 +58,15 @@
         "recheck_cfg": {
             "switch": true,
             "model": {
-                "name":"YOLOModel",
-                "weight_path": "./weights/yolov5s_v2.onnx",
+                "name": "YOLOModel",
+                "weight_path": "./weights/yolov5s.onnx",
                 "dtype": "float32",
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.25,
                 "nms_thre": 0.45
             },
-            "save_path":""
+            "save_path": ""
         }
     }
 }
