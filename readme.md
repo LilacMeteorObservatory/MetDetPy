@@ -36,7 +36,7 @@ Besides, MetDetPy has worked as the backend of the Meteor Master since version 1
 * 64bit OS
 * Python>=3.7 (3.9+ is recommended)
 
-### Requirements
+### Python Requirements
 
 * numpy>=1.15.0
 * opencv_python>=4.9.0
@@ -133,133 +133,17 @@ MetDetPy reads arguments from configuration files. For most circumstances, prese
 
 ### Run Image Meteor Detector
 
-To launch the image meteor detector, use `run_model.py` as follows:
+To launch the image meteor detector, use `MetDetPhoto.py` as follows:
 
 ```sh
-python run_model.py target 
+python MetDetPhoto.py target 
 ```
 
 (WIP)
 
 ### Usage of Other Tools
 
-#### ClipToolkit
-
-ClipToolkit can be used to create several video clips or stacked images at once. Its usage is as follows:
-
-```sh
-python ClipToolkit.py target json [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] 
-```
-
-##### Arguments:
-
-* target: the target video.
-
-* json: a JSON-format string or the path to a JSON file where start time, end-time and filename (optional) are listed.
-
-    Specifically, this JSON should be an array of elements, where every element should include at least a `"time"` key. The value of the `"time"` key should be an array of two `"hh:mm:ss.ms"` format strings, which indicates the start time and the end time of the clip. `"filename"` is an optional key, in whose value you can specify the filename and suffix (i.e what the video clip should be converted to and named.) `"filename"` is more prior than `--mode` and `--suffix` options, but if not specified, this clip will be automatically converted and named according to the command options.
-
-    We provide [clip_test.json](./test/clip_test.json) as a use case and test JSON.
-
-* --mode: convert clip(s) to images or videos. Should be selected from {image, video}. This option will be covered by a specific filename in json.
-
-* --suffix: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode. This option will be covered by a specific filename in JSON.
-
-* --save-path: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in --save-path to simplify your JSON.
-
-* --resize: resize image/video to the given resolution. It should be a string where two numbers are joined by `x`,like `960x540` or `1920x1080`.
-
-* --png-compressing: the compressing rate of the generated png image. It should be int ranged $Z \in [0,9]$; By default, it is 3.
-
-* --jpg-quality: the quality of generated jpg image. It should be int ranged $Z \in [0,100]$; By default, it is 95.
-
-For example:
-
-```sh
-python ClipToolkit.py "./test/20220413Red.mp4" "./test/clip_test.json" --mode image --suffix jpg --jpg-quality 60 --resize 960x540
-```
-
-Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
-
-
-#### Evaulate
-
-To evaluate how MetDetPy performs on your video, you can simply run `evaluate.py` :
-
-```sh
-python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug] video_json
-```
-##### Arguments
-
-* video_json: a JSON file that places the name of the video, the mask, and meteor annotations. It should be formatted like this:
-
-```json
-{
-    "video": "path/to/the/video.mp4",
-    "mask": "path/to/the/mask.jpg",
-    "meteors": [{
-        "start_time": "HH:MM:SS.XX0000",
-        "end_time": "HH:MM:SS.XX0000",
-        "pt1": [
-            260,
-            225
-        ],
-        "pt2": [
-            154,
-            242
-        ]
-    }]
-}
-```
-
-If there is no corresponding mask, simply use `""`. If there is no meteor annotation, the `"meteors"` can be ignored too.
-
-* --cfg: configuration file. Use [config.json](./config.json) under the same path default.
-
-* --load: the filename of the detection result that is saved by `evaluate.py`. If it is applied, `evaluate.py` will directly load the result file instead of running detection through the video.
-
-* --save: the filename of the detection result that is going to save.
-
-* --metrics: calculate precision and recall of the detection. To apply this, `"meteors"` has to be provided in `video_json`.
-
-* --debug: when launching `evaluate.py` with this, there will be a debug window showing videos and detected meteors.
-
-##### Example
-```sh
-python evaluate.py "test/20220413_annotation.json"
-```
-
-
-## Package python codes to executables
-
-We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports to use `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
-
-When using it, make sure that either `pyinstaller` or `nuitka` is installed. Besides, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
-
-Its usage is as follows:
-
-```sh
-python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
-     [--apply-upx] [--apply-zip] [--version VERSION]
-```
-
-* --tool: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
-
-* --mingw64: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
-
-* --apply-upx: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
-
-* --apply-zip: generate zip package when compiling/packaging is finished.
-
-* --version: MetDetPy version tag. Used for naming zip package.
-
-The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
-
-**Notice:**
-
-1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. You can prepare either tool to package the program.
-2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
-3. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment when packaging.
+Several tools are provided with MetDetPy to support related functions, including ClipToolkit (batch image stacking and video clipping tool), Evaluate (performance evaluation and regression testing tool), and make_package (packaging script). Access the [tool documentation](./docs/tool-usage.md) to learn more about how to use these tools.
 
 ## Performance and Efficiency
 
