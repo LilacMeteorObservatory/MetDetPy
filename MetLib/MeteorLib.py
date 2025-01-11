@@ -9,10 +9,12 @@ from .Model import init_model
 from .Stacker import max_stacker
 from .utils import (color_interpolater, pt_drct, frame2ts, save_img,
                     pt_len_sqr, pt_len, pt_offset, box_matching, ID2NAME,
-                    NUM_CLASS)
+                    NAME2ID, NUM_CLASS)
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
+
+DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
 
 
 class Name2Label(object):
@@ -351,7 +353,7 @@ class MeteorCollector(object):
     """
 
     def __init__(self, meteor_cfg, eframe, fps, runtime_size, raw_size,
-                 recheck_cfg, video_loader, logger) -> None:
+                 recheck_cfg, positive_cfg, video_loader, logger) -> None:
         self.min_len = meteor_cfg.min_len
         self.max_interval = meteor_cfg.max_interval * fps
         self.max_acti_frame = meteor_cfg.max_interval * fps
@@ -377,6 +379,7 @@ class MeteorCollector(object):
         self.met_exporter = MetExporter(runtime_size=runtime_size,
                                         raw_size=raw_size,
                                         recheck_cfg=recheck_cfg,
+                                        positive_cfg=positive_cfg,
                                         video_loader=video_loader,
                                         logger=logger,
                                         max_interval=self.max_interval,
@@ -630,10 +633,15 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
     def __init__(self, runtime_size: list, raw_size: list, recheck_cfg,
-                 video_loader, logger, max_interval: float, det_thre: float,
-                 fps: float) -> None:
+                 positive_cfg, video_loader, logger, max_interval: float,
+                 det_thre: float, fps: float) -> None:
         self.queue = queue.Queue()
         self.recheck = recheck_cfg.switch
+        self.positive_cates: list[str] = positive_cfg.get(
+            "positive_cates", DEFAULT_POSITIVE_CATES_LIST)
+        self.positive_cate_ids: list[int] = [
+            NAME2ID[cate] for cate in self.positive_cates if cate in NAME2ID
+        ]
         self.logger = logger
         self.max_interval = max_interval
         self.det_thre = det_thre
@@ -702,8 +710,6 @@ class MetExporter(object):
                     self.meteor_list.append(met)
                     self.logger.meteor(self.cvt2json(met))
                 for ms_attr in drop_list:
-                    # 标签修正，得分修正字段名称
-                    ms_attr["category"] = ID2NAME[Name2Label.DROPPED]
                     # 坐标修正和序列化
                     output_dict = self.init_output_dict(ms_attr)
                     output_dict = self.rescale(output_dict)
@@ -786,7 +792,7 @@ class MetExporter(object):
                     f"end_frame = {output_dict['end_frame']}")
                 continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
-            # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list。
+            # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list，
             # 未检出box收集到drop_list中。
             raw_bbox_list = [[*x["pt1"], *x["pt2"]]
                              for x in output_dict["target"]]
@@ -797,24 +803,30 @@ class MetExporter(object):
             for l, r in matched_pairs:
                 label = np.argmax(score_list[l, :], axis=0)
                 score = score_list[l, label]
-                if label == Name2Label.PLANE_SATELLITE:
-                    continue
                 sure_meteor = output_dict["target"][r]
-                sure_meteor["category"] = ID2NAME.get(label, "UNDEFINED")
+                sure_meteor["category"] = ID2NAME.get(label, Name2Label.OTHERS)
                 sure_meteor["raw_score"] = sure_meteor["score"]
                 sure_meteor["recheck_score"] = score.astype(np.float64)
-                # 当预测为流星时，求分数均值作为最终得分。
+                # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
+                # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.3.0预计引入前置的机器学习分类器。
                 # TODO: 前置预测输出多类别分数。
                 if label == Name2Label.METEOR:
                     mge_score = (sure_meteor["recheck_score"] +
                                  sure_meteor["raw_score"]) / 2
-                    # 如果分数低于卡控分数，则仍应跳过
-                    if sure_meteor["score"] < self.det_thre:
-                        continue
                 else:
                     mge_score = score.astype(np.float64)
                 sure_meteor["score"] = np.round(mge_score, 2)
-                fixed_output_dict["target"].append(sure_meteor)
+                # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
+                if (label != Name2Label.METEOR
+                        and label in self.positive_cate_ids) or (
+                            label == Name2Label.METEOR
+                            and sure_meteor["score"] >= self.det_thre):
+                    fixed_output_dict["target"].append(sure_meteor)
+                else:
+                    # 流星类被丢弃时需要重新标记为 DROPPED
+                    if label == Name2Label.METEOR:
+                        sure_meteor["category"] = ID2NAME[Name2Label.DROPPED]
+                    new_drop_list.append(sure_meteor)
                 unmatched_proposal_list[r] = False
             # after fix. to be optimized.
             if len(fixed_output_dict["target"]) > 0:
@@ -830,9 +842,14 @@ class MetExporter(object):
                     for x in fixed_output_dict["target"]
                 ])
                 new_final_list.append(fixed_output_dict)
-            # 整理所有未被配对的结果，输出为单独的drop条目。
+            # 整理所有未被配对的结果，如果是置信度不足的正样本类别，类别在输出前被重置为OTHERS。
             for (idx, i) in enumerate(unmatched_proposal_list):
-                if not i: continue
+                if not i:
+                    continue
+                if output_dict["target"][idx][
+                        "category"] in self.positive_cates:
+                    output_dict["target"][idx]["category"] = ID2NAME[
+                        Name2Label.OTHERS]
                 new_drop_list.append(output_dict["target"][idx])
 
         return new_final_list, new_drop_list

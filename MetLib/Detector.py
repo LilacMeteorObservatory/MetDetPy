@@ -21,8 +21,8 @@ import numpy as np
 from .Model import init_model
 from .utils import EMA, PI, SlidingWindow, Uint8EMA, generate_group_interpolate, expand_cls_pred, lineset_nms
 
-NUM_LINES_TOOMUCH = 100
-
+NUM_LINES_TOOMUCH = 500
+DEFAULT_INIT_VALUE = 5
 
 class SNR_SW(SlidingWindow):
     """
@@ -192,7 +192,9 @@ class LineDetector(BaseDetector):
         if self.bi_cfg.adaptive_bi_thre:
             self.std2thre = self.sensitivity_func[self.bi_cfg.sensitivity]
             self.bi_threshold = self.abs_sensitivity[self.bi_cfg.sensitivity]
-            self.bi_threshold_float = self.bi_threshold
+        else:
+            self.bi_threshold = self.bi_cfg.get("init_value",DEFAULT_INIT_VALUE)
+        self.bi_threshold_float = self.bi_threshold
 
         # 如果启用动态蒙版（dynamic mask），在此处构建另一个滑窗管理
         if self.dynamic_cfg.dy_mask:
@@ -374,9 +376,10 @@ class M3Detector(LineDetector):
 
         # 如果产生的响应数目非常多，忽略该帧
         # TODO: 会造成无法响应面积式的现象。需要调整。
+        # 下调了阈值以提升面积召回。更合理的版本：
         self.lines_num = len(linesp)
-        #if self.lines_num > NUM_LINES_TOOMUCH:
-        #    linesp = np.array([])
+        if self.lines_num > NUM_LINES_TOOMUCH:
+            linesp = np.array([])
 
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
         # 这一步骤会造成一些暗弱流星的丢失。

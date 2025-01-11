@@ -101,8 +101,9 @@ class YOLOModel(object):
             results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
         result_pos = np.array(results[:, :4], dtype=int)
-        # TODO: 如果加上prob以修正分数，得分会很低
-        result_cls =results[:, 5:]
+        # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
+        # TODO: 通过优化模型取缔这个tricky的设置。
+        result_cls = np.sqrt(np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
         return result_pos, result_cls
 
     def forward_with_raw_size(self, x, clip_num: Optional[int] = None):
@@ -121,6 +122,7 @@ class YOLOModel(object):
         """
         h, w, c = x.shape
         assert c == self.c, "num_channel must match."
+        # TODO: clip_num功能未完全实现
         h_rep, w_rep = (h - 1) // self.h + 1, (w - 1) // self.w + 1
         h_overlap, w_overlap = (h_rep * self.h - h) // (h_rep - 1), (
             w_rep * self.w - w) // (w_rep - 1)
@@ -141,7 +143,7 @@ class YOLOModel(object):
         result_pos = np.concatenate(result_pos, axis=0)
         result_cls = np.concatenate(result_cls, axis=0)
         # 重整后 NMS
-        res = cv2.dnn.NMSBoxes(bboxes=result_pos[:, :4],
+        res = cv2.dnn.NMSBoxes(bboxes=result_pos[:, :4], # type: ignore
                                scores=np.max(result_cls, axis=-1),
                                score_threshold=self.pos_thre,
                                nms_threshold=self.nms_thre)
@@ -204,6 +206,8 @@ class ONNXBackend(Backend):
         # make sure batch=1
         # Warming up
         if warmup:
+            # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
+            # 无法适配当前backend模型
             _ = self.model_session.run(
                 [], {
                     name: np.zeros(shape, dtype=self.dtype)

@@ -67,6 +67,13 @@
                 "nms_thre": 0.45
             },
             "save_path": ""
+        },
+        "positive_cfg": {
+            "positive_cates": [
+                "METEOR",
+                "RED_SPRITE",
+                "RARE_SPRITE"
+            ]
         }
     }
 }

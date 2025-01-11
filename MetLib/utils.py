@@ -989,12 +989,16 @@ def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
 
 
 ID2NAME: dict[int, str] = {}
+NAME2ID: dict[str, int] = {}
 with open(relative2abs_path("./config/class_name.txt")) as f:
     mapper = [x.strip().split() for x in f.readlines()]
     for num, name in mapper:
         ID2NAME[int(num)] = name
+        NAME2ID[name] = int(num)
 MAX_EXISTING_ID = max(ID2NAME.keys())
 ID2NAME[MAX_EXISTING_ID + 1] = "DROPPED"
 ID2NAME[MAX_EXISTING_ID + 2] = "OTHERS"
+NAME2ID["DROPPED"] = MAX_EXISTING_ID + 1
+NAME2ID["OTHERS"] = MAX_EXISTING_ID + 2
 # NUM_CLASS here includes "OTHERS" with the last label
 NUM_CLASS = len(ID2NAME)

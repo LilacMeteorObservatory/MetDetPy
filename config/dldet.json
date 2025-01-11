@@ -22,7 +22,7 @@
         "cfg": {
             "model": {
                 "name":"YOLOModel",
-                "weight_path": "./weights/yolov5s.onnx",
+                "weight_path": "./weights/yolov5s_v2.onnx",
                 "dtype": "float32",
                 "nms": true,
                 "warmup": true,
@@ -37,15 +37,15 @@
             "max_interval": 5,
             "time_range": [
                 0,
-                15
+                8
             ],
             "speed_range": [
-                20,
-                150
+                2,
+                12
             ],
             "drct_range": [
                 0,
-                0.5
+                0.6
             ],
             "det_thre": 0.5,
             "thre2": 2048
@@ -54,7 +54,7 @@
             "switch": true,
             "model": {
                 "name":"YOLOModel",
-                "weight_path": "./weights/yolov5s.onnx",
+                "weight_path": "./weights/yolov5s_v2.onnx",
                 "dtype": "float32",
                 "nms": true,
                 "warmup": true,
@@ -62,6 +62,13 @@
                 "nms_thre": 0.45
             },
             "save_path":""
+        },
+        "positive_cfg": {
+            "positive_cates": [
+                "METEOR",
+                "RED_SPRITE",
+                "RARE_SPRITE"
+            ]
         }
     }
 }

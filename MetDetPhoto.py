@@ -128,7 +128,7 @@ parser.add_argument("target", help="path to the img or video.")
 parser.add_argument("--mask", help="path to the mask file.")
 parser.add_argument("--model-path",
                     help="/path/to/the/model",
-                    default="./weights/yolov5s.onnx")
+                    default="./weights/yolov5s_v2.onnx")
 parser.add_argument("--exclude-noise", action="store_true")
 parser.add_argument("--model-type",
                     help="type of the model. Support YOLO.",
@@ -206,7 +206,8 @@ if os.path.isdir(input_path):
                 "img_filename":
                 img_path,
                 "boxes": [list(map(int, x)) for x in boxes],
-                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds]
+                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds],
+                "prob": [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
             })
 
 elif os.path.isfile(input_path):

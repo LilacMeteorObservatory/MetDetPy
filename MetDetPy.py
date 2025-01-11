@@ -115,6 +115,7 @@ def detect_video(video_name: str,
         # Init meteor collector
         meteor_cfg = cfg.collector.meteor_cfg
         recheck_cfg = cfg.collector.recheck_cfg
+        positive_cfg=cfg.collector.get("positive_cfg", None)
         recheck_loader = None
         if recheck_cfg.switch:
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
@@ -132,6 +133,7 @@ def detect_video(video_name: str,
             runtime_size=video_loader.runtime_size,
             raw_size=video_loader.raw_size,
             recheck_cfg=recheck_cfg,
+            positive_cfg=positive_cfg,
             video_loader=recheck_loader,
             logger=logger)
 
