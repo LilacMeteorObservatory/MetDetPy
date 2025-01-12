@@ -71,8 +71,7 @@
         "positive_cfg": {
             "positive_cates": [
                 "METEOR",
-                "RED_SPRITE",
-                "RARE_SPRITE"
+                "RED_SPRITE"
             ]
         }
     }
