@@ -16,17 +16,34 @@ from MetLib.Model import AVAILABLE_DEVICE_ALIAS
 from MetLib.utils import LIVE_MODE_SPEED_CTRL_CONST, VERSION, frame2time, mod_all_attrs_to_cfg, relative2abs_path, SWITCH2BOOL, frame2ts, NUM_CLASS
 
 
-def detect_video(video_name,
-                 mask_name,
+def detect_video(video_name: str,
+                 mask_name: str,
                  cfg: Any,
-                 debug_mode=False,
-                 visual_mode=False,
-                 work_mode="frontend",
-                 time_range=(None, None),
+                 debug_mode: bool = False,
+                 visual_mode: bool = False,
+                 work_mode: str = "frontend",
+                 time_range: tuple[Optional[int],
+                                   Optional[int]] = (None, None),
                  live_mode: bool = False,
-                 provider_key: Optional[str]=None):
+                 provider_key: Optional[str] = None) -> dict:
+    """The main API of MetDetPy, detecting meteors from the given video.
+
+    Args:
+        video_name (str): The path to the video file.
+        mask_name (str): The path to the mask file.
+        cfg (Easydict): Configuration dict.
+        debug_mode (bool, optional): when applying debug mode, more details will be logged. Defaults to False.
+        visual_mode (bool, optional): when applying visual mode, display a window showing the current detecting frames. Defaults to False.
+        work_mode (str, optional): stdout stream working mode. Select from "backend" and "frontend". Defaults to "frontend".
+        time_range (tuple, optional): time range from the start to the end. Defaults to (None, None).
+        live_mode (bool, optional): Whether to apply live mode, detect video at approximate recording time. Defaults to False.
+        provider_key (Optional[str], optional): provider device. Defaults to None.
+
+    Returns:
+        dict: a dict that records detection config and results.
+    """
     if provider_key:
-        # 如果指定providers，透传选项到所有调用model的位置。
+        # 如果指定providers，修改配置文件中所有调用model的对应键值。
         cfg = mod_all_attrs_to_cfg(cfg,
                                    "model",
                                    action="add",
@@ -68,7 +85,8 @@ def detect_video(video_name,
                                       exp_option=exp_option,
                                       exp_upper_bound=exp_upper_bound,
                                       merge_func=merge_func)
-        logger.info(video_loader.summary())
+        video_info = video_loader.summary()
+        logger.info(video_loader.__repr__())
 
         # get properties from VideoLoader
         start_frame, end_frame = video_loader.start_frame, video_loader.end_frame
@@ -134,6 +152,7 @@ def detect_video(video_name,
     t1 = time.time()
     tot_iter_num = (end_frame - start_frame) // exp_frame
     tot_get_time = 0
+    tot_wait_time = 0
     visu_info = {}
     try:
         video_loader.start()
@@ -175,6 +194,7 @@ def detect_video(video_name,
                                     fps) * LIVE_MODE_SPEED_CTRL_CONST
                 cur_time_cost = time.time() - t0
                 if (cur_time_cost < expect_time_cost):
+                    tot_wait_time += (expect_time_cost - cur_time_cost)
                     time.sleep(expect_time_cost - cur_time_cost)
 
         # 仅正常结束时（即 手动结束或视频读取完）打印。
@@ -187,11 +207,17 @@ def detect_video(video_name,
         video_loader.release()
         meteor_collector.clear()
         visual_manager.stop()
-        logger.info("Time cost: %.4ss." % (time.time() - t1))
+        logger.info("Time cost: %.4fs." % (time.time() - t1))
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
+        if live_mode:
+            logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
         logger.stop()
 
-    return meteor_collector.ended_meteor
+    return dict(version=VERSION,
+                basic_info=video_info,
+                config=cfg,
+                type="prediction",
+                results=meteor_collector.ended_meteor)
 
 
 if __name__ == "__main__":
@@ -263,28 +289,25 @@ if __name__ == "__main__":
 
     parser.add_argument('--recheck',
                         type=str,
-                        choices=['backend', 'frontend'],
+                        choices=['on', 'off'],
                         default=None,
                         help="Apply recheck before the result is printed"
-                        "(the model must specified in the config file).")
-
-    parser.add_argument('--save-rechecked-img',
-                        type=str,
-                        help="Save rechecked images to the given path.")
+                        " (the model must specified in the config file).")
 
     parser.add_argument("--provider",
                         type=str,
                         choices=AVAILABLE_DEVICE_ALIAS,
                         default=None,
                         help="Force appoint onnxruntime providers.")
-
     parser.add_argument("--live-mode",
                         type=str,
+                        nargs='?',
+                        const='on',
                         choices=['on', 'off'],
                         default=None,
                         help="Apply live mode, detect video as real-time.")
 
-    parser.add_argument("--save",
+    parser.add_argument("--save-path",
                         type=str,
                         default=None,
                         help="Save detection results as a json file.")
@@ -314,8 +337,6 @@ if __name__ == "__main__":
 
     if args.recheck:
         cfg.collector.recheck_cfg.switch = SWITCH2BOOL[args.recheck]
-    if args.save_rechecked_img:
-        cfg.collector.recheck_cfg.save_path = args.save_rechecked_img
 
     if args.live_mode:
         live_mode = SWITCH2BOOL[args.live_mode]
@@ -331,9 +352,8 @@ if __name__ == "__main__":
                           time_range=(args.start_time, args.end_time),
                           live_mode=live_mode,
                           provider_key=args.provider)
-    if args.save:
-        save_path = args.save
-        if not save_path.lower().endswith(".json"):
-            save_path+=".json"
-        with open(save_path,mode="w") as f:
-            json.dump(result, f)
+    if args.save_path:
+        import os
+        save_path = args.save_path + os.path.splitext(os.path.split(args.target)[-1])[0] + ".json"
+        with open(save_path, mode="w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=4)
