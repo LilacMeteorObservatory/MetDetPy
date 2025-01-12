@@ -7,7 +7,7 @@ import psutil
 import numpy as np
 from easydict import EasyDict
 from MetDetPy import detect_video
-from MetLib.utils import met2xyxy, save_path_handler, ts2frame, calculate_area_iou, relative2abs_path, VERSION
+from MetLib.utils import met2xyxy, save_path_handler, ts2frame, calculate_area_iou, relative2abs_path, VERSION, NAME2ID, NUM_CLASS
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 from typing import Any
 
@@ -92,7 +92,8 @@ def get_regularized_results(result_dict,
     results = getattr(result_dict, "results", None)
     assert anno_size != None and results != None, \
             "Metrics can only be applied when \"anno_size\" and \"results\" are provided!"
-
+    if len(results) > 0 and results[0].get("target", None):
+        results = [target for x in results for target in x["target"]]
     ax, ay = anno_size
     dx, dy = real_size
     scaler = dx / ax, dy / ay
@@ -137,7 +138,7 @@ def compare(video: OpenCVVideoWrapper,
             new_dict,
             pos_thre=0.5,
             tiou=0.3,
-            aiou=0.3):
+            aiou=0.1):
     """比较两个结果。
 
     与其他运行结果比较：
@@ -175,6 +176,7 @@ def compare(video: OpenCVVideoWrapper,
     tp_list = []
     fp_list = []
     fn_list = []
+    confusion_matrix = np.zeros((NUM_CLASS + 1, NUM_CLASS + 1), dtype=np.int16)
 
     matched_pair_list = []
     matched_id = np.zeros((len(base_results), ), dtype=bool)
@@ -203,6 +205,12 @@ def compare(video: OpenCVVideoWrapper,
             if matched_id[cur_id] == 0 \
                 and (calculate_time_iou(instance,base_results[cur_id]) >= tiou) \
                 and calculate_area_iou(met2xyxy(instance), met2xyxy(base_results[cur_id])) >= aiou:
+                # TEMP FIX: 向前兼容v2.1.0的标注，低置信度转DROPPED进行判定。
+                if base_results[cur_id].get("score",1) <= pos_thre:
+                    base_results[cur_id]["category"] = "DROPPED"
+                confusion_matrix[
+                    NAME2ID[instance["category"]],
+                    NAME2ID[base_results[cur_id].get("category","METEOR")]] += 1
                 match_flag = True
                 tp += 1
                 matched_id[cur_id] = 1
@@ -213,6 +221,7 @@ def compare(video: OpenCVVideoWrapper,
                 match_flag = False
                 break
         if not match_flag:
+            confusion_matrix[NAME2ID[instance["category"]], -1] += 1
             fp += 1
 
     new_predict_num = len(new_results)
@@ -234,7 +243,9 @@ def compare(video: OpenCVVideoWrapper,
         "fn_num":
         fn_num,
         "tn_num":
-        tn_num
+        tn_num,
+        "confusion_matrix":
+        confusion_matrix
     }
 
     import pprint
@@ -359,7 +370,8 @@ def main():
         else:
             performance, results = monitor_performance(
                 detect_video, [video_name, mask_name, cfg, args.debug],
-                dict(work_mode="frontend", time_range=(start_time, end_time)))
+                dict(work_mode="frontend",
+                     time_range=(str(start_time), str(end_time))))
             if isinstance(results, list):
                 # version<=2.1.0 返回值为list，整理以生成完整报告
                 new_result = generate_result(
@@ -374,9 +386,9 @@ def main():
             else:
                 raise NotImplementedError(
                     f"not support result type: {results.type}!")
-            if args.save:
+            if args.save_path:
                 # List of predictions
-                save_path = save_path_handler(args.save,
+                save_path = save_path_handler(args.save_path,
                                               video_name,
                                               ext="json")
                 with open(save_path, mode='w', encoding="utf-8") as f:
