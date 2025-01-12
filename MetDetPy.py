@@ -216,6 +216,7 @@ def detect_video(video_name: str,
     return dict(version=VERSION,
                 basic_info=video_info,
                 config=cfg,
+                anno_size=video_loader.runtime_size,
                 type="prediction",
                 results=meteor_collector.ended_meteor)
 
