@@ -96,8 +96,7 @@ Here is an example for a line detector:
 }
 ```
 
-And Here is an example for deep learning-based detector:
-
+Here is an example for deep learning-based detector:
 ```json
  "detector": {
     "name": "MLDetector",
@@ -125,7 +124,6 @@ These arguments are explained as follows:
 |cfg|-|Describes the specific arguments of the detector. |(See below)|
 
 When using traditional detectors, it's necessary to configure `"binary"`(binary threshold arguments), `"hough_line"`(line detection arguments) and `"dynamic"`(dynamic mechanism arguments) under the `cfg` of the `detector`. When using deep learning-based detectors, `"model"` needs to be configured under the `cfg` of the `detector`. The specific requirements of these arguments are as follows:
-
 
 <table>
     <tr>
@@ -201,7 +199,9 @@ When using traditional detectors, it's necessary to configure `"binary"`(binary 
     <tr>
         <td>fill_thre</td>  
         <td>float</td> 
-        <td>Describes the maximum allowable hollow ratio to form a line, used to reduce false alarms from discontinuous lines. Set to 0 to disable this.</td> 
+        <td>Describes the maximum allowable hollow ratio to form a line, used to reduce false alarms from discontinuous lines. Set to 0 to disable this.
+        ⚠️ This option is deprecated now.
+        </td> 
         <td>0.6</td>  
     </tr>
     <tr>
@@ -220,19 +220,19 @@ The `collector` section manages the the filtering and collection conditions for 
 ```json
 "collector": {
     "meteor_cfg": {
-        "min_len": 15,
+        "min_len": 20,
         "max_interval": 5,
         "time_range": [
             0,
             8
         ],
         "speed_range": [
-            0.9,
-            18
+            3,
+            12
         ],
         "drct_range": [
             0,
-            0.5
+            0.6
         ],
         "det_thre": 0.5,
         "thre2": 2048
@@ -241,7 +241,7 @@ The `collector` section manages the the filtering and collection conditions for 
         "switch": true,
         "model": {
             "name":"YOLOModel",
-            "weight_path": "./weights/yolov5s.onnx",
+            "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
             "nms": true,
             "warmup": true,
@@ -249,11 +249,17 @@ The `collector` section manages the the filtering and collection conditions for 
             "nms_thre": 0.45
         },
         "save_path":""
+    },
+    "positive_cfg": {
+        "positive_cates": [
+            "METEOR",
+            "RED_SPRITE"
+        ]
     }
 }
 ```
 
-This mainly includes two settings: the filter configuration for meteors `"meteor_cfg"` and the re-verification configuration `"recheck_cfg"`.
+This mainly includes two settings: the filter configuration for meteors `"meteor_cfg"`, the re-verification configuration `"recheck_cfg"`, and positive configuration `"positive_cfg"`.
 
 ### Meteor_cfg
 
@@ -261,24 +267,20 @@ The `meteor_cfg` allows setting filters for the speed, duration, allowable inter
 
 |Argument|Type|Explanation|Recommendation|
 |------|---|---|---|
-|min_len|int|The minimum length (px) required to start recording a meteor.|10|
+|min_len|int|The minimum length (px) required to start recording a meteor.|20|
 |max_interval|int|The longest time interval between meteors. (if there is no other responses after this time interval, this meteor (group) is considered to be ended). Unit: s.|5|
 |time_range|array|Describes the duration range of the meteor. Responses that exceed or do not reach the threshold will be excluded. Unit: s.|[0,8]|
-|speed_range|array|Describes the allowable speed range of the meteor. Responses that exceed or do not reach the threshold will be excluded. Unit: $f^{-1}$.|[0.9, 18]|
+|speed_range|array|The permissible speed range for describing a meteor. Responses that exceed or do not reach the threshold will be excluded. The value is calculated as: \(( \text{{distance moved by the meteor (px)}} / \text{{time taken by the meteor (s)}} ) / \text{{length of the long side of the video (px)}} \times 100\). This value can be understood as the percentage of the distance the meteor moves on the screen per second, e.g., [3,12] represents the expected capture of targets moving 3%-12% of the screen distance per second. Unit: \(s^{-1}\).|[3,12]|
 |drct_range|array|Describes the linearity range of the meteor. The closer to 0, the closer the meteor is to a perfect straight line.|[0,0.5]|
-|det_thre|float|Describes the threshold for a positive sample meteor. Responses that exceed this score are considered positive sample meteors. Range: [0,1].|0.5|
-|thre2|int|Describes the maximum allowable square distance between several responses. If there are multiple responses for one trajectory in the detection results, consider increasing this value.|2048|
+|det_thre|float|Describes the threshold for a positive sample meteor. Responses that exceed this score are considered positive sample meteors.|[0,0.6]|
+|thre2|int|Describes the maximum allowable square distance between several responses. If there are multiple responses for one trajectory in the detection results, consider increasing this value. ⚠️ This threshold is still based on the runtime resolution. When using a resolution that differs from the default one, these parameters may produce inaccurate results.|2048|
 
-⚠️
-1. The current filtering adopts a tolerant design: when values of response exceed the above ranges, the score will not immediately drop to zero, but with a gradually decay.
-2. The design of the above filtering thresholds is still based on the runtime resolution. When using a resolution that differs from the default one, these parameters may produce inaccurate results.
-3. "Responses" refer to all meteor candidates that are captured by detectors. Only responses that have proper motion properties and visual appearances are considered as meteors (or other categories).
+⚠️ The current filtering adopts a tolerant design: when values of response exceed the above ranges, the score will not immediately drop to zero, but with a gradually decay.
 
 
 ### Recheck_cfg
 
-`Recheck_cfg` is a mechanism introduced in `v2.0.0` that
-executes additional re-verification for proposed target objects (such as meteors, red sprites, etc.) from the main detector. The explanations of itsparameters are as follows:
+`Recheck_cfg` is a mechanism introduced in `v2.0.0` that executes additional re-verification for proposed target objects (such as meteors, red sprites, etc.) from the main detector. The explanations of itsparameters are as follows:
 
 |Argument|Type|Explanation|Recommendation|
 |------|---|---|---|
@@ -286,6 +288,13 @@ executes additional re-verification for proposed target objects (such as meteors
 |model|-|Refer to the [Model](#Model) section.|-|
 |save_path|str|The path to save the re-verified images. If left blank, no image will be saved.|`""`|
 
+### Positive Sample Configuration/positive_cfg
+
+Positive samples are a new mechanism introduced in `v2.2.0`, supporting the configuration of expected positive and negative sample types. The parameters are explained as follows:
+
+|Argument|Type|Explanation|Recommendation|
+|------|---|---|---|
+|positive_cates|list|The set of categories accepted as positive samples.|`["METEOR","RED_SPRITE"]`|
 
 ## Model
 

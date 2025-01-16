@@ -146,14 +146,10 @@ parser.add_argument("--visu-resolution",
                     "-R",
                     type=str,
                     help="detect results showing resolution.")
-parser.add_argument("--output-path",
-                    "-O",
+parser.add_argument("--save-path",
+                    "-S",
                     type=str,
                     help="save path for MDRF.")
-parser.add_argument("--output-type",
-                    choices=["MDRF", "img_box", "img_anno"],
-                    default="MDRF",
-                    type=str)
 
 args = parser.parse_args()
 
@@ -282,14 +278,13 @@ elif os.path.isfile(input_path):
         )
 
 # 保存结果
-if args.output_path:
-    if args.output_type == "MDRF":
-        result_json = dict(version=VERSION,
-                           basic_info=video.summary(),
-                           type="image-prediction",
-                           anno_size=video.summary()["resolution"],
-                           results=results)
-        with open(save_path_handler(args.output_path, input_path, ext="json"),
-                  mode="w",
-                  encoding="utf-8") as f:
-            json.dump(result_json, f, ensure_ascii=False, indent=4)
+if args.save_path:
+    result_json = dict(version=VERSION,
+                        basic_info=video.summary(),
+                        type="image-prediction",
+                        anno_size=video.summary()["resolution"],
+                        results=results)
+    with open(save_path_handler(args.save_path, input_path, ext="json"),
+                mode="w",
+                encoding="utf-8") as f:
+        json.dump(result_json, f, ensure_ascii=False, indent=4)

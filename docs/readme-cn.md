@@ -19,9 +19,9 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 
 * **可选的深度学习模型接入：** MetDetPy 已接入深度学习支持，可以在主检测或重校验阶段选择性使用深度学习模型，在不显著增加性能开销的情况下提升检测效果。模型也可用于图像中的流星检测。
 
-* **有效的过滤器：** 流星结果将根据其视觉特性与运动属性进行重校验以排除误报样本。每个预测都将被给出一个取值范围为 [0,1] 的置信度分数，表示其被认为是流星的可能性。
+* **有效的过滤器：** 流星结果将根据其视觉特性与运动属性进行重校验以排除误报样本。每个预测都将被给出一个取值范围为 `[0,1]` 的置信度分数，表示其被认为是流星的可能性。
 
-* **丰富的支持工具：** MetDetPy还提供了评估工具和剪辑工具，以支持进行高效的视频切片、图像堆叠或结果评估。
+* **丰富的支持工具：** MetDetPy 还提供了数个工具以支持评估和导出功能，包括一个评估工具和剪辑工具，以支持进行高效的视频切片、图像堆叠或结果评估。
 
 ## 发行版
 
@@ -36,7 +36,7 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 * 64bit OS
 * Python>=3.7 (推荐 3.9+)
 
-### 依赖
+### Python 依赖
 
 * numpy>=1.15.0
 * opencv_python>=4.9.0
@@ -57,197 +57,123 @@ pip install -r requirements.txt
 
 * **Windows/Linux 用户（推荐）：** 如果您使用的是 Windows 或 Linux，建议额外安装 `onnxruntime_directml`。该库利用 DirectX 进行模型推理加速，适用于大多数 GPU（包括 Nvidia、AMD、Intel 等厂商的显卡）。
 
-* **macOS 用户（推荐）：** 如果您使用的是 macOS，建议安装 `onnxruntime-silicon` 代替 `onnxruntime`。该库利用 CoreML 进行模型推理加速。
-
 * **Nvidia GPU 用户（高级）：** 如果您使用的是 Nvidia GPU 并且已安装 CUDA，可以安装与 CUDA 版本匹配的 `onnxruntime-gpu` 代替 `onnxruntime`。这可以启用 CUDA 加速，从而带来更高的性能。
 
 #### ⚠️ 注意
-* 安装 `onnxruntime-silicon` 和 `onnxruntime-gpu` 时，需要先卸载 `onnxruntime`。
 
-* 在当前发布版本中，Windows 软件包使用 `onnxruntime_directml`，macOS 软件包使用 `onnxruntime-silicon`。默认的 CUDA 支持将在准备好后添加。
+* 对于 macOs 用户，CoreML模型推理加速已经被集成到 `onnxruntime` 中，无需额外配置即可启用GPU支持。
+
+* 在当前发布版本中，Windows 软件包使用 `onnxruntime_directml`。默认的 CUDA 支持将在准备好后添加。
 
 ## 用法
 
-### 运行视频流星检测
+### 视频流星检测
+
+`MetDetPy` 是视频流星检测的启动器，其用法如下：
 
 ```sh
 python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
+               [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save SAVE]
 ```
 
 #### 主要参数
 
-* target: 待检测视频文件。支持常见的视频编码。
+* `target`: 待检测视频文件。支持常见的视频编码。
 
-* --cfg: 配置文件。默认情况下使用config目录下的[m3det_normal.json](../config/m3det_normal.json)文件。
+* `--cfg`: 配置文件。默认情况下使用config目录下的[m3det_normal.json](../config/m3det_normal.json)文件。
 
-* --mask：指定掩模（遮罩）图像。可以使用任何非白色颜色的颜色在空白图像上覆盖不需要检测的区域来创建掩馍图像。不强制要求尺寸与原图相同。支持JPEG和PNG格式。
+* `--mask`：指定掩模（遮罩）图像。可以使用任何非白色颜色的颜色在空白图像上覆盖不需要检测的区域来创建掩馍图像。不强制要求尺寸与原图相同。支持JPEG和PNG格式。
 
-* --start-time：检测的开始时间。可以输入单位为ms的整数或是形如`"HH:MM:SS"`的字符串。默认从头开始分析。
+* `--start-time`：检测的开始时间。可以输入单位为ms的整数或是形如`"HH:MM:SS"`的字符串。默认从头开始分析。
 
-* --end-time：检测的结束时间。可以输入单位为ms的整数或是形如`"HH:MM:SS"`的字符串。不指定将分析到视频结尾。
+* `--end-time`：检测的结束时间。可以输入单位为ms的整数或是形如`"HH:MM:SS"`的字符串。不指定将分析到视频结尾。
 
-* --mode：运行模式。从 {backend, frontend} 中选择。frontend 运行时会显示运行相关信息的进度条，backend 则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用frontend。
+* `--mode`：运行模式。从 `{backend, frontend}` 中选择。`frontend` 运行时会显示运行相关信息的进度条，backend 则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用 `frontend`。
 
-* --debug: 调试模式。以调试模式启动 MetDetPy 时，会打印更详细的日志信息用于调试。
+* `--debug`: 调试模式。以调试模式启动 MetDetPy 时，会打印更详细的日志信息用于调试。
 
-* --visu: 可视模式。以可视模式启动时，会创建一个额外视频窗口，显示当前的检测情况。
+* `--visu`: 可视模式。以可视模式启动时，会创建一个额外视频窗口，显示当前的检测情况。
+
+* `--live-mode`: 实时模式。当在实时模式下运行时，检测的运行时间将会被控制在尽可能接近实际视频时长的程度，这可以帮助均衡CPU的开销。 从 `{on, off}` 中选择。
+
+* `--provider`: 指定优先使用的模型后端，可选值会根据平台有所差异。如果指定的模型后端不可用，则会使用默认选项。
+
+* `--save-path`: 保存[MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf)格式的检测结果到给定的路径或JSON文件下。
 
 #### 额外参数
 
 以下参数在不设置时使用配置文件中的默认值，如果设置则覆盖配置文件中的数值。有关这些参数的详细解释可以参考[配置文件文档](./config-doc-cn.md)。
 
-* --resize: 检测时采用的帧图像尺寸。可以指定单个整数（如`960`，代表长边长度），列表（如`[960,540]`）或者字符串（如`960x540`）。
+* `--resize`: 检测时采用的帧图像尺寸。可以指定单个整数（如`960`，代表长边长度），列表（如`[960,540]`）或者字符串（如`960x540`）。
 
-* --exp-time: 单帧曝光时间。可用一个浮点数或从 {auto, real-time, slow} 中选择一项以指定。大多数情况下可以使用 "auto"。
+* `--exp-time`: 单帧曝光时间。可用一个浮点数或从 `{auto, real-time, slow}` 中选择一项以指定。大多数情况下可以使用 `"auto"`。
 
-* --adaptive-thre: 检测器中是否启用自适应二值化阈值。从{on, off}中选择。
+* `--adaptive-thre`: 检测器中是否启用自适应二值化阈值。从{on, off}中选择。
 
-* --bi-thre: 指定检测器中使用的二值化阈值。当启用自适应二值化阈值时，该选项无效化。不能与--sensitivity同时设置。
+* `--bi-thre`: 指定检测器中使用的二值化阈值。当启用自适应二值化阈值时，该选项无效化。不能与`--sensitivity`同时设置。
 
-* --sensitivity: 检测器的灵敏度。从{low, normal, high}中选择。当启用自适应二值化阈值时，灵敏度选项仍起效，且更高的灵敏度将会估计更高的阈值。不能与--bi-thre同时设置。
+* `--sensitivity`: 检测器的灵敏度。从 `{low, normal, high}` 中选择。当启用自适应二值化阈值时，灵敏度选项仍起效，且更高的灵敏度将会估计更高的阈值。不能与 `--bi-thre` 同时设置。
 
-* --recheck: 启用重校验机制减少误报。从{on, off}中选择。
-
-* --save-rechecked-img: 重校验图像的保存路径。
-
+* `--recheck`: 启用重校验机制减少误报。从`{on, off}`中选择。
 
 #### 示例
 
 ```sh
-python MetDetPy.py ./test/20220413Red.mp4 --mask ./test/mask-east.jpg
+python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg" --visu --save-path .
 ```
 
 #### 自定义配置文件
 
 大多数与检测相关的重要参数都预先定义并储存在配置文件中。大多数情况下，这些预设值都能够较好的工作，但有时对参数微调可以取得更好的结果。如果想要获取配置文件的说明，可以参考[配置文件文档](./config-doc-cn.md)获取更多信息。
 
-### 运行图像流星检测
+### 图像流星检测
 
-要启动图像流星检测器，运行 `run_model.py`：
+`MetDetPhoto` 是图像流星检测的启动器，其用法如下：
 
 ```sh
-python run_model.py target 
+python MetDetPhoto.py target [--mask MASK]
+                             [--model-path MODEL_PATH] [--model-type MODEL_TYPE] 
+                             [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
+                             [--visu] [--visu-resolution VISU_RESOLUTION]
+                             [--save-path SAVE_PATH]
 ```
 
-(相关能力还在建设中)
+#### 参数
+
+* `target`: 目标图像文件/文件夹。支持单张图像，图像文件夹以及常规视频编码格式的延时视频文件。
+
+* `--mask`: 掩模图像。可以使用任何非白色颜色的颜色在空白图像上覆盖不需要检测的区域来创建掩馍图像。不强制要求尺寸与原图相同。支持JPEG和PNG格式。
+
+* `--model-path`: 模型权重文件路径。默认使用[./weights/yolov5s_v2.onnx](./weights/yolov5s_v2.onnx)权重。
+
+* `--model-type`: 模型格式，决定如何处理模型的输出。目前仅支持 `YOLO` 格式。默认值为 `YOLO`。
+
+* `--exclude-noise`: 输出时从预测排除常见噪声类型（如卫星和飞虫），仅保存正样本到文件。
+
+* `--debayer`: 是否在处理延时视频前对视频帧进行Debayer变换。
+
+* `--debayer-pattern`: Debayer使用的矩阵，如 RGGB 或 BGGR。仅在 `--debayer` 选项启用时生效。
+
+* `--visu`: 可视模式。以可视模式启动时，会创建一个额外视频窗口，显示当前的检测情况。
+
+* `--visu-resolution`: 可视化窗口的分辨率设置。
+
+* `--save-path`: 保存检测结果到 [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) 格式文件中。
+
+#### 示例
+
+```sh
+python MetDetPhoto.py "/path/to/your/folder" --mask "/path/to/your/mask.jpg" --exclude-noise --save-path .
+```
 
 ### 其他工具的使用
 
-#### ClipToolkit
+MetDetPy还提供了数个工具以支持评估和导出功能，包括Evaluate（效果评估和回归测试工具）、ClipToolkit （批图像堆栈和视频剪辑工具）和make_package（打包脚本）。访问[工具文档](./tool-usage-cn.md)了解这些工具的使用方法。
 
-ClipToolkit可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。其用法如下：
-
-```sh
-python ClipToolkit.py target json [--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING]
-```
-##### Arguments:
-
-* target: 目标视频文件。
-
-* json: JSON格式的字符串或者JSON文件的路径。该JSON应当包含起始时间，结束时间和文件名（可选）信息。
-    具体来说，这个 JSON 应该是一个数组，其中每个元素都应该至少包含一个`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间。 `"filename"` 是一个可选键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）`"filename"` 优先于 `--mode` 和 ` --suffix` 选项，但如果未指定，此剪辑将根据命令选项自动转换和命名。
-    我们提供 [clip_test.json](../test/clip_test.json) 作为用例及测试用 JSON。
-
-* --mode：将剪辑转换为图像或视频。 应从 {image, video} 中选择。 此选项将由 json 中的特定文件名覆盖。
-
-* --suffix：输出的后缀。 默认情况下，图像模式为“jpg”，视频模式为“avi”。 此选项将由 JSON 中的特定文件名覆盖。
-
-* --save-path：放置图像/视频的路径。 当 JSON 中只包含一个片段时，您可以在 --save-path 中包含文件名以简化您的 JSON。
-
-* --resize：将图像/视频调整为给定的分辨率。
-
-* --png-compressing: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
-
-* --jpg-quality: 生成的jpg图像的质量。 其值应为$Z \in [0,100]$； 默认情况下取值为95。
-
-一个典型的使用例如下:
-
-```sh
-python ./ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540 --save-path ./test
-```
-
-注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，需要注意命令行中双引号的转义。
-
-#### 评估
-
-若需要评估MetDetPy在某个视频上的检测性能，可以运行 `evaluate.py` :
-
-```sh
-python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug] video_json
-```
-
-##### 参数
-
-* video_json：一个JSON文件，里面放置了视频、遮罩的名称和流星标注。 它的格式应该是这样的：
-
-```json
-{
-    "video": "path/to/the/video.mp4",
-    "mask": "path/to/the/mask.jpg",
-    "meteors": [{
-        "start_time": "HH:MM:SS.XX0000",
-        "end_time": "HH:MM:SS.XX0000",
-        "pt1": [
-            260,
-            225
-        ],
-        "pt2": [
-            154,
-            242
-        ]
-    }]
-}
-```
-
-如果没有相应的掩码，只需使用`""`。 如果没有流星标注，`"meteors"`也可以忽略。
-
-* --cfg：配置文件。 使用默认相同路径下的[config.json](./config.json)。
-
-* --load: 加载`evaluate.py` 保存的检测结果的文件名。 如果启用该项，`evaluate.py` 将直接加载结果文件，而不运行检测。
-
-* --save：要保存的检测结果的文件名。
-
-* --metrics：计算检测的精度和召回率。 要应用它，必须在 `"video_json"` 的JSON中提供 `"meteors"` 。
-
-* --debug：用这个启动`evaluate.py`时，会有详细的调试信息。
-
-## 打包Python代码为可执行程序
-
-我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具支持使用 `pyinstaller` 或 `nuitka` 来打包/编译。
-
-当使用该脚本时，请确保至少安装了`pyinstaller` 或 `nuitka` 中的任意一个工具。此外，在使用 `nuitka` 作为编译工具时，请确保在您的设备上有至少一个C/C++编译器可用。
-
-该工具的用法如下：
-
-```sh
-python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
-     [--apply-upx] [--apply-zip] [--version VERSION]
-```
-
-* --tool: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
-
-* --mingw64: 使用MinGW64作为编译器。该选项仅在Windows上使用 `nuitka` 进行编译时生效。
-
-* --apply-upx: 启用UPX以压缩可执行程序的大小。仅当使用 `nuitka` 进行编译时生效。
-
-* --apply-zip: 打包完成时同时生成Zip压缩包。
-
-* --version: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
-
-目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
-
-注意：
-
-1. 建议使用 `Python>=3.9`, 且安装 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。任一工具都可以用于创建可执行程序。
-
-3. 由于Python的特性，上述两种工具均无法跨平台打包生成可执行文件。
-
-4. （原因不明）如果环境中有`matplotlib`或`scipy`，它们很可能会一起打包到最终目录中。 为避免这种情况，建议使用干净的环境进行打包。
-
-### 性能和效率
+## 性能和效率
 
 1. 在 3840x2160 10fps 视频上应用默认配置进行检测时，MetDetPy 检测流星的平均时间开销为视频长度的 20-30%（使用 Intel i5-7500 测试）。 FPS 较高的视频可能会花费更多时间。
 

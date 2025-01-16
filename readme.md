@@ -21,11 +21,11 @@ MetDetPy is a Python-based meteor detector project that detects meteors from vid
 
 * **Effective Filter:** Meteors will be rechecked according to visual appearance and motion properties to exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
 
-* **Support Tools:** An evaluation tool and a video clip toolkit are also provided to support further video clipping, image stacking, or result evaluation.
+* **Support Tools:** Several tools are provided with MetDetPy to support analyzation and export functions, including an evaluation tool, a video clip / image stacking toolkit, and a packaging script.
 
 ## Release Version
 
-You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version is already packed and can run on common platforms (including Windows, macOS, and Linux) respectively. Also, you can build it yourself with `nuitka` or `pyinstaller` (see [Package python codes to executables](#package-python-codes-to-executables)).
+You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version is already packed and can run on common platforms (including Windows, macOS, and Linux) respectively. Also, you can build it yourself with `nuitka` or `pyinstaller` (see [Package python codes to executables](./docs/tool-usage.md#package-python-codes-to-executables)).
 
 Besides, MetDetPy has worked as the backend of the Meteor Master since version 1.2.0. Meteor Master (AI) is a meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function, automatic running, etc. You can get more information at [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster), or get its latest version from the Microsoft Store / App Store. Its earlier version can get from [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
@@ -61,7 +61,7 @@ The above packages enable MetDetPy to run properly, but the deep learning models
 
 #### ⚠️ Notice
 
-* For macOS users, since CoreML model inference acceleration is integrated into the latest version of `onnxruntime`, there is nothing to do to enable  GPU support.
+* For macOS users, since CoreML model inference acceleration is integrated into the latest version of `onnxruntime`, there is nothing to do to enable GPU support.
 
 * In the current release version, it is `onnxruntime_directml` for Windows packages. Default CUDA support will be added when it is ready.
 
@@ -81,50 +81,48 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 #### Main Arguments
 
-* target: meteor video filename. Support common video encoding like H264, HEVC, etc.
+* `target`: meteor video filename. Support common video encoding like H264, HEVC, etc.
 
-* --cfg: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
+* `--cfg`: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
 
-* --mask: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* --start-time: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
+* `--start-time`: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
 
-* --end-time: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
+* `--end-time`: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
 
-* --mode: the running mode. Its argument should be selected from `{backend, frontend}`. In frontend mode, there will be a progress bar indicating related information. In backend mode, the progress information is flushed immediately to suit pipeline workflow.  The default is "frontend".
+* `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow.  The default is `"frontend"`.
 
-* --debug: indicates whether to print debug information.
+* `--debug`: indicates whether to print debug information.
 
-* --visu: showing a debug window displaying videos and detected meteors.
+* `--visu`: showing a debug window displaying videos and detected meteors.
 
-* --live-mode: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
+* `--live-mode`: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
 
-* --provider: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
+* `--provider`: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
 
-* --save: save detection results (a list) to a json file.
+* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
 
 #### Extra Arguments
 
 The following arguments have default values in config files. If they are configured in command line arguments, the default value will be overrided. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
 
-* --resize: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
+* `--resize`: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
 
-* --exp-time: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
+* `--exp-time`: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
 
-* --adaptive-thre: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
+* `--adaptive-thre`: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
 
-* --bi-thre: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
+* `--bi-thre`: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
 
-* --sensitivity: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time. 
+* `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time. 
 
-* --recheck: indicates whether apply recheck mechanism. Select from {on, off}.
-
-* --save-rechecked-img: the path where rechecked images are saved to.
+* `--recheck`: indicates whether apply recheck mechanism. Select from {on, off}.
 
 #### Example
 
 ```sh
-python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg"
+python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg" --visu --save-path .
 ```
 
 #### Customize Configuration
@@ -133,13 +131,43 @@ MetDetPy reads arguments from configuration files. For most circumstances, prese
 
 ### Run Image Meteor Detector
 
-To launch the image meteor detector, use `MetDetPhoto.py` as follows:
+`MetDetPhoto` is the launcher of the image meteor detector, its usage is as follows:
 
 ```sh
-python MetDetPhoto.py target 
+python MetDetPhoto.py target [--mask MASK]
+                             [--model-path MODEL_PATH] [--model-type MODEL_TYPE] 
+                             [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
+                             [--visu] [--visu-resolution VISU_RESOLUTION]
+                             [--save-path SAVE_PATH]
 ```
 
-(WIP)
+#### Arguments
+
+* `target`: meteor image target, support single image, image folder and a timelapse video with common video encoding.
+
+* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+
+* `--model-path`: path to the model weight file. Use [./weights/yolov5s_v2.onnx](./weights/yolov5s_v2.onnx) as the default weight file.
+
+* `--model-type`: the type of the model. For now only `YOLO` is supported. Default to `YOLO`.
+
+* `--exclude-noise`: exclude common noise category (like satellites and bugs) from predictions, only save positive samples to files.
+
+* `--debayer`: whether to execute debayer transform for timelapse video before detection.
+
+* `--debayer-pattern`: debayer pattern, like RGGB or BGGR. Only work when `--debayer` is applied.
+
+* `--visu`: showing a debug window displaying images and detected meteors.
+
+* `--visu-resolution`: visualized debug window resolution.
+
+* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+
+#### Example
+
+```sh
+python MetDetPhoto.py "/path/to/your/folder" --mask "/path/to/your/mask.jpg" --exclude-noise --save-path .
+```
 
 ### Usage of Other Tools
 
