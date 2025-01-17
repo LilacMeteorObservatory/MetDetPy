@@ -27,7 +27,7 @@ import cv2
 from MetLib.MetLog import get_default_logger, set_default_logger
 from MetLib.Stacker import max_stacker
 from MetLib.utils import (frame2ts, list2xyxy, save_img, save_video_by_stream,
-                          ts2frame)
+                          ts2frame, load_8bit_image)
 from MetLib.VideoLoader import ThreadVideoLoader
 from MetLib.VideoWrapper import OpenCVVideoWrapper
 
@@ -154,6 +154,17 @@ def main():
     # image option
     jpg_quality, png_compress = args.jpg_quality, args.png_compressing
 
+    # src type
+    src_type = "video"
+    
+    # save_path valid check
+    if not os.path.exists(save_path):
+        os.mkdir(save_path)
+
+    # 获取Logger
+    logger = get_default_logger()
+    set_default_logger(debug_mode, work_mode="frontend")
+
     if json_str is not None:
         # 提供json_str时，按照旧版本逻辑执行
         video_name = target_name
@@ -178,7 +189,7 @@ def main():
                 f"{target_name} is not a valid json file for ClipToolkit.")
         video_name = raw_data["basic_info"]["video"]
         data = raw_data["results"]
-        if raw_data["type"] == "image-prediction":
+        if raw_data["type"] == "timelapse-prediction":
             # 图像模式下，data需要进行一定预处理
             # 将 num_frame 转换为实际起止时间戳，并整理标注。
             for i in range(len(data)):
@@ -195,11 +206,46 @@ def main():
                                start_time=start_time,
                                end_time=end_time,
                                target=target)
+        elif raw_data["type"] == "image-prediction":
+            src_type = "image"
     else:
         # target被作为视频解析。从参数构造单个使用的data。
         video_name = target_name
         data = [dict(start_time=args.start_time, end_time=args.end_time)]
 
+    if src_type == "image":
+        # TODO: 目前通过early-return分流，未来重构此部分结构。
+        try:
+            logger.start()
+            for image in data:
+                # copy 图像到目标路径下
+                _, fname = os.path.split(image["img_filename"])
+                full_path = os.path.join(save_path, fname)
+                with open(image["img_filename"],
+                        mode="rb") as fin, open(full_path, mode="wb") as fout:
+                    fout.write(fin.read())
+                logger.info(f"Saved: {full_path}")
+                # 在有target的情况下，同时生成labelme风格的标注
+                if args.with_annotation:
+                    # 转换image标注为对应格式
+                    anno_dict = dict(
+                        video_size=load_8bit_image(
+                            image["img_filename"]).shape[:2],
+                        target=[
+                            dict(pt1=b[:2], pt2=b[2:], category=c)
+                            for (b, c) in zip(image["boxes"], image["preds"])
+                        ])
+                    res_dict = generate_labelme(anno_dict, img_fn=full_path)
+                    if res_dict:
+                        anno_path = os.path.join(
+                            save_path,
+                            ".".join(full_path.split(".")[:-1]) + ".json")
+                        with open(anno_path, mode="w", encoding="utf-8") as f:
+                            json.dump(res_dict, f, ensure_ascii=False, indent=4)
+                        logger.info(f"Saved: {anno_path}")
+        finally:
+            logger.stop()
+        return
     video_loader = ThreadVideoLoader(OpenCVVideoWrapper,
                                      video_name,
                                      resize_option=resize,
@@ -223,9 +269,6 @@ def main():
             save_path, filename = os.path.split(save_path)
             data[0]["filename"] = filename
 
-    # 获取Logger
-    logger = get_default_logger()
-    set_default_logger(debug_mode, work_mode="frontend")
     try:
         logger.start()
         for single_data in data:
@@ -279,6 +322,7 @@ def main():
                                       f,
                                       ensure_ascii=False,
                                       indent=4)
+                        logger.info(f"Saved: {anno_path}")
             else:
                 status_code = save_video_by_stream(video_loader,
                                                    video_loader.fps, full_path)

@@ -178,7 +178,7 @@ if os.path.isdir(input_path):
     results = []
 
     # temp fix: mock video object
-    summary_dict = dict(image_folder=input_path, resolution=None)
+    summary_dict = dict(video=None, image_folder=input_path, resolution=None)
     video = MockVideoObject(summary_dict)
     for img_path in tqdm.tqdm(img_list):
         img = load_8bit_image(img_path)
@@ -203,7 +203,8 @@ if os.path.isdir(input_path):
                 img_path,
                 "boxes": [list(map(int, x)) for x in boxes],
                 "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds],
-                "prob": [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
+                "prob":
+                [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
             })
 
 elif os.path.isfile(input_path):
@@ -279,12 +280,15 @@ elif os.path.isfile(input_path):
 
 # 保存结果
 if args.save_path:
-    result_json = dict(version=VERSION,
-                        basic_info=video.summary(),
-                        type="image-prediction",
-                        anno_size=video.summary()["resolution"],
-                        results=results)
-    with open(save_path_handler(args.save_path, input_path, ext="json"),
-                mode="w",
-                encoding="utf-8") as f:
-        json.dump(result_json, f, ensure_ascii=False, indent=4)
+    if args.output_type == "MDRF":
+        result_json = dict(
+            version=VERSION,
+            basic_info=video.summary(),
+            type="image-prediction"
+            if isinstance(video, MockVideoObject) else "timelapse-prediction",
+            anno_size=video.summary()["resolution"],
+            results=results)
+        with open(save_path_handler(args.save_path, input_path, ext="json"),
+                  mode="w",
+                  encoding="utf-8") as f:
+            json.dump(result_json, f, ensure_ascii=False, indent=4)
