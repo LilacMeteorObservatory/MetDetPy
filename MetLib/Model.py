@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import cv2
 import numpy as np
 import onnxruntime as ort
@@ -27,14 +27,36 @@ AVAILABLE_DEVICE_ALIAS = [
 class YOLOModel(object):
 
     def __init__(self,
-                 weight_path,
-                 dtype,
+                 weight_path: str,
+                 dtype: str,
                  nms: bool = False,
                  warmup: bool = True,
                  pos_thre: float = 0.25,
                  nms_thre: float = 0.45,
+                 multiscale_pred: int = 1,
+                 multiscale_partition: int = 2,
                  providers_key: str = "default",
                  logger=logger) -> None:
+        f"""Init a YOLOModel that handles YOLO-like inputs and outputs.
+
+        Args:
+            weight_path (str): /path/to/the/weight/file.
+            dtype (str): model dtype. Should be selected from {STR2DTYPE.keys()}.
+            nms (bool, optional): whether to execute non-maximum suppression (NMS) for model outputs.
+                If the model is not exported with nms, set to True. Defaults to False.
+            warmup (bool, optional): warmup to model before batch processing. Defaults to True.
+            pos_thre (float, optional): positive confidence threshold for positive samples. Defaults to 0.25.
+            nms_thre (float, optional): NMS threshold when merging predictions. Defaults to 0.45.
+            multiscale_pred (int, optional): the number of prediction scales. When this value is greater
+                than 1, the results will be predicted using multi-scale images (similar to a feature pyramid).
+                This can improve recall and precision, but may also increase the time cost. Defaults to 1.
+            multiscale_partition (int, optional): The number of partitions for multi-scale images at each level.
+                For example, at the first sub-level, if the multiscale_partition is set to 2, the image will 
+                be divided into \(2^{1} \times 2^{1} = 2 \times 2\) sub-images and sent to the model. 
+                The default value is 2.
+            providers_key (str, optional): model provider. Defaults to "default".
+            logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+        """
         self.weight_path = weight_path
         self.dtype = STR2DTYPE.get(dtype, np.float32)
         self.nms = nms
@@ -61,10 +83,18 @@ class YOLOModel(object):
         self.b, self.c, self.h, self.w = self.backend.input_shape[0]
         self.scale_w, self.scale_h = 1, 1
 
-    def forward(self, x):
+    def forward(self, x: np.ndarray) -> tuple:
+        """forward function.
+
+        Args:
+            x (np.ndarray): input image. should be 3-channel.
+
+        Returns:
+            tuple: a pair of list be like (pred_pos, pred_cls).
+        """
         h, w, c = x.shape
         assert c == self.c, "num_channel must match."
-        # 仅在第一次运行时抛出Warning
+        # 仅在第一次运行不匹配时抛出Warning
         if (h != self.h or w != self.w):
             self.resize = True
             self.scale_h, self.scale_w = h / self.h, w / self.w
@@ -80,7 +110,7 @@ class YOLOModel(object):
         if self.resize:
             x = cv2.resize(x, (self.w, self.h), interpolation=cv2.INTER_CUBIC)
 
-        # cvt h*w*c to b*c*h*w, range from int8->[0,1]
+        # cvt h*w*c to b*c*h*w, range from uint8->[0,1]
         x = x.astype(self.dtype).transpose(2, 0, 1)
         x = x[None, ...] / 255
         results = self.backend.forward(x)[0][0]
@@ -103,7 +133,8 @@ class YOLOModel(object):
         result_pos = np.array(results[:, :4], dtype=int)
         # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
         # TODO: 通过优化模型取缔这个tricky的设置。
-        result_cls = np.sqrt(np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
+        result_cls = np.sqrt(
+            np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
         return result_pos, result_cls
 
     def forward_with_raw_size(self, x, clip_num: Optional[int] = None):
@@ -143,10 +174,11 @@ class YOLOModel(object):
         result_pos = np.concatenate(result_pos, axis=0)
         result_cls = np.concatenate(result_cls, axis=0)
         # 重整后 NMS
-        res = cv2.dnn.NMSBoxes(bboxes=result_pos[:, :4], # type: ignore
-                               scores=np.max(result_cls, axis=-1),
-                               score_threshold=self.pos_thre,
-                               nms_threshold=self.nms_thre)
+        res = cv2.dnn.NMSBoxes(
+            bboxes=result_pos[:, :4],  # type: ignore
+            scores=np.max(result_cls, axis=-1),
+            score_threshold=self.pos_thre,
+            nms_threshold=self.nms_thre)
         result_pos = result_pos[list(res)]
         result_cls = result_cls[list(res)]
 
@@ -179,11 +211,19 @@ class Backend(metaclass=ABCMeta):
 class ONNXBackend(Backend):
 
     def __init__(self,
-                 weight_path,
-                 dtype,
-                 warmup,
+                 weight_path: str,
+                 dtype: np.dtype,
+                 warmup: bool,
                  providers_key: Optional[str] = None,
                  logger=None) -> None:
+        f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
+        Args:
+            weight_path (str): /path/to/the/weight/file.
+            dtype (np.dtype): converted numpy data type.
+            warmup (bool, optional): warmup to model before batch processing. Defaults to True.
+            providers_key (str, optional): model provider. Defaults to "default".
+            logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+        """
         self.weight_path = weight_path
         self.dtype = dtype
         # load model
@@ -226,7 +266,17 @@ class ONNXBackend(Backend):
     def device(self):
         return self.model_session.get_providers()[0]
 
-    def forward(self, x):
+    def forward(self, x: Union[np.ndarray, list[np.ndarray]]):
+        """ run inference session with given input.
+
+        Args:
+            x (Union[np.ndarray, list[np.ndarray]]): input tensor. Its type should varies
+                according to the model. For model with multi-inputs, x should be a list of
+                tensors; otherwise x should be a tensor.
+
+        Returns:
+            list: raw output.
+        """
         if self.single_input:
             return self.model_session.run(None, {self.input_name[0]: x})
 
