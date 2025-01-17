@@ -1,4 +1,4 @@
-# Utils Usage
+# Tools Usage
 
 Several tools are provided with MetDetPy to support related functions.
 

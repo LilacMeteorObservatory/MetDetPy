@@ -101,7 +101,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * `--provider`: 指定优先使用的模型后端，可选值会根据平台有所差异。如果指定的模型后端不可用，则会使用默认选项。
 
-* `--save-path`: 保存[MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf)格式的检测结果到给定的路径或JSON文件下。
+* `--save-path`: 保存[MDRF](./tool-usage.md#meteor-detection-recording-format-mdrf)格式的检测结果到给定的路径或JSON文件下。
 
 #### 额外参数
 
@@ -161,7 +161,7 @@ python MetDetPhoto.py target [--mask MASK]
 
 * `--visu-resolution`: 可视化窗口的分辨率设置。
 
-* `--save-path`: 保存检测结果到 [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) 格式文件中。
+* `--save-path`: 保存检测结果到 [MDRF](./tool-usage.md#meteor-detection-recording-format-mdrf) 格式文件中。
 
 #### 示例
 
