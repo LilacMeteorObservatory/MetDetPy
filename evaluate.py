@@ -1,19 +1,25 @@
 import argparse
 import json
 import os
+import threading
+import time
 from collections import namedtuple
-import psutil
-
-import numpy as np
-from easydict import EasyDict
-from MetDetPy import detect_video
-from MetLib.utils import met2xyxy, save_path_handler, ts2frame, calculate_area_iou, relative2abs_path, VERSION, NAME2ID, NUM_CLASS
-from MetLib.VideoWrapper import OpenCVVideoWrapper
 from typing import Any
 
-import time
-import threading
+import numpy as np
+import psutil
+from easydict import EasyDict
 
+from MetDetPy import detect_video
+from MetLib.utils import (NAME2ID, NUM_CLASS, VERSION, calculate_area_iou,
+                          met2xyxy, relative2abs_path, save_path_handler,
+                          ts2frame)
+from MetLib.VideoWrapper import OpenCVVideoWrapper
+from MetLib.MeteorLib import MetExporter
+
+class MockExporter(object):
+    def __init__(self, raw_size):
+        self.raw_size=raw_size
 
 def monitor_performance(func, args: list, kwargs: dict, interval=0.5) -> tuple:
     """运行给定的函数，并统计运行期间的CPU和内存开销。
@@ -133,12 +139,42 @@ def compare_with_annotation():
     pass
 
 
+def print_confusion_matrix(matrix, labels):
+    """
+    打印混淆矩阵的纯文本表格
+    Args:
+        matrix: ndarray, shape (N, N)
+        labels: list, 标签列表
+    """
+    # 计算每列宽度
+    head_col_width = 15
+    col_width = 5
+
+    # 构建表头
+    header = 'PRED\\BASE'.center(head_col_width) + '|'
+    header += ''.join(label[:col_width].center(col_width) + '|'
+                      for label in labels)
+    separator = '-' * head_col_width + '+'
+    separator += '+'.join('-' * col_width for _ in labels)
+
+    # 打印表头
+    print(header)
+    print(separator)
+
+    # 打印每一行
+    for i, label in enumerate(labels):
+        row = label.ljust(head_col_width) + '|'
+        row += ''.join(str(cell).center(col_width) + '|' for cell in matrix[i])
+        print(row)
+        print(separator)
+
+
 def compare(video: OpenCVVideoWrapper,
             base_dict,
             new_dict,
             pos_thre=0.5,
             tiou=0.3,
-            aiou=0.1):
+            aiou=0.3) -> dict:
     """比较两个结果。
 
     与其他运行结果比较：
@@ -158,6 +194,9 @@ def compare(video: OpenCVVideoWrapper,
     Args:
         base_dict (_type_): _description_
         new_dict (_type_): _description_
+    
+    Return:
+        返回所有错配的结果...
     """
     gt_mode = (base_dict.type == "annotation")
 
@@ -166,6 +205,9 @@ def compare(video: OpenCVVideoWrapper,
 
     base_results = get_regularized_results(base_dict, video)
     new_results = get_regularized_results(new_dict, video)
+
+    mismatch_collection = []
+    mock_exporter = MockExporter(new_dict.anno_size)
 
     # 主要指标
     # True Positive / False Positive（误报） / False Negative（漏报）
@@ -206,11 +248,16 @@ def compare(video: OpenCVVideoWrapper,
                 and (calculate_time_iou(instance,base_results[cur_id]) >= tiou) \
                 and calculate_area_iou(met2xyxy(instance), met2xyxy(base_results[cur_id])) >= aiou:
                 # TEMP FIX: 向前兼容v2.1.0的标注，低置信度转DROPPED进行判定。
-                if base_results[cur_id].get("score",1) <= pos_thre:
+                if base_results[cur_id].get("score", 1) <= pos_thre:
                     base_results[cur_id]["category"] = "DROPPED"
-                confusion_matrix[
-                    NAME2ID[instance["category"]],
-                    NAME2ID[base_results[cur_id].get("category","METEOR")]] += 1
+                base_category = base_results[cur_id].get("category", "METEOR")
+                # 兼容。。。
+                if base_category == "UNKNOWN_AREA":
+                    base_category = "OTHERS"
+                confusion_matrix[NAME2ID[instance["category"]],
+                                 NAME2ID[base_category]] += 1
+                if NAME2ID[instance["category"]] != NAME2ID[base_category]:
+                    mismatch_collection.append(MetExporter.init_output_dict(mock_exporter,instance))
                 match_flag = True
                 tp += 1
                 matched_id[cur_id] = 1
@@ -243,13 +290,17 @@ def compare(video: OpenCVVideoWrapper,
         "fn_num":
         fn_num,
         "tn_num":
-        tn_num,
-        "confusion_matrix":
-        confusion_matrix
+        tn_num
     }
 
     import pprint
     pprint.pprint(compare_result)
+    print_confusion_matrix(confusion_matrix, list(NAME2ID.keys()) + ["MISSED"])
+
+    import copy
+    return_dict = copy.deepcopy(new_dict)
+    return_dict["results"] = mismatch_collection
+    return return_dict
 
     #print(
     #    f"True Positive = {tp}; False Positive = {fp}; False Negative = {fn};")
@@ -395,7 +446,11 @@ def main():
                     json.dump(new_result, f, ensure_ascii=False, indent=4)
 
         if args.metric:
-            compare(video, base_dict=video_dict, new_dict=new_result)
+            mismatch = compare(video,
+                               base_dict=video_dict,
+                               new_dict=new_result)
+            with open("mismatch.json", mode="w", encoding="utf-8") as f:
+                json.dump(mismatch, f, ensure_ascii=False, indent=4)
     finally:
         video.release()
 
