@@ -280,15 +280,14 @@ elif os.path.isfile(input_path):
 
 # 保存结果
 if args.save_path:
-    if args.output_type == "MDRF":
-        result_json = dict(
-            version=VERSION,
-            basic_info=video.summary(),
-            type="image-prediction"
-            if isinstance(video, MockVideoObject) else "timelapse-prediction",
-            anno_size=video.summary()["resolution"],
-            results=results)
-        with open(save_path_handler(args.save_path, input_path, ext="json"),
-                  mode="w",
-                  encoding="utf-8") as f:
-            json.dump(result_json, f, ensure_ascii=False, indent=4)
+    result_json = dict(
+        version=VERSION,
+        basic_info=video.summary(),
+        type="image-prediction"
+        if isinstance(video, MockVideoObject) else "timelapse-prediction",
+        anno_size=video.summary()["resolution"],
+        results=results)
+    with open(save_path_handler(args.save_path, input_path, ext="json"),
+                mode="w",
+                encoding="utf-8") as f:
+        json.dump(result_json, f, ensure_ascii=False, indent=4)

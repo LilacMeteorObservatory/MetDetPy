@@ -230,7 +230,7 @@ def main():
                     # 转换image标注为对应格式
                     anno_dict = dict(
                         video_size=load_8bit_image(
-                            image["img_filename"]).shape[:2],
+                            image["img_filename"]).shape[:2][1::-1],
                         target=[
                             dict(pt1=b[:2], pt2=b[2:], category=c)
                             for (b, c) in zip(image["boxes"], image["preds"])
