@@ -64,7 +64,9 @@
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.25,
-                "nms_thre": 0.45
+                "nms_thre": 0.45,
+                "multiscale_pred":2,
+                "multiscale_partition":2
             },
             "save_path":""
         },

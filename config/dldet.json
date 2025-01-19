@@ -2,8 +2,8 @@
     "description": {
         "preset_name_en": "DLDet",
         "preset_name_cn": "DLDet",
-        "intro_cn": "轻量级深度学习检测器，适合有算力的场合。",
-        "intro_en": "Lightweight deep-learning detector. Suitable when having spare computing power."
+        "intro_cn": "轻量级深度学习检测器，适合有充足算力的场合。",
+        "intro_en": "Lightweight deep-learning detector. Suitable when having enough computing power."
     },
     "loader": {
         "name": "ThreadVideoLoader",
@@ -27,7 +27,9 @@
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.25,
-                "nms_thre": 0.45
+                "nms_thre": 0.45,
+                "multiscale_pred":1,
+                "multiscale_partition":2
             }
         }
     },
@@ -59,7 +61,9 @@
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.25,
-                "nms_thre": 0.45
+                "nms_thre": 0.45,
+                "multiscale_pred":2,
+                "multiscale_partition":2
             },
             "save_path":""
         },
