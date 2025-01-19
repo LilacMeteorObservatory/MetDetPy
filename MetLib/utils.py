@@ -11,7 +11,7 @@ from easydict import EasyDict
 
 from .MetLog import get_default_logger
 
-VERSION = "V2.2.0-alpha"
+VERSION = "V2.2.0"
 box = namedtuple("box", ["x1", "y1", "x2", "y2"])
 EPS = 1e-2
 PI = np.pi / 180.0

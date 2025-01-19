@@ -135,6 +135,10 @@ def main():
                            action="store_true",
                            help="generate labelme style annotation.")
 
+    argparser.add_argument("--with-bbox",
+                           action="store_true",
+                           help="draw bounding box contours with red line.")
+
     argparser.add_argument("--debayer",
                            action="store_true",
                            help="apply debayer for video mode.")
@@ -156,7 +160,7 @@ def main():
 
     # src type
     src_type = "video"
-    
+
     # save_path valid check
     if not os.path.exists(save_path):
         os.mkdir(save_path)
@@ -222,7 +226,8 @@ def main():
                 _, fname = os.path.split(image["img_filename"])
                 full_path = os.path.join(save_path, fname)
                 with open(image["img_filename"],
-                        mode="rb") as fin, open(full_path, mode="wb") as fout:
+                          mode="rb") as fin, open(full_path,
+                                                  mode="wb") as fout:
                     fout.write(fin.read())
                 logger.info(f"Saved: {full_path}")
                 # 在有target的情况下，同时生成labelme风格的标注
@@ -241,7 +246,10 @@ def main():
                             save_path,
                             ".".join(full_path.split(".")[:-1]) + ".json")
                         with open(anno_path, mode="w", encoding="utf-8") as f:
-                            json.dump(res_dict, f, ensure_ascii=False, indent=4)
+                            json.dump(res_dict,
+                                      f,
+                                      ensure_ascii=False,
+                                      indent=4)
                         logger.info(f"Saved: {anno_path}")
         finally:
             logger.stop()
@@ -305,6 +313,21 @@ def main():
 
             if cur_mode == "image":
                 results = max_stacker(video_loader)
+                if results is None:
+                    logger.error(f"Fail to generate image for data: {target}.")
+                    continue
+                if args.with_bbox:
+                    for target in single_data.get("target", []):
+                        if not ("pt1" in target and "pt2" in target):
+                            logger.warning(
+                                f"lack pt1 or pt2 in dataline: {target}.")
+                        pt1 = list(map(int, target["pt1"]))
+                        pt2 = list(map(int, target["pt2"]))
+                        results = cv2.rectangle(results,
+                                                pt1,
+                                                pt2,
+                                                color=[0, 0, 255],
+                                                thickness=2)
                 if results is not None:
                     save_img(results, full_path, jpg_quality, png_compress)
                     logger.info(f"Saved: {full_path}")

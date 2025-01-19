@@ -22,9 +22,10 @@ ClipToolkit的完整参数列表如下：
 python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TIME]
                       [--mode {image,video}] [--suffix SUFFIX]
                       [--save-path SAVE_PATH] [--resize RESIZE]
-                      [--png-compressing PNG_COMPRESSING]
+                      [--jpg-quality JPG_QUALITY][--png-compressing PNG_COMPRESSING]
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
-                      [--jpg-quality JPG_QUALITY] [--debug]
+                      [--with-annotation][--with-bbox]
+                      [--debug]
                       
 ```
 
@@ -38,6 +39,7 @@ ClipToolkit 共可接受3种输入模式，这主要通过传入的位置参数(
 
     * 必要`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间；
     * 可选的`"filename"` 键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）
+    * 可选的 `"target"` 键，需要为数组，每一项包含`"pt1"`,`"pt2"`和`"preds"`，表明标注框位置和类别。
 
     此模式下，优先使用`JSON`中指定的文件名和类型选项。可选参数将仅在无对应参数时生效。JSON的一个实例为 [clip_test.json](../test/clip_test.json)。使用例如下：
 
@@ -74,6 +76,10 @@ ClipToolkit支持的可选参数列表如下：
 * `--save-path`：放置图像/视频的路径。 当 JSON 中只包含一个片段时，您可以在 `--save-path` 中包含文件名以简化您的 JSON。
 
 * `--resize`：将图像/视频调整为给定的分辨率。
+
+* `--with-annotation`: 同时输出 labelme 风格的标注json文件（仅支持通用模式和样本生成模式，需要附带有目标标注）。
+
+* `--with-bbox`: 在导出的图像中绘制检测框（仅支持通用模式和样本生成模式，需要附带有目标标注）。
 
 * `--png-compressing`: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
 
