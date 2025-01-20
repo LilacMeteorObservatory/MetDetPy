@@ -24,6 +24,7 @@ AVAILABLE_DEVICE_ALIAS = [
 ]
 
 PARTITION_MIN_OVERLAP = 0.2
+MULTISCALE_NMS_OVERLAP_THRE = 0.1
 
 
 class YOLOModel(object):
@@ -235,7 +236,7 @@ class YOLOModel(object):
             bboxes=result_pos[:, :4],  # type: ignore
             scores=np.max(result_cls, axis=-1),
             score_threshold=self.pos_thre,
-            nms_threshold=self.nms_thre)
+            nms_threshold=MULTISCALE_NMS_OVERLAP_THRE)
         result_pos = result_pos[list(res)]
         result_cls = result_cls[list(res)]
 
