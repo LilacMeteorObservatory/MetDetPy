@@ -213,12 +213,26 @@ if compile_tool == "nuitka":
     # 编译视频叠加工具ClipToolkit.py
     nuitka_compile(stack_cfg, target=join_path(work_path, "ClipToolkit.py"))
 
+    # 编译图像检测器MetDetPhoto.py
+    mep_cfg = {
+        "--standalone": True,
+        "--output-dir": compile_path,
+    }
+
+    mep_cfg.update(nuitka_base)
+
+    # 编译主要检测器MetDetPy.py
+    nuitka_compile(mep_cfg, target=join_path(work_path, "MetDetPhoto.py"))
+    
     # postprocessing
     # remove duplicate files of ClipToolkit
     print("Merging...", end="", flush=True)
     shutil.move(join_path(compile_path, "ClipToolkit.dist", f"ClipToolkit{exec_suffix}"),
                 join_path(compile_path, "MetDetPy.dist"))
+    shutil.move(join_path(compile_path, "MetDetPhoto.dist", f"MetDetPhoto{exec_suffix}"),
+                join_path(compile_path, "MetDetPy.dist"))
     shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
+    shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
     print("Done.")
     # rename executable file and folder
     # shutil.move(join_path(compile_path, "MetLib"),
@@ -237,6 +251,7 @@ else:
 
     pyinstaller_compile(spec='MetDetPy.spec')
     pyinstaller_compile(spec='ClipToolkit.spec')
+    pyinstaller_compile(spec='MetDetPhoto.spec')
 
     # postprocessing
     # remove build folder
@@ -246,6 +261,9 @@ else:
     print("Merging dist files...", end="", flush=True)
     shutil.move(join_path(compile_path, "ClipToolkit", f"ClipToolkit{exec_suffix}"),
                 join_path(compile_path, "MetDetPy"))
+    shutil.move(join_path(compile_path, "MetDetPhoto", f"MetDetPhoto{exec_suffix}"),
+                join_path(compile_path, "MetDetPy"))
+    shutil.rmtree(join_path(compile_path, "MetDetPhoto"))
     shutil.rmtree(join_path(compile_path, "ClipToolkit"))
     print("Done.")
 
