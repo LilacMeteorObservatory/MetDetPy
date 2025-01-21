@@ -228,6 +228,11 @@ try:
 
         if suffix in SUPPORT_IMG_FORMAT:
             # img mode
+            # temp fix: mock video object
+            summary_dict = dict(video=None,
+                                image_folder=input_path,
+                                resolution=None)
+            video = MockVideoObject(summary_dict)
             img = load_8bit_image(input_path)
             if img is None:
                 raise ValueError(
@@ -240,6 +245,14 @@ try:
                                            visu_param_list=[visu_param],
                                            delay=-1)
             boxes, preds = model.forward(img)
+            results = [{
+                "img_filename":
+                input_path,
+                "boxes": [list(map(int, x)) for x in boxes],
+                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds],
+                "prob":
+                [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
+            }]
             print(boxes, preds)
             #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
