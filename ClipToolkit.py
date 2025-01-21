@@ -193,25 +193,26 @@ def main():
                 f"{target_name} is not a valid json file for ClipToolkit.")
         video_name = raw_data["basic_info"]["video"]
         data = raw_data["results"]
-        if raw_data["type"] == "timelapse-prediction":
-            # 图像模式下，data需要进行一定预处理
-            # 将 num_frame 转换为实际起止时间戳，并整理标注。
+        # 图像模式下，data需要进行一定预处理
+        # 将 num_frame 转换为实际起止时间戳，并整理标注。
+        if raw_data["type"] in ("image-prediction","timelapse-prediction"):
             for i in range(len(data)):
                 raw_anno = data[i]
-                start_time = frame2ts(raw_anno["num_frame"],
-                                      raw_data["basic_info"]["fps"])
-                end_time = frame2ts(raw_anno["num_frame"] + 1,
-                                    raw_data["basic_info"]["fps"])
+                start_time, end_time = None, None
+                if raw_data["type"] == "timelapse-prediction":
+                    start_time = frame2ts(raw_anno["num_frame"],
+                                        raw_data["basic_info"]["fps"])
+                    end_time = frame2ts(raw_anno["num_frame"] + 1,
+                                        raw_data["basic_info"]["fps"])
                 target = []
                 for (box, pred) in zip(raw_anno["boxes"], raw_anno["preds"]):
-                    target.append(dict(pt1=box[:2], pt2=box[2:],
-                                       category=pred))
+                    target.append(dict(pt1=box[:2], pt2=box[2:], category=pred))
                 data[i].update(video_size=raw_data["anno_size"],
-                               start_time=start_time,
-                               end_time=end_time,
-                               target=target)
-        elif raw_data["type"] == "image-prediction":
-            src_type = "image"
+                            start_time=start_time,
+                            end_time=end_time,
+                            target=target)
+            if raw_data["type"] == "image-prediction":
+                src_type = "image"
     else:
         # target被作为视频解析。从参数构造单个使用的data。
         video_name = target_name
@@ -222,24 +223,34 @@ def main():
         try:
             logger.start()
             for image in data:
-                # copy 图像到目标路径下
                 _, fname = os.path.split(image["img_filename"])
                 full_path = os.path.join(save_path, fname)
-                with open(image["img_filename"],
-                          mode="rb") as fin, open(full_path,
-                                                  mode="wb") as fout:
-                    fout.write(fin.read())
+                image_data = load_8bit_image(image["img_filename"])
+                # 转换image标注为对应格式
+                anno_dict = dict(
+                    video_size=image_data.shape[:2][1::-1],
+                    target=[
+                        dict(pt1=b[:2], pt2=b[2:], category=c)
+                        for (b, c) in zip(image["boxes"], image["preds"])
+                    ])
+                if args.with_bbox:
+                    for target in anno_dict.get("target", []):
+                        if not ("pt1" in target and "pt2" in target):
+                            logger.warning(
+                                f"lack pt1 or pt2 in dataline: {target}.")
+                        pt1 = list(map(int, target["pt1"]))
+                        pt2 = list(map(int, target["pt2"]))
+                        image_data = cv2.rectangle(image_data,
+                                                   pt1,
+                                                   pt2,
+                                                   color=[0, 0, 255],
+                                                   thickness=2)
+                # 保存图像到目标路径下
+                save_img(image_data, full_path, args.jpg_quality,
+                         args.png_compressing)
                 logger.info(f"Saved: {full_path}")
                 # 在有target的情况下，同时生成labelme风格的标注
                 if args.with_annotation:
-                    # 转换image标注为对应格式
-                    anno_dict = dict(
-                        video_size=load_8bit_image(
-                            image["img_filename"]).shape[:2][1::-1],
-                        target=[
-                            dict(pt1=b[:2], pt2=b[2:], category=c)
-                            for (b, c) in zip(image["boxes"], image["preds"])
-                        ])
                     res_dict = generate_labelme(anno_dict, img_fn=full_path)
                     if res_dict:
                         anno_path = os.path.join(
