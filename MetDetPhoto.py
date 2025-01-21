@@ -178,6 +178,7 @@ model = YOLOModel(model_path,
                   multiscale_pred=args.scale,
                   multiscale_partition=args.partition)
 logger.start()
+valid_flag = False
 try:
     if os.path.isdir(input_path):
         # img folder mode
@@ -310,11 +311,16 @@ try:
             raise NotImplementedError(
                 f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_IMG_FORMAT}."
             )
+    else:
+        raise FileNotFoundError(f"File {input_path} does not exist!")
+    valid_flag = True
+except Exception as e:
+    logger.error(e.__repr__())
 finally:
     logger.stop()
 
 # 保存结果
-if args.save_path:
+if valid_flag and args.save_path:
     result_json = dict(version=VERSION,
                        basic_info=video.summary(),
                        type="image-prediction" if isinstance(
