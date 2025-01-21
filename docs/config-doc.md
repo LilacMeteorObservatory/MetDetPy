@@ -246,7 +246,9 @@ The `collector` section manages the the filtering and collection conditions for 
             "nms": true,
             "warmup": true,
             "pos_thre": 0.25,
-            "nms_thre": 0.45
+            "nms_thre": 0.45,
+            "multiscale_pred":2,
+            "multiscale_partition":2
         },
         "save_path":""
     },
@@ -308,7 +310,9 @@ Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` se
     "nms": true,
     "warmup": true,
     "pos_thre": 0.25,
-    "nms_thre": 0.45
+    "nms_thre": 0.45,
+    "multiscale_pred":2,
+    "multiscale_partition":2
 }
 ```
 
@@ -321,3 +325,5 @@ Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` se
 |warmup|bool|Desribes whether to warmup before execution. Set to `true` to accelerate the execution.|`true`|
 |pos_thre|float|Desribes the positive sample threshold. Scores exceeding the threshold will be considered as positive samples. Range: [0,1].|0.25|
 |nms_thre|float|The threshold used for NMS deduplication.|0.45|
+|multiscale_pred|int|multiscale pyramid depth. When set to 0, there will be no extra preprocessing; when setting to N>0, detection will be executed in N depth(s) with necessary rotation operation. Notice: `multiscale_pred` with large value will greatly increase computing power and false positive samples, It is advised to set to 1 or 2.|1 (low resolution)/2 (high resolution)|
+|multiscale_partition|int|The depth of the multi-scale pyramid. When set to 0, no extra preprocessing will be performed; when set to \(N > 0\), detection will be executed at \(N\) depths with necessary rotation operations. Note: Setting `multiscale_pred` to a large value will significantly increase the computational power required and may lead to more false positive samples. It is recommended to set this value to 1 or 2.|2|

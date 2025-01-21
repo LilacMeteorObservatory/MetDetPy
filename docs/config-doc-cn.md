@@ -246,7 +246,9 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
             "nms": true,
             "warmup": true,
             "pos_thre": 0.25,
-            "nms_thre": 0.45
+            "nms_thre": 0.45,
+            "multiscale_pred":2,
+            "multiscale_partition":2
         },
         "save_path":""
     },
@@ -308,7 +310,9 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
     "nms": true,
     "warmup": true,
     "pos_thre": 0.25,
-    "nms_thre": 0.45
+    "nms_thre": 0.45,
+    "multiscale_pred":2,
+    "multiscale_partition":2
 }
 ```
 
@@ -321,3 +325,5 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
 |pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.25|
 |nms_thre|float|去重时使用的阈值。|0.45|
+|multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
+|multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|

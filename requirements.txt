@@ -4,3 +4,9 @@ tqdm>=4.0.0
 easydict>=1.0
 multiprocess>=0.70.0
 onnxruntime>=1.16.0
+
+# for windows user it is recommended to install:
+#onnxruntime-directml>=1.16.0
+
+# if you want to run make_package.py please install
+# nuitka>=1.9.5
