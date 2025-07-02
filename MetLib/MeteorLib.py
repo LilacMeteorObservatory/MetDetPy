@@ -783,7 +783,7 @@ class MetExporter(object):
         for output_dict in final_list:
             stacked_img = max_stacker(video_loader=self.recheck_loader,
                                       start_frame=output_dict["start_frame"],
-                                      end_frame=output_dict["end_frame"],
+                                      end_frame=output_dict["end_frame"]+1,
                                       logger=self.logger)
             if stacked_img is None:
                 self.logger.error(

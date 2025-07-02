@@ -242,8 +242,7 @@ try:
             visual_manager = OpenCVMetVisu(exp_time=1,
                                            resolution=visu_resolution,
                                            flag=args.visu,
-                                           visu_param_list=[visu_param],
-                                           delay=-1)
+                                           visu_param_list=[visu_param])
             boxes, preds = model.forward(img)
             results = [{
                 "img_filename":
