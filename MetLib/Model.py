@@ -1,3 +1,4 @@
+from abc import ABCMeta, abstractmethod
 from typing import Optional, Union
 import cv2
 import numpy as np
@@ -206,28 +207,35 @@ class YOLOModel(object):
         # 根据 rep 情况 分检测用 patch_index_list
         result_pos = []
         result_cls = []
-        for scale in range(self.multiscale_pred):
-            if scale > 0:
-                h_rep *= self.multiscale_partition
-                w_rep *= self.multiscale_partition
-            tot_h_rep = (h_rep - 1) * PARTITION_MIN_OVERLAP
-            tot_w_rep = (w_rep - 1) * PARTITION_MIN_OVERLAP
-            h_size = int(h // (h_rep - tot_h_rep))
-            w_size = int(w // (w_rep - tot_w_rep))
-            h_stride = int(h // (h_rep + tot_h_rep))
-            w_stride = int(w // (w_rep + tot_w_rep))
+        try:
+            for scale in range(self.multiscale_pred):
+                if scale > 0:
+                    h_rep *= self.multiscale_partition
+                    w_rep *= self.multiscale_partition
+                tot_h_rep = (h_rep - 1) * PARTITION_MIN_OVERLAP
+                tot_w_rep = (w_rep - 1) * PARTITION_MIN_OVERLAP
+                h_size = int(h // (h_rep - tot_h_rep))
+                w_size = int(w // (w_rep - tot_w_rep))
+                h_stride = int(h // (h_rep + tot_h_rep))
+                w_stride = int(w // (w_rep + tot_w_rep))
 
-            for i in range(h_rep):
-                for j in range(w_rep):
-                    clip_img = x[i * h_stride:i * h_stride + h_size,
-                                 j * w_stride:j * w_stride + w_size]
-                    clip_pos, clip_cls = self._forward(clip_img)
-                    clip_pos[:, 1] += i * h_stride
-                    clip_pos[:, 3] += i * h_stride
-                    clip_pos[:, 0] += j * w_stride
-                    clip_pos[:, 2] += j * w_stride
-                    result_pos.append(clip_pos)
-                    result_cls.append(clip_cls)
+                for i in range(h_rep):
+                    for j in range(w_rep):
+                        clip_img = x[i * h_stride:i * h_stride + h_size,
+                                     j * w_stride:j * w_stride + w_size]
+                        clip_pos, clip_cls = self._forward(clip_img)
+                        clip_pos[:, 1] += i * h_stride
+                        clip_pos[:, 3] += i * h_stride
+                        clip_pos[:, 0] += j * w_stride
+                        clip_pos[:, 2] += j * w_stride
+                        result_pos.append(clip_pos)
+                        result_cls.append(clip_cls)
+        except Exception as e:
+            # 异常跳过
+            logger.error(
+                f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
+                f"Skip this frame to continue detection...")
+            return [], []
         result_pos = np.concatenate(result_pos, axis=0)
         result_cls = np.concatenate(result_cls, axis=0)
 
