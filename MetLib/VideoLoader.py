@@ -14,22 +14,21 @@ VideoLoader 提供了从原始视频到处理后帧图像的流程控制，主�
     5. 获取处理后图像.
     
 """
-
 import queue
 import threading
 from abc import ABCMeta, abstractmethod
 from math import floor
-from typing import Any, Optional, Type, Union
+from queue import Queue
+from typing import Any, Literal, Optional, Type, Union
 
 import numpy as np
-from multiprocess import Process # type: ignore
+from multiprocess import Process  # type: ignore
 from multiprocess import Queue as MQueue  # type: ignore
-from multiprocess import RawArray, freeze_support # type: ignore
+from multiprocess import RawArray, freeze_support  # type: ignore
 
 from .MetLog import get_default_logger
-from .utils import (MergeFunction, Transform, frame2time, load_8bit_image,
-                    load_mask, parse_resize_param, sigma_clip, time2frame,
-                    timestr2int, transpose_wh)
+from .utils import (MergeFunction, Transform, U8Mat, frame2time, load_mask,
+                    parse_resize_param, sigma_clip, time2frame, timestr2int)
 from .VideoWrapper import BaseVideoWrapper
 
 UP_EXPOSURE_BOUND = 0.5
@@ -61,13 +60,13 @@ class BaseVideoLoader(metaclass=ABCMeta):
 
     ## What VideoLoader should support
     ### Property
-    #### video attributes
+    #### video basic attributes
         video_total_frames ([int]): num of total frames of the video.
         raw_size (Union[list, tuple]): the raw image/video resolution, in [w, h] order.
         runntime_size (Union[list, tuple]): the running image/video resolution, in [w, h] order.
         fps (float): fps of the video. 
     
-    #### reading attributes
+    #### video reading attributes
         start_time (int): the time (in ms) that VideoLoader starts reading.
         end_time (int): the time (in ms) that VideoLoader ends reading.
         start_frame (int): the start frame that is corresponding to the start_time.
@@ -106,18 +105,30 @@ class BaseVideoLoader(metaclass=ABCMeta):
     """
 
     def __init__(self) -> None:
-        pass
+        self.start_frame: int = 0
+        self.end_frame: int = 0
+        self.start_time: int = 0
+        self.end_time: int = 0
+        self.runtime_size: list[int] = []
+        self.exp_time: float = 0
+        self.exp_frame: int = 0
+        self.cur_frame: Optional[U8Mat] = None
+        self.mask: Optional[U8Mat] = None
+
+    #### Method ####
 
     @abstractmethod
     def start(self):
         pass
 
     @abstractmethod
-    def reset(self, start_frame=None, end_frame=None):
+    def reset(self,
+              start_frame: Optional[int] = None,
+              end_frame: Optional[int] = None):
         pass
 
     @abstractmethod
-    def pop(self):
+    def pop(self) -> Optional[U8Mat]:
         pass
 
     @abstractmethod
@@ -130,23 +141,43 @@ class BaseVideoLoader(metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def fps(self):
+    def stopped(self) -> bool:
+        pass
+
+    def summary(self) -> dict[str, Any]:
+        return dict(loader=self.__class__.__name__)
+
+    #### Video Basic Attributes ####
+
+    @property
+    @abstractmethod
+    def video_total_frames(self) -> int:
         pass
 
     @property
     @abstractmethod
-    def video_total_frames(self):
+    def raw_size(self) -> Union[list[int], tuple[int, int]]:
         pass
 
     @property
     @abstractmethod
-    def raw_size(self):
+    def fps(self) -> float:
         pass
 
+    #### video reading attributes ####
     @property
-    @abstractmethod
     def iterations(self) -> int:
-        pass
+        return self.end_frame - self.start_frame
+
+    #### Equivalent exposure time / fps
+
+    @property
+    def eq_fps(self) -> float:
+        return 1 / self.exp_time
+
+    @property
+    def eq_int_fps(self) -> int:
+        return floor(self.eq_fps)
 
 
 class VanillaVideoLoader(BaseVideoLoader):
@@ -184,7 +215,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
-                 resize_option: Union[int, list, str, None] = None,
+                 resize_option: Union[int, list[int], str, None] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -193,7 +224,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         """
         # VanillaVideoLoader
         VanillaVideoLoader is a basic implementation that loads the video from the file.
@@ -281,7 +312,7 @@ class VanillaVideoLoader(BaseVideoLoader):
               reset_time_attr: bool = True):
         """set `start_frame`, `end_frame`, and `exp_frame` of VideoLoader.
         
-        Notice: `reset` is a lazy method. The start position is truly reset when the `start` method is called.
+        NOTE: `reset` is a lazy method. The start position is truly reset when the `start` method is called.
 
         Args:
             start_frame (Union[int, None], optional): the start frame of the video. Defaults to None.
@@ -310,23 +341,28 @@ class VanillaVideoLoader(BaseVideoLoader):
             f"Preset start_frame to {self.start_frame}; end_frame to {self.end_frame}."
         )
 
-    def pop(self) -> np.ndarray:
+    def pop(self) -> Optional[U8Mat]:
         """pop a frame that can be used for detection.
 
         Returns:
             np.ndarray: processed frame.
         """
-        frame_list = []
-        for _ in range(self.exp_frame):
+        frame_list: list[U8Mat] = []
+        for i in range(self.exp_frame):
             status, self.cur_frame = self.video.read()
-            if status:
+            if status and self.cur_frame is not None:
                 frame_list.append(
                     self.preprocess.exec_transform(self.cur_frame))
             else:
                 self.stop()
+                self.logger.warning(
+                    f"Load frame failed at {self.start_frame + i}")
                 break
         self.cur_iter -= self.exp_frame
         if self.cur_iter <= 0: self.stop()
+
+        if len(frame_list) == 0:
+            return None
 
         if self.exp_frame == 1:
             return frame_list[0]
@@ -356,22 +392,10 @@ class VanillaVideoLoader(BaseVideoLoader):
         return self.video.num_frames
 
     @property
-    def raw_size(self) -> Union[list, tuple]:
+    def raw_size(self) -> Union[list[int], tuple[int, int]]:
         return self.video.size
 
-    @property
-    def eq_fps(self) -> float:
-        return 1 / self.exp_time
-
-    @property
-    def eq_int_fps(self) -> int:
-        return floor(self.eq_fps)
-
-    @property
-    def iterations(self) -> int:
-        return self.end_frame - self.start_frame
-
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         return dict(loader=self.__class__.__name__,
                     video=self.video_name,
                     mask=self.mask_name,
@@ -436,9 +460,10 @@ class VanillaVideoLoader(BaseVideoLoader):
                 return min(rf / fps, upper_bound)
             try:
                 exp_time = float(exp_option)
-            except ValueError as E:
+            except ValueError as e:
                 raise ValueError(
-                    "Invalid exp_time string value: It should be selected from [float], [int], "
+                    f"{e.__repr__()}: Invalid exp_time string value: "
+                    f"It should be selected from [float], [int], "
                     f"real-time\",\"auto\" and \"slow\", got {exp_option}.")
         else:
             exp_time = exp_option
@@ -488,7 +513,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
-                 resize_option: Union[int, list, str, None] = None,
+                 resize_option: Union[int, list[int], str, None] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -498,9 +523,10 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         self.maxsize = maxsize
-        self.queue = queue.Queue(maxsize=self.maxsize)
+        self.queue: Queue[Union[Literal['failed'],
+                                U8Mat]] = Queue(maxsize=self.maxsize)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
@@ -520,7 +546,6 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.thread = threading.Thread(target=self.videoloop, args=())
         self.thread.setDaemon(True)
         self.thread.start()
-        return self
 
     def pop(self):
         if self.stopped:
@@ -530,13 +555,14 @@ class ThreadVideoLoader(VanillaVideoLoader):
             raise Exception(
                 f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
             )
-        ret = []
+        ret: list[U8Mat] = []
         try:
-            for i in range(self.exp_frame):
+            for _ in range(self.exp_frame):
                 if self.stopped: break
                 frame = self.queue.get(timeout=GET_TIMEOUT)
                 if frame is FAILED_FLAG: raise queue.Empty()
-                ret.append(frame)
+                if not isinstance(frame, str):
+                    ret.append(frame)
         except Exception as e:
             # handle the condition when there is no frame to read due to manual stop trigger or other exception.
             if isinstance(e, queue.Empty) and self.read_stopped:
@@ -554,7 +580,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 if self.read_stopped or not self.status:
                     break
                 self.status, self.cur_frame = self.video.read()
-                if self.status:
+                if self.status and self.cur_frame is not None:
                     self.processed_frame = self.preprocess.exec_transform(
                         self.cur_frame)
                     self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
@@ -619,7 +645,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  video_wrapper: Type[BaseVideoWrapper],
                  video_name: str,
                  mask_name: Optional[str] = None,
-                 resize_option: Union[int, list, str, None] = None,
+                 resize_option: Union[int, list[int], str, None] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -629,9 +655,9 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  maxsize: int = 32,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         self.maxsize = maxsize
-        self.notify_queue = MQueue(maxsize=self.maxsize - 1)
+        self.notify_queue: Any = MQueue(maxsize=self.maxsize - 1)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
@@ -643,12 +669,12 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.read_stopped = False
         self.clear_queue()
         self.status = True
-        self.buffer = RawArray(
+        self.buffer: Any = RawArray(
             np.dtype("uint8").char, self.maxsize * w * h * c)
         self.buffer_shape = (self.maxsize, h,
                              w) if self.grayscale else (self.maxsize, h, w, 3)
         del self.video
-        self.subprocess = Process(target=self.videoloop, daemon=True)
+        self.subprocess: Any = Process(target=self.videoloop, daemon=True)
         self.subprocess.start()
         # a hack way
         self.video = self.video_wrapper(self.video_name)
@@ -661,11 +687,10 @@ class ProcessVideoLoader(VanillaVideoLoader):
         """消费者调起接口。
 
         Raises:
-            Exception: _description_
-            e: _description_
+            Exception: Trigged when fails to read a frame.
 
         Returns:
-            _type_: _description_
+            Optional[NDArray]: A frame or nothing.
         """
         if self.stopped:
             # this is abnormal. so the video file will be released manuly here.
@@ -676,7 +701,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
             )
         np_buffer = np.frombuffer(self.buffer,
                                   dtype=np.uint8).reshape(self.buffer_shape)
-        ret = []
+        ret: list[Any] = []
         try:
             for i in range(self.exp_frame):
                 if self.stopped: break
@@ -707,7 +732,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                     break
                 self.status, self.cur_frame = self.video.read()
                 # Load frame failed.
-                if not self.status:
+                if not self.status or self.cur_frame is None:
                     self.stop()
                     self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
@@ -739,7 +764,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         return self.read_stopped and self.notify_queue.qsize == 0
 
 
-def _rf_est_kernel(video_loader):
+def _rf_est_kernel(video_loader: BaseVideoLoader):
     try:
         n_frames = video_loader.iterations
         video_loader.start()
@@ -747,13 +772,13 @@ def _rf_est_kernel(video_loader):
         for i in range(n_frames):
             if not video_loader.stopped:
                 frame = video_loader.pop()
-                f_sum[i] = np.sum(frame)
+                if frame is not None:
+                    f_sum[i] = np.sum(frame)
             else:
                 f_sum = f_sum[:i]
                 break
 
         A0, A1, A2, A3 = f_sum[:-3], f_sum[1:-2], f_sum[2:-1], f_sum[3:]
-
         diff_series = f_sum[1:] - f_sum[:-1]
         rmax_pos = np.where((2 * A2 - (A1 + A3) > 0) & (2 * A1 - (A0 + A2) < 0)
                             & (np.abs(diff_series[1:-1]) > 0.01))[0]
@@ -765,7 +790,7 @@ def _rf_est_kernel(video_loader):
     return rmax_pos[1:] - rmax_pos[:-1]
 
 
-def rf_estimator(video_loader) -> Union[float, int]:
+def rf_estimator(video_loader: BaseVideoLoader) -> Union[float, int]:
     """用于为给定的视频估算实际的曝光时间。
 
     部分相机在录制给定帧率的视频时，可以选择慢于帧率的单帧曝光时间（慢门）。
@@ -810,7 +835,7 @@ def rf_estimator(video_loader) -> Union[float, int]:
         return 1
 
     # 非常经验的取值方法...
-    est_frames: np.floating = np.round(
+    est_frames = np.round(
         np.min([np.median(intervals),
                 np.mean(sigma_clip(intervals))]))
     return est_frames  # type: ignore

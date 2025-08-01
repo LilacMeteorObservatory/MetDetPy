@@ -6,10 +6,14 @@ VideoWrapper对读取视频的API进行初步包装, 使VideoLoader能够使用�
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Union
+from typing import Optional
 
+import av
+import av.error
 import cv2
-import numpy as np
+from cv2.typing import MatLike
+
+from .utils import frame2time, time2frame
 
 
 class BaseVideoWrapper(metaclass=ABCMeta):
@@ -35,7 +39,7 @@ class BaseVideoWrapper(metaclass=ABCMeta):
 
     """
 
-    def __init__(self, video_name) -> None:
+    def __init__(self, video_name: str) -> None:
         pass
 
     @property
@@ -50,7 +54,7 @@ class BaseVideoWrapper(metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def size(self) -> list:
+    def size(self) -> list[int]:
         pass
 
     @property
@@ -59,14 +63,22 @@ class BaseVideoWrapper(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def set_to(self, frame):
+    def set_to(self, frame_num: int) -> bool:
+        pass
+
+    def force_set_to(self, frame_num: int) -> bool:
+        """逐帧索引，直接跳转的降级方案。"""
+        return self.set_to(frame_num)
+
+    @abstractmethod
+    def get_video_pos(self) -> int:
         pass
 
     def release(self):
         pass
 
     @abstractmethod
-    def read(self) -> Union[tuple, list]:
+    def read(self) -> tuple[bool, Optional[MatLike]]:
         pass
 
 
@@ -81,8 +93,8 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
     """
 
     def __init__(self, video_name: str) -> None:
-        self.video = cv2.VideoCapture(video_name)
-        if (self.video is None) or (not self.video.isOpened()):
+        self.video = cv2.VideoCapture(video_name, cv2.CAP_FFMPEG)
+        if not self.video.isOpened():
             raise FileNotFoundError(
                 f"The video \"{video_name}\" cannot be opened as a supported video format."
             )
@@ -104,7 +116,7 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
 
     @property
     def backend_name(self):
-        return self.video.getBackendName()
+        return f"{self.__class__.__name__}({self.video.getBackendName()})"
 
     def read(self):
         return self.video.read()
@@ -112,74 +124,107 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
     def release(self):
         self.video.release()
 
-    def set_to(self, frame: int):
+    def set_to(self, frame_num: int) -> bool:
         """设置当前指针位置。
+
+        Args:
+            frame_num (int): 期望跳转位置
+
+        Returns:
+            bool: 是否成功跳转
         """
         # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
         # TODO 2: 对于不能set_to的，能否向后继续跳转？
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, frame)
+        #return self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        return self.video.set(cv2.CAP_PROP_POS_MSEC,
+                              frame2time(frame_num, self.fps))
 
-
-if False:
-    # the following code is not ready for use.
-    # it is an experimental usage of pyav reading video.
-    import av
-    from .utils import frame2time
-
-    class PyAVVideoWrapper(BaseVideoWrapper):
-        """VideoWrapper for pyav-based video loader.
+    def force_set_to(self, frame_num: int) -> bool:
+        """逐帧索引，直接跳转的降级方案。
 
         Args:
-            video_name (str): The video filename.
+            frame_num (int): 期望跳转位置
 
-        Raises:
-            FileNotFoundError: triggered when the video file can not be opened. 
+        Returns:
+            bool: 是否成功跳转
         """
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        status = True
+        import tqdm
+        for _ in tqdm.tqdm(range(frame_num)):
+            status, _ = self.video.read()
+            if not status: return status
+        return status
 
-        def __init__(self, video_name: str) -> None:
-            self.container = av.open(video_name)
-            self.video = self.container.streams.video[0]
-            # TODO: 合法性检查?
+    def get_video_pos(self):
+        #return int(self.video.get(cv2.CAP_PROP_POS_FRAMES))
+        return time2frame(int(self.video.get(cv2.CAP_PROP_POS_MSEC)), self.fps)
 
-        @property
-        def fps(self):
-            return float(self.video.base_rate)
 
-        @property
-        def backend_name(self):
-            return "FFmpeg"
+class PyAVVideoWrapper(BaseVideoWrapper):
+    """VideoWrapper for pyav-based video loader.
 
-        @property
-        def num_frames(self):
-            return (self.video.duration * self.video.time_base * self.fps) + 1
+    Args:
+        video_name (str): The video filename.
 
-        @property
-        def size(self):
-            return [int(self.video.width), int(self.video.height)]
+    Raises:
+        av.error.FFmpegError could be raised during av.open.
+    """
 
-        def read(self):
-            try:
-                while True:
-                    frame = self.container.demux(video=0).__next__().decode()
-                    if len(frame) == 0:
-                        continue
-                    if len(frame) == 1:
-                        image = cv2.cvtColor(frame[0].to_ndarray(),
-                                             cv2.COLOR_RGB2BGR)
-                    else:
-                        image = cv2.cvtColor(frame[0].to_ndarray(),
-                                             cv2.COLOR_YUV2BGR_I420)
-                    return True, image
-            except av.error.EOFError:
-                return False, None
+    def __init__(self, video_name: str) -> None:
+        self.container = av.open(video_name)
+        self.video = self.container.streams.video[0]
+        self.color_fmt = None
 
-        def release(self):
-            self.container.close()
+    @property
+    def fps(self):
+        # base_rate?
+        return float(self.video.average_rate) if self.video.average_rate else 0
 
-        def set_to(self, frame: int):
-            """设置当前指针位置。
-            """
-            self.container.seek(int(
-                frame2time(frame, self.fps) / self.video.time_base),
-                                any_frame=True,
-                                stream=self.video)
+    @property
+    def backend_name(self):
+        return self.__class__.__name__ + "(FFmpeg)"
+
+    @property
+    def num_frames(self):
+        return self.video.frames
+
+    @property
+    def size(self):
+        return [int(self.video.width), int(self.video.height)]
+
+    def read(self):
+        try:
+            while True:
+                frame: list[av.VideoFrame] = self.container.demux(
+                    video=0).__next__().decode()  # type: ignore
+                if len(frame) == 0:
+                    continue
+                return True, frame[0].to_ndarray(format='bgr24')
+        except av.error.EOFError:
+            return False, None
+
+    def release(self):
+        self.container.close()
+
+    def set_to(self, frame_num: int):
+        """设置当前指针位置。
+        """
+        if self.video.time_base is None:
+            raise av.error.ValueError(
+                code=-1,
+                message="Invalid time_base value: None",
+            )
+        # seems seek using us instead of ms.
+        self.container.seek(frame2time(frame_num, self.fps) * 1000,
+                            any_frame=False,
+                            backward=True)
+        return True
+
+    def get_video_pos(self) -> int:
+        while True:
+            frame = self.container.demux(video=0).__next__().decode()
+            if len(frame) == 0:
+                continue
+            return int(frame[0].pts * float(self.video.time_base) *
+                       self.fps) if self.video.time_base is not None else -1
