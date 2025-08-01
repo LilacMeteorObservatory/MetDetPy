@@ -3,11 +3,13 @@ import os
 import warnings
 from collections import namedtuple
 from logging import Logger
-from typing import Optional, Type, Union
+from typing import Any, Callable, Optional, Sequence, Type, Union
 
 import cv2
 import numpy as np
+from cv2.typing import MatLike
 from easydict import EasyDict
+from numpy.typing import NDArray
 
 from .MetLog import get_default_logger
 
@@ -19,6 +21,9 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 
 logger = get_default_logger()
+
+#### Typing alias
+U8Mat = Union[NDArray[np.uint8], MatLike]
 
 STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
 SWITCH2BOOL = {"on": True, "off": False}
@@ -80,6 +85,20 @@ def pt_offset(pt, offset) -> list:
     return [value + offs for value, offs in zip(pt, offset)]
 
 
+def keep1ret_value(func: Callable[..., tuple[Any, Any]], select_pos: int):
+    """A simple decorator that only keep the value of specific position.
+    """
+
+    def selector_core(args: Any, **kwargs: Any):
+        res = func(args, **kwargs)
+        assert len(res) > select_pos >= -len(
+            res), f"selected ret at pos {select_pos},"
+        " got only {len(res)} ret value."
+        return res[select_pos]
+
+    return selector_core
+
+
 class Transform(object):
     """图像变换方法的集合类，及一个用于执行集成变换的方法。
     """
@@ -90,25 +109,29 @@ class Transform(object):
     }
 
     def __init__(self) -> None:
-        self.transform = []
+        self.transform: list[tuple[Callable[..., MatLike], dict[str,
+                                                                Any]]] = []
 
-    def opencv_resize(self, dsize, **kwargs):
+    def opencv_resize(self, dsize: list[int], **kwargs: Any):
         interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
         self.transform.append(
-            [cv2.resize,
-             dict(dsize=dsize, interpolation=interpolation)])
+            (cv2.resize, dict(dsize=dsize, interpolation=interpolation)))
 
     def opencv_BGR2GRAY(self):
-        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)])
+        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)))
 
     def opencv_RGB2GRAY(self):
-        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_RGB2GRAY)])
+        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_RGB2GRAY)))
 
     def opencv_GRAY2BGR(self):
-        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_GRAY2BGR)])
+        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_GRAY2BGR)))
 
-    def mask_with(self, mask):
-        self.transform.append([self.MASK_FLAG, dict(mask=mask)])
+    def mask_with(self, mask: MatLike):
+
+        def _mask_with(img: MatLike, mask: MatLike):
+            return img * mask
+
+        self.transform.append((_mask_with, dict(mask=mask)))
 
     def expand_3rd_channel(self, num: int):
         """将单通道灰度图像通过Repeat方式映射到多通道图像。
@@ -116,42 +139,37 @@ class Transform(object):
         assert isinstance(
             num, int
         ) and num > 0, f"num invalid! expect int>0, got {num} with dtype={type(num)}."
-        self.transform.append([np.expand_dims, dict(axis=-1)])
+        self.transform.append((np.expand_dims, dict(axis=-1)))
         if num > 1:
-            self.transform.append([np.repeat, dict(repeats=num, axis=-1)])
+            self.transform.append((np.repeat, dict(repeats=num, axis=-1)))
 
-    def opencv_binary(self, threshold, maxval=255, inv=False):
-        self.transform.append([
-            cv2.threshold,
-            dict(thresh=threshold,
-                 maxval=maxval,
-                 type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)
-        ])
-
-    def opencv_debayer(self, pattern="BGGR"):
-        assert pattern in self.PATTERN_MAPPING, f"unsupport debayer pattern! choice from {self.PATTERN_MAPPING}"
-        self.transform.append([cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)])
+    def opencv_binary(self,
+                      threshold: Union[float, int],
+                      maxval: int = 255,
+                      inv: bool = False):
         self.transform.append(
-            [cv2.cvtColor,
-             dict(code=self.PATTERN_MAPPING[pattern], dstCn=3)])
+            (keep1ret_value(cv2.threshold, select_pos=-1),
+             dict(thresh=threshold,
+                  maxval=maxval,
+                  type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)))
 
-    def exec_transform(self, img: np.ndarray) -> np.ndarray:
-        """按顺序执行给定的变换。
+    def opencv_debayer(self, pattern: str = "BGGR"):
+        assert pattern in self.PATTERN_MAPPING, f"unsupport debayer pattern! choice from {self.PATTERN_MAPPING}"
+        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)))
+        self.transform.append(
+            (cv2.cvtColor, dict(code=self.PATTERN_MAPPING[pattern], dstCn=3)))
+
+    def exec_transform(self, img: MatLike) -> MatLike:
+        """按顺序对给定的输入执行给定的图像变换。
 
         Args:
-            img (np.ndarray): _description_
-            transform_dict (dict[Callable, dict[str,Any]]): _description_
+            img (MatLike): 输入图像
 
         Returns:
-            np.ndarray: _description_
+            MatLike: 变换后图像
         """
         for [transform, kwargs] in self.transform:
-            if transform == self.MASK_FLAG:
-                img = img * kwargs["mask"]
-            elif transform == cv2.threshold:
-                img = transform(img, **kwargs)[-1]
-            else:
-                img = transform(img, **kwargs)
+            img = transform(img, **kwargs)
         return img
 
 
@@ -160,15 +178,15 @@ class MergeFunction(object):
     """
 
     @classmethod
-    def not_merge(cls, image_stack):
+    def not_merge(cls, image_stack: Sequence[Union[U8Mat, MatLike]]):
         return image_stack[0]
 
     @classmethod
-    def max(cls, image_stack):
+    def max(cls, image_stack: Sequence[Union[U8Mat, MatLike]]):
         return np.max(image_stack, axis=0, keepdims=True)[0]
 
     @classmethod
-    def m3func(cls, image_stack):
+    def m3func(cls, image_stack: Sequence[Union[U8Mat, MatLike]]):
         """M3 for Max Minus Median.
         Args:
             image_stack (ndarray)
@@ -177,7 +195,9 @@ class MergeFunction(object):
         return sort_stack[-1] - sort_stack[len(sort_stack) // 2]
 
     @classmethod
-    def mix_max_median_stacker(cls, image_stack, threshold=80):
+    def mix_max_median_stacker(cls,
+                               image_stack: Sequence[Union[U8Mat, MatLike]],
+                               threshold: int = 80):
         img_mean = np.mean(image_stack, axis=0)
         img_max = np.max(image_stack, axis=0)
         img_max[img_max < threshold] = img_mean[img_max < threshold]

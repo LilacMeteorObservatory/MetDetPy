@@ -1,16 +1,16 @@
-from typing import Any, Callable, Type
+from typing import Callable
 
-from .Detector import (ClassicDetector, DiffAreaGuidingDetecor, M3Detector,
-                       MLDetector)
+from .Detector import (BaseDetector, ClassicDetector, DiffAreaGuidingDetecor,
+                       M3Detector, MLDetector)
 from .VideoLoader import (ProcessVideoLoader, ThreadVideoLoader,
                           VanillaVideoLoader)
-from .VideoWrapper import OpenCVVideoWrapper
+from .VideoWrapper import BaseVideoWrapper, OpenCVVideoWrapper, PyAVVideoWrapper
 
 
-def get_xxx(name, all) -> Callable[[str], Type]:
+def get_xxx(name: str, all: list[type]) -> Callable[[str], type]:
     name2class = {cls.__name__: cls for cls in all}
 
-    def core(class_name) -> Type:
+    def core(class_name: str) -> type:
         if not class_name in name2class:
             raise Exception(f"No class named {class_name} for {name}.")
         return name2class[class_name]
@@ -18,9 +18,13 @@ def get_xxx(name, all) -> Callable[[str], Type]:
     return core
 
 
-available_loaders = [VanillaVideoLoader, ThreadVideoLoader, ProcessVideoLoader]
-available_wrappers = [OpenCVVideoWrapper]
-available_detectors = [
+available_loaders: list[type[VanillaVideoLoader]] = [
+    VanillaVideoLoader, ThreadVideoLoader, ProcessVideoLoader
+]
+available_wrappers: list[type[BaseVideoWrapper]] = [
+    OpenCVVideoWrapper, PyAVVideoWrapper
+]
+available_detectors: list[type[BaseDetector]] = [
     M3Detector, ClassicDetector, MLDetector, DiffAreaGuidingDetecor
 ]
 
