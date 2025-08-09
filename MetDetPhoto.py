@@ -20,20 +20,13 @@ import cv2
 import numpy as np
 import tqdm
 
-from MetLib.MetLog import get_default_logger, set_default_logger
+from MetLib.fileio import load_8bit_image, load_mask, save_path_handler
+from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import YOLOModel
-from MetLib.utils import (
-    ID2NAME,
-    VERSION,
-    load_8bit_image,
-    load_mask,
-    parse_resize_param,
-    pt_offset,
-    save_path_handler,
-)
-from MetLib.VideoLoader import ThreadVideoLoader
-from MetLib.VideoWrapper import OpenCVVideoWrapper
+from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset
+from MetLib.videoloader import ThreadVideoLoader
+from MetLib.videowrapper import OpenCVVideoWrapper
 
 SUPPORT_IMG_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_VIDEO_FORMAT = ["avi", "mp4", "mkv", "mpeg"]

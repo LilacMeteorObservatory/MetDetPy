@@ -44,6 +44,9 @@ Besides, MetDetPy has worked as the backend of the Meteor Master since version 1
 * easydict>=1.0
 * multiprocess>=0.70.0
 * onnxruntime>=1.16.0
+* av>=15.0.0
+* dacite>=1.9.0
+* pyexiv2>=2.12.0
 
 You can install these requirements using:
 
@@ -72,7 +75,7 @@ The above packages enable MetDetPy to run properly, but the deep learning models
 MetDetPy is the launcher of the video meteor detector, its usage is as follows:
 
 ```sh
-python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME] 
+python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME]
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
@@ -91,7 +94,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * `--end-time`: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
 
-* `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow.  The default is `"frontend"`.
+* `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow. The default is `"frontend"`.
 
 * `--debug`: indicates whether to print debug information.
 
@@ -115,7 +118,7 @@ The following arguments have default values in config files. If they are configu
 
 * `--bi-thre`: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
 
-* `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time. 
+* `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
 
 * `--recheck`: indicates whether apply recheck mechanism. Select from {on, off}.
 
@@ -135,7 +138,7 @@ MetDetPy reads arguments from configuration files. For most circumstances, prese
 
 ```sh
 python MetDetPhoto.py target [--mask MASK]
-                             [--model-path MODEL_PATH] [--model-type MODEL_TYPE] 
+                             [--model-path MODEL_PATH] [--model-type MODEL_TYPE]
                              [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                              [--visu] [--visu-resolution VISU_RESOLUTION]
                              [--save-path SAVE_PATH]
@@ -226,7 +229,6 @@ Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space
 ### Update Log / Todo List
 
 See [update log](docs/update-log.md).
-
 
 ### Statistics
 

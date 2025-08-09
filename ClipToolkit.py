@@ -21,46 +21,189 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
 import argparse
 import json
 import os
+from os.path import join as path_join
+from os.path import split as path_split
+from typing import Any, Optional, cast
 
 import cv2
+from dacite import from_dict
 
-from MetLib.MetLog import get_default_logger, set_default_logger
-from MetLib.Stacker import max_stacker
-from MetLib.utils import (frame2ts, list2xyxy, save_img, save_video_by_stream,
-                          ts2frame, load_8bit_image)
-from MetLib.VideoLoader import ThreadVideoLoader
-from MetLib.VideoWrapper import OpenCVVideoWrapper
+from MetLib import *
+from MetLib.fileio import (change_file_path, is_ext_with, load_8bit_image,
+                           replace_path_ext, save_img)
+from MetLib.metlog import BaseMetLog, get_default_logger, set_default_logger
+from MetLib.metstruct import (MDRF, ClipCfg, ClipRequest, ExportOption,
+                              ImageFrameData, SimpleTarget, VideoFrameData)
+from MetLib.stacker import (max_stacker, mfnr_mix_stacker,
+                            simple_denoise_stacker)
+from MetLib.utils import U8Mat, frame2ts, relative2abs_path, ts2frame
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
+IMAGE_MODE = "image"
+VIDEO_MODE = "video"
+DEFAULT_SUFFIX_MAPPING = {IMAGE_MODE: "jpg", VIDEO_MODE: "avi"}
+NO_VIDEO_PROMPT = "Missed video name in input MDRF files. Check `video` in `basic_info` part."
+MFNR = "mfnr-mix"
+SDS = "simple"
+AVAILABLE_STACKER_MAPPING = {
+    MFNR: mfnr_mix_stacker,
+    SDS: simple_denoise_stacker
+}
 
 
-def generate_labelme(single_data: dict, img_fn: str) -> dict:
-    if not "target" in single_data:
-        return {}
-    w, h = single_data["video_size"]
-    shapes_list = []
-    for object in single_data["target"]:
-        bbox = list2xyxy([*object["pt1"], *object["pt2"]])
-        #xywh_list = xyxy2wxwh(bbox)
-        shapes_list.append({
-            "label": object["category"],
-            "points": [[bbox.x1, bbox.y1], [bbox.x2, bbox.y2]],
-            "group_id": None,
-            "description": "",
-            "shape_type": "rectangle",
-            "flags": {},
-            "mask": None
-        })
-    return {
-        "version": "5.5.0",
-        "flags": {},
-        "imagePath": img_fn,
-        "shapes": shapes_list,
-        "imageData": None,
-        "imageHeight": h,
-        "imageWidth": w
-    }
+def update_cfg_from_args(base_cfg: ClipCfg, args: argparse.Namespace):
+    """Sync args modification to base_cfg.
+
+    Args:
+        base_cfg (ClipCfg): Config from the file.
+        args (argparse.Namespace): command line args.
+    """
+    base_cfg.image_denoise.switch = args.denoise is not None
+    base_cfg.image_denoise.algorithm = args.denoise
+    base_cfg.export.jpg_quality = args.jpg_quality
+    base_cfg.export.png_compressing = args.png_compressing
+    base_cfg.export.with_bbox = args.with_bbox
+    base_cfg.export.with_annotation = args.with_annotation
+
+
+def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
+                cfg: ExportOption):
+    if target_list is None:
+        return img
+    for target in target_list:
+        img = cv2.rectangle(img,
+                            target.pt1,
+                            target.pt2,
+                            color=cfg.bbox_color,
+                            thickness=cfg.bbox_thickness)
+    return img
+
+
+def jsonsf2request(json_str: str):
+    data: Optional[list[dict[str, Any]]] = None
+    if os.path.isfile(json_str):
+        with open(json_str, mode='r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = json.loads(json_str)
+    assert isinstance(data, list), "Json must be a list!"
+    return [
+        from_dict(data_class=ClipRequest, data=req).to_video_data()
+        for req in data
+    ]
+
+
+def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
+                args: Any):
+    """根据命令行输入解析，拆分任务形态。
+
+    Args:
+        target_name (str): _description_
+        json_str (Optional[str]): _description_
+
+    Raises:
+        FileNotFoundError: _description_
+    """
+    if json_str is not None:
+        # 提供 target_name 和 json_str时，按照旧版本逻辑，将json转换为 list[VideoFrameData].
+        video_name = target_name
+        request_list = jsonsf2request(json_str)
+        return video_name, request_list
+    elif is_ext_with(target_name, "json"):
+        # 仅提供json（作为target_name）时，尝试按照MDRF解析
+        if os.path.isfile(target_name):
+            with open(target_name, mode='r', encoding='utf-8') as f:
+                raw_data: dict[str, Any] = json.load(f)
+        else:
+            raise FileNotFoundError(
+                f"{target_name} can not be opened as a file.")
+
+        mdrf_data = from_dict(data_class=MDRF, data=raw_data)
+        video_name = mdrf_data.basic_info.video
+        data = mdrf_data.results
+        # 根据 MDRF 类型分流处理
+        if mdrf_data.type in ("image-prediction", "timelapse-prediction"):
+            # 转换图像检测结果格式
+            if len(data) == 0:
+                logger.warning("Empty result is provided.")
+            if raw_data["type"] == "image-prediction":
+                frame_data_list = [
+                    single_record.to_image_data() for single_record in data
+                ]
+                return None, frame_data_list
+            else:
+                video_data_list = [
+                    single_record.to_video_data(fps=mdrf_data.basic_info.fps,
+                                                video_size=mdrf_data.anno_size)
+                    for single_record in data
+                ]
+                assert video_name is not None, NO_VIDEO_PROMPT
+                return video_name, video_data_list
+        else:
+            # 视频检测结果数据，直接转换
+            assert video_name is not None, NO_VIDEO_PROMPT
+            video_data_list = [
+                single_record.to_video_data() for single_record in data
+            ]
+            return video_name, video_data_list
+    else:
+        # target 直接被作为视频解析。从参数构造单个使用的data。
+        request_list = [
+            VideoFrameData(start_time=args.start_time,
+                           end_time=args.end_time,
+                           target_list=None,
+                           video_size=None)
+        ]
+        return target_name, request_list
+
+
+def image_clip_process(data: list[ImageFrameData], export_cfg: ExportOption,
+                       save_path: str, logger: BaseMetLog):
+    """ 图像序列->筛选图像序列的保存接口。
+
+    Args:
+        data (list[ImageFrameData]): _description_
+        clip_cfg (ClipCfg): _description_
+        save_path (str): _description_
+        logger (BaseMetLog): _description_
+    """
+    try:
+        logger.start()
+        for frame_data in data:
+            image_data = load_8bit_image(frame_data.img_filename)
+            if image_data is None:
+                logger.warning(
+                    f"Failed to load {frame_data.img_filename}, skip...")
+                continue
+            # 填充video_size: 转换image标注为对应格式
+            frame_data.img_size = image_data.shape[:2][1::-1]
+            if export_cfg.with_bbox:
+                image_data = draw_target(image_data, frame_data.target_list,
+                                         export_cfg)
+            # 保存图像到目标路径下
+            full_path = change_file_path(frame_data.img_filename, save_path)
+            save_img(image_data,
+                     full_path,
+                     export_cfg.jpg_quality,
+                     export_cfg.png_compressing,
+                     color_space='sRGB',
+                     logger=logger)
+            logger.info(f"Saved: {full_path}")
+            # 在有target的情况下，同时生成labelme风格的标注
+            if export_cfg.with_annotation:
+                res_dict = frame_data.to_labelme()
+                if res_dict:
+                    anno_path = replace_path_ext(full_path, ".json")
+                    with open(anno_path, mode="w", encoding="utf-8") as f:
+                        json.dump(res_dict, f, ensure_ascii=False, indent=4)
+                    logger.info(f"Saved: {anno_path}")
+    except Exception as e:
+        logger.error(
+            f"Fatal error occured: {e.__repr__()}. Process is interrupted.")
+    finally:
+        logger.stop()
+    return
 
 
 def main():
@@ -74,12 +217,17 @@ def main():
         help=
         "a json-format string or the path to a json file where start-time and end-time are listed."
     )
+    argparser.add_argument("--cfg",
+                           "-C",
+                           type=str,
+                           help="Path to the config file.",
+                           default=relative2abs_path("./config/clip_cfg.json"))
     argparser.add_argument(
         "--start-time",
         type=str,
         help=
         "start time of the video. Optional. Support int in ms or format like \"HH:MM:SS\". "
-        "If not provided, it will start at 0 frame as default")
+        "If not provided, it will start at 0 frame as default.")
     argparser.add_argument(
         "--end-time",
         type=str,
@@ -107,11 +255,6 @@ def main():
             included filename will be used as filename.",
         default=os.getcwd())
 
-    argparser.add_argument("--resize",
-                           type=str,
-                           help="resize img/video to the given solution.",
-                           default=None)
-
     img_group_args = argparser.add_argument_group(
         "optional image-related arguments")
 
@@ -130,6 +273,11 @@ def main():
         "the quality of generated jpg image. It should be int ranged Z in [0,100];\
             By default, it is 95.",
         default=95)
+    img_group_args.add_argument("--denoise",
+                                type=str,
+                                choices=AVAILABLE_STACKER_MAPPING.keys(),
+                                help="optional denoise algorithm. ",
+                                default=None)
 
     argparser.add_argument("--with-annotation",
                            action="store_true",
@@ -152,219 +300,152 @@ def main():
     args = argparser.parse_args()
 
     # basic option
-    target_name, json_str, mode, default_suffix, resize, save_path, debug_mode  = \
-        args.target, args.json, args.mode, args.suffix, args.resize, args.save_path, args.debug
+    cfg_json_path, mode, default_suffix, save_path, debug_mode  = \
+        args.cfg, args.mode, args.suffix, args.save_path, args.debug
 
     # image option
     jpg_quality, png_compress = args.jpg_quality, args.png_compressing
 
-    # src type
-    src_type = "video"
+    # 获取，同步从命令行获取的配置
+    with open(cfg_json_path, mode='r', encoding='utf-8') as f:
+        cfg_json = json.load(f)
+    clip_cfg = from_dict(data_class=ClipCfg, data=cfg_json)
+    update_cfg_from_args(clip_cfg, args)
 
-    # save_path valid check
-    if not os.path.exists(save_path):
-        os.mkdir(save_path)
+    denoise_cfg = clip_cfg.image_denoise
+    export_cfg = clip_cfg.export
 
     # 获取Logger
     logger = get_default_logger()
     set_default_logger(debug_mode, work_mode="frontend")
 
-    if json_str is not None:
-        # 提供json_str时，按照旧版本逻辑执行
-        video_name = target_name
-        # parse json argument
-        data = None
-        if os.path.isfile(json_str):
-            with open(json_str, mode='r', encoding='utf-8') as f:
-                data = json.load(f)
-        else:
-            data = json.loads(json_str)
-    elif target_name.split(".")[-1].lower() == "json":
-        # 仅提供json时，按照判断符合格式，具有足够信息
-        if os.path.isfile(target_name):
-            with open(target_name, mode='r', encoding='utf-8') as f:
-                raw_data: dict = json.load(f)
-        else:
-            raise FileNotFoundError(
-                f"{target_name} can not be opened as a file.")
-        if not (raw_data.get("basic_info", None)
-                or raw_data.get("results", None)):
-            raise ValueError(
-                f"{target_name} is not a valid json file for ClipToolkit.")
-        video_name = raw_data["basic_info"]["video"]
-        data = raw_data["results"]
-        # 图像模式下，data需要进行一定预处理
-        # 将 num_frame 转换为实际起止时间戳，并整理标注。
-        if raw_data["type"] in ("image-prediction","timelapse-prediction"):
-            for i in range(len(data)):
-                raw_anno = data[i]
-                start_time, end_time = None, None
-                if raw_data["type"] == "timelapse-prediction":
-                    start_time = frame2ts(raw_anno["num_frame"],
-                                        raw_data["basic_info"]["fps"])
-                    end_time = frame2ts(raw_anno["num_frame"] + 1,
-                                        raw_data["basic_info"]["fps"])
-                target = []
-                for (box, pred) in zip(raw_anno["boxes"], raw_anno["preds"]):
-                    target.append(dict(pt1=box[:2], pt2=box[2:], category=pred))
-                data[i].update(video_size=raw_data["anno_size"],
-                            start_time=start_time,
-                            end_time=end_time,
-                            target=target)
-            if raw_data["type"] == "image-prediction":
-                src_type = "image"
-    else:
-        # target被作为视频解析。从参数构造单个使用的data。
-        video_name = target_name
-        data = [dict(start_time=args.start_time, end_time=args.end_time)]
+    video_name, request_list = parse_input(args.target,
+                                           args.json,
+                                           logger=logger,
+                                           args=args)
 
-    if src_type == "image":
-        # TODO: 目前通过early-return分流，未来重构此部分结构。
-        try:
-            logger.start()
-            for image in data:
-                _, fname = os.path.split(image["img_filename"])
-                full_path = os.path.join(save_path, fname)
-                image_data = load_8bit_image(image["img_filename"])
-                # 转换image标注为对应格式
-                anno_dict = dict(
-                    video_size=image_data.shape[:2][1::-1],
-                    target=[
-                        dict(pt1=b[:2], pt2=b[2:], category=c)
-                        for (b, c) in zip(image["boxes"], image["preds"])
-                    ])
-                if args.with_bbox:
-                    for target in anno_dict.get("target", []):
-                        if not ("pt1" in target and "pt2" in target):
-                            logger.warning(
-                                f"lack pt1 or pt2 in dataline: {target}.")
-                        pt1 = list(map(int, target["pt1"]))
-                        pt2 = list(map(int, target["pt2"]))
-                        image_data = cv2.rectangle(image_data,
-                                                   pt1,
-                                                   pt2,
-                                                   color=[0, 0, 255],
-                                                   thickness=2)
-                # 保存图像到目标路径下
-                save_img(image_data, full_path, args.jpg_quality,
-                         args.png_compressing)
-                logger.info(f"Saved: {full_path}")
-                # 在有target的情况下，同时生成labelme风格的标注
-                if args.with_annotation:
-                    res_dict = generate_labelme(anno_dict, img_fn=full_path)
-                    if res_dict:
-                        anno_path = os.path.join(
-                            save_path,
-                            ".".join(full_path.split(".")[:-1]) + ".json")
-                        with open(anno_path, mode="w", encoding="utf-8") as f:
-                            json.dump(res_dict,
-                                      f,
-                                      ensure_ascii=False,
-                                      indent=4)
-                        logger.info(f"Saved: {anno_path}")
-        finally:
-            logger.stop()
+    # save_path valid check
+    if len(request_list) == 1 and request_list[0].saved_filename is None:
+        # 只有一个视频时候，通过output如果指定名称(有后缀名)，直接作为最终输出
+        if os.path.splitext(save_path)[-1]:
+            save_path, request_list[0].saved_filename = path_split(save_path)
+
+    if not os.path.exists(save_path):
+        os.mkdir(save_path)
+
+    if video_name is None:
+        # Image Folder Mode, early return
+        request_list = cast(list[ImageFrameData], request_list)
+        image_clip_process(request_list,
+                           clip_cfg.export,
+                           save_path=save_path,
+                           logger=logger)
+        logger.stop()
         return
-    video_loader = ThreadVideoLoader(OpenCVVideoWrapper,
-                                     video_name,
-                                     resize_option=resize,
-                                     exp_option="real-time",
-                                     resize_interpolation=cv2.INTER_LANCZOS4,
-                                     debayer=args.debayer,
-                                     debayer_pattern=args.debayer_pattern)
 
+    request_list = cast(list[VideoFrameData], request_list)
+    VideoLoaderCls = get_loader(clip_cfg.loader)
+    VideoWrapperCls = get_wrapper(clip_cfg.wrapper)
+    video_loader = VideoLoaderCls(VideoWrapperCls,
+                                  video_name,
+                                  resize_option=None,
+                                  exp_option="real-time",
+                                  resize_interpolation=cv2.INTER_LANCZOS4,
+                                  debayer=args.debayer,
+                                  debayer_pattern=args.debayer_pattern)
+    VideoWriterCls = get_writer(clip_cfg.writer)
     # get video name
-    _, video_name_nopath = os.path.split(video_name)
-    video_name_pure = ".".join(video_name_nopath.split(".")[:-1])
-
+    _, video_name_nopath = path_split(video_name)
+    video_name_pure = os.path.splitext(video_name_nopath)[0]
     # get default suffix
     if default_suffix is None:
-        if mode == "image": default_suffix = "jpg"
-        if mode == "video": default_suffix = "avi"
+        default_suffix = DEFAULT_SUFFIX_MAPPING.get(mode, default_suffix)
 
     # 单一片段时，若保存路径中包含文件名，覆盖输出的文件名。
-    if len(data) == 1:
+    if len(request_list) == 1:
         if not os.path.isdir(save_path):
-            save_path, filename = os.path.split(save_path)
-            data[0]["filename"] = filename
+            save_path, filename = path_split(save_path)
+            request_list[0].saved_filename = filename
 
     try:
         logger.start()
-        for single_data in data:
-            if "time" in single_data:
-                start_time, end_time = single_data["time"]
-            else:
-                start_time, end_time = single_data["start_time"], single_data[
-                    "end_time"]
+        for video_frame in request_list:
             # 如果未给定起止时间，使用视频的起止时间
-            if start_time is None:
-                start_time = frame2ts(video_loader.start_frame,
-                                      video_loader.fps)
-            if end_time is None:
-                end_time = frame2ts(video_loader.end_frame, video_loader.fps)
+            if video_frame.start_time is None:
+                video_frame.start_time = frame2ts(video_loader.start_frame,
+                                                  video_loader.fps)
+            if video_frame.end_time is None:
+                video_frame.end_time = frame2ts(video_loader.end_frame,
+                                                video_loader.fps)
             # 如果未给定名称则使用缺省名称
-            tgt_name = single_data.get(
-                "filename",
-                f"{video_name_pure}_{start_time}-{end_time}.{default_suffix}")
+            tgt_name = video_frame.saved_filename if video_frame.saved_filename else f"{video_name_pure}_{video_frame.start_time}-{video_frame.end_time}.{default_suffix}"
             tgt_name = tgt_name.replace(":", "_")
 
-            # 获取后缀，检查合法性
+            # 获取后缀，检查后缀合法性
             cur_mode = mode
-            suffix = tgt_name.split(".")[-1].upper()
-            if suffix in support_image_suffix: cur_mode = "image"
-            elif suffix in support_video_suffix: cur_mode = "video"
+            suffix = os.path.splitext(tgt_name)[-1].replace(".", "").upper()
+            if suffix in support_image_suffix: cur_mode = IMAGE_MODE
+            elif suffix in support_video_suffix: cur_mode = VIDEO_MODE
             else:
                 logger.error(
                     f"Unsupport suffix: {suffix}. Ignore error and continue.")
                 continue
 
-            full_path = os.path.join(save_path, tgt_name)
-            video_loader.reset(ts2frame(start_time, video_loader.fps),
-                               ts2frame(end_time, video_loader.fps))
+            video_frame.saved_filename = path_join(save_path, tgt_name)
+            video_loader.reset(
+                ts2frame(video_frame.start_time, video_loader.fps),
+                ts2frame(video_frame.end_time, video_loader.fps))
 
-            if cur_mode == "image":
-                results = max_stacker(video_loader)
+            if cur_mode == IMAGE_MODE:
+                results = None
+                if denoise_cfg.switch:
+                    assert denoise_cfg.algorithm in AVAILABLE_STACKER_MAPPING, "unsupport denoise algorithm!"
+                    denoise_stacker = AVAILABLE_STACKER_MAPPING[
+                        denoise_cfg.algorithm]
+                    results = denoise_stacker(video_loader,
+                                              denoise_cfg,
+                                              logger=logger)
+                else:
+                    results = max_stacker(video_loader)
                 if results is None:
-                    logger.error(f"Fail to generate image for data: {target}.")
+                    logger.error(
+                        f"Fail to generate image for data: {video_loader.video_name}"
+                        f" with start-time={video_loader.start_time} "
+                        f"and end-time={video_loader.end_time}.")
                     continue
-                if args.with_bbox:
-                    for target in single_data.get("target", []):
-                        if not ("pt1" in target and "pt2" in target):
-                            logger.warning(
-                                f"lack pt1 or pt2 in dataline: {target}.")
-                        pt1 = list(map(int, target["pt1"]))
-                        pt2 = list(map(int, target["pt2"]))
-                        results = cv2.rectangle(results,
-                                                pt1,
-                                                pt2,
-                                                color=[0, 0, 255],
-                                                thickness=2)
+                if export_cfg.with_bbox:
+                    results = draw_target(results, video_frame.target_list,
+                                          clip_cfg.export)
+                # img save
                 if results is not None:
-                    save_img(results, full_path, jpg_quality, png_compress)
-                    logger.info(f"Saved: {full_path}")
+                    save_img(results,
+                             video_frame.saved_filename,
+                             jpg_quality,
+                             png_compress,
+                             color_space='sRGB',
+                             logger=logger)
+                    logger.info(f"Saved: {video_frame.saved_filename}")
                 else:
                     logger.error("Error occured, got empty image.")
                 # 在有target的情况下，同时生成labelme风格的标注
-                if args.with_annotation:
-                    res_dict = generate_labelme(single_data, img_fn=tgt_name)
-                    if res_dict:
-                        anno_path = os.path.join(
-                            save_path,
-                            ".".join(tgt_name.split(".")[:-1]) + ".json")
-                        with open(anno_path, mode="w", encoding="utf-8") as f:
-                            json.dump(res_dict,
-                                      f,
-                                      ensure_ascii=False,
-                                      indent=4)
-                        logger.info(f"Saved: {anno_path}")
+                if export_cfg.with_annotation:
+                    res_dict = video_frame.to_labelme()
+                    anno_path = replace_path_ext(video_frame.saved_filename,
+                                                 "json")
+                    with open(anno_path, mode="w", encoding="utf-8") as f:
+                        json.dump(res_dict, f, ensure_ascii=False, indent=4)
+                    logger.info(f"Saved: {anno_path}")
             else:
-                status_code = save_video_by_stream(video_loader,
-                                                   video_loader.fps, full_path)
+                status_code = VideoWriterCls.save_video_by_stream(
+                    video_loader,
+                    video_loader.fps,
+                    video_frame.saved_filename,
+                    logger=logger)
                 if status_code == 0:
-                    logger.info(f"Saved: {full_path}")
+                    logger.info(f"Saved: {video_frame.saved_filename}")
                 else:
                     logger.error(
-                        f"Error occured when writing the video to {full_path}."
+                        f"Error occured when writing the video to {video_frame.saved_filename}."
                     )
     finally:
         logger.stop()

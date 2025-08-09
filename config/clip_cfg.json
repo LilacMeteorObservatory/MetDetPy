@@ -1,0 +1,41 @@
+{
+    "loader": "ThreadVideoLoader",
+    "wrapper": "PyAVVideoWrapper",
+    "writer": "PyAVVideoWriter",
+    "image_denoise": {
+        "switch": false,
+        "highlight_preserve": 0.9,
+        "algorithm": "simple",
+        "blur_ksize": 31,
+        "connect_lines": {
+            "switch": true,
+            "ksize": 15,
+            "threshold": 30
+        },
+        "simple_param": {
+            "ds_radius": 10,
+            "ds_threshold": 20,
+            "bi_d": 10,
+            "bi_sigma_color": 15,
+            "bi_sigma_space": 6
+        },
+        "mfnr_param": {
+            "sigma_high": 3.0,
+            "sigma_low": 3.0,
+            "bg_fix_factor": 1.5
+        }
+    },
+    "export": {
+        "exclude_category_list": [],
+        "with_bbox": false,
+        "with_annotation": false,
+        "bbox_color": [
+            0,
+            0,
+            255
+        ],
+        "bbox_thickness": 2,
+        "video_encoder": "libx264",
+        "video_fmt": "yuv420p"
+    }
+}

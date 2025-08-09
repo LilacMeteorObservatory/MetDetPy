@@ -44,6 +44,8 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 * easydict>=1.0
 * multiprocess>=0.70.0
 * onnxruntime>=1.16.0
+* av>=15.0.0
+* dacite>=1.9.0
 
 可以通过如下指令安装依赖：
 

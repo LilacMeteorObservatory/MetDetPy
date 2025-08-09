@@ -5,7 +5,7 @@ import datetime
 import threading
 import queue
 import sys
-from typing import Callable
+from typing import Callable, Optional
 
 try:
     # Reconfigure stdout to utf-8.
@@ -55,6 +55,16 @@ class BaseMetLog(object):
 
     def processing(self, string: str):
         self.log(LV_PROCESSING, string)
+
+    @property
+    def is_empty(self) -> bool:
+        return True
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
 
 
 class ThreadMetLog(BaseMetLog):
@@ -139,3 +149,9 @@ def set_default_logger(debug_mode: bool, work_mode: str):
 
 def get_default_logger():
     return met_logger
+
+
+def get_useable_logger(logger: Optional[BaseMetLog]) -> BaseMetLog:
+    if logger is None:
+        return BaseMetLog()
+    return logger

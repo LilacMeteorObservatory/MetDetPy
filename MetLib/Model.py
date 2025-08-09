@@ -5,7 +5,7 @@ import numpy as np
 import onnxruntime as ort
 
 from abc import abstractmethod, ABCMeta
-from .MetLog import get_default_logger
+from .metlog import get_default_logger
 from .utils import xywh2xyxy, STR2DTYPE
 
 ort.set_default_logger_severity(3)

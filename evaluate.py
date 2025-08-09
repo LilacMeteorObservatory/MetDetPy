@@ -3,7 +3,6 @@ import json
 import os
 import threading
 import time
-from collections import namedtuple
 from typing import Any
 
 import numpy as np
@@ -11,11 +10,12 @@ import psutil
 from easydict import EasyDict
 
 from MetDetPy import detect_video
-from MetLib.utils import (NAME2ID, NUM_CLASS, VERSION, calculate_area_iou,
-                          met2xyxy, relative2abs_path, save_path_handler,
-                          ts2frame)
-from MetLib.VideoWrapper import OpenCVVideoWrapper
+from MetLib.fileio import save_path_handler
 from MetLib.MeteorLib import MetExporter
+from MetLib.utils import (NAME2ID, NUM_CLASS, VERSION, calculate_area_iou,
+                          met2xyxy, relative2abs_path, ts2frame)
+from MetLib.videowrapper import OpenCVVideoWrapper
+
 
 class MockExporter(object):
     def __init__(self, raw_size):

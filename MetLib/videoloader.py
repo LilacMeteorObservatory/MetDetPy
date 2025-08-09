@@ -26,10 +26,11 @@ from multiprocess import Process  # type: ignore
 from multiprocess import Queue as MQueue  # type: ignore
 from multiprocess import RawArray, freeze_support  # type: ignore
 
-from .MetLog import get_default_logger
-from .utils import (MergeFunction, Transform, U8Mat, frame2time, load_mask,
+from .fileio import load_mask
+from .metlog import get_default_logger
+from .utils import (MergeFunction, Transform, U8Mat, frame2time,
                     parse_resize_param, sigma_clip, time2frame, timestr2int)
-from .VideoWrapper import BaseVideoWrapper
+from .videowrapper import BaseVideoWrapper
 
 UP_EXPOSURE_BOUND = 0.5
 DEFAULT_EXPOSURE_FRAME = 1
@@ -326,7 +327,6 @@ class VanillaVideoLoader(BaseVideoLoader):
             self.start_frame = max(0, start_frame)
         if end_frame != None:
             self.end_frame = min(end_frame, self.video_total_frames)
-
         assert 0 <= self.start_frame < self.end_frame, ValueError(
             "Invalid start time or end time.")
 
@@ -467,14 +467,12 @@ class VanillaVideoLoader(BaseVideoLoader):
                     f"real-time\",\"auto\" and \"slow\", got {exp_option}.")
         else:
             exp_time = exp_option
-        if isinstance(exp_time, (float, int)):
-            if exp_time * fps < 1:
-                self.logger.warning(
-                    f"Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
-                )
-                return 1 / fps
-            return float(exp_time)
-        return 0
+        if exp_time * fps < 1:
+            self.logger.warning(
+                f"Invalid exposuring time (too short). Use {1/fps:.2f}s instead."
+            )
+            return 1 / fps
+        return float(exp_time)
 
 
 class ThreadVideoLoader(VanillaVideoLoader):
@@ -549,8 +547,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
 
     def pop(self):
         if self.stopped:
-            # this is abnormal. so the video file will be released manuly here.
-            self.video.release()
+            # this is usually abnormal.
             self.thread.join()
             raise Exception(
                 f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
@@ -710,7 +707,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                     self.read_stopped = True
                     break
                 ret.append(x)
-        except queue.Empty as e:
+        except queue.Empty:
             # handle the condition when there is no frame to read due to manual stop trigger or other exception.
             if self.read_stopped:
                 self.logger.info("Acceptable queue.Empty exception occured.")
@@ -753,7 +750,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
             self.stop()
             try:
                 self.notify_queue.put("STOPPED", timeout=PUT_TIMEOUT)
-            except queue.Full as e:
+            except queue.Full:
                 pass
 
     def release(self):

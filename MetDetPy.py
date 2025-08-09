@@ -10,13 +10,14 @@ from easydict import EasyDict
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
+from MetLib.fileio import save_path_handler
 from MetLib.MeteorLib import MeteorCollector
-from MetLib.MetLog import get_default_logger, set_default_logger
+from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.MetVisu import OpenCVMetVisu
 from MetLib.Model import AVAILABLE_DEVICE_ALIAS
 from MetLib.utils import (LIVE_MODE_SPEED_CTRL_CONST, NUM_CLASS, SWITCH2BOOL,
                           VERSION, frame2time, frame2ts, mod_all_attrs_to_cfg,
-                          relative2abs_path, save_path_handler)
+                          relative2abs_path)
 
 
 def detect_video(video_name: str,

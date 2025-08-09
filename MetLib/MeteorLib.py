@@ -6,10 +6,10 @@ import json
 import numpy as np
 
 from .Model import init_model
-from .Stacker import max_stacker
-from .utils import (color_interpolater, pt_drct, frame2ts, save_img,
-                    pt_len_sqr, pt_len, pt_offset, box_matching, ID2NAME,
-                    NAME2ID, NUM_CLASS)
+from .stacker import max_stacker
+from .utils import (color_interpolater, pt_drct, frame2ts, pt_len_sqr, pt_len,
+                    pt_offset, box_matching, ID2NAME, NAME2ID, NUM_CLASS)
+from .metlog import BaseMetLog
 
 color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
                                    [0, 255, 0]])
@@ -129,7 +129,7 @@ class MeteorSeries(object):
 
     def __init__(self, start_frame: int, cur_frame: int, init_pts: list,
                  max_acceptable_dist: int, max_acti_frame: int, cate_prob,
-                 fps: float, runtime_size: list):
+                 fps: float, runtime_size: list[int]):
         """_summary_
 
         Args:
@@ -224,7 +224,7 @@ class MeteorSeries(object):
         return [x0, y0], [x1, y1]
 
     @property
-    def dist(self):
+    def dist(self) -> float:
         pt1, pt2 = self.range
         return pt_len(pt1, pt2)
 
@@ -306,7 +306,7 @@ class MeteorSeries(object):
             max(int(max([pt[1] for pt in pts])), self.range[1][1])
         ]
 
-    def update(self, new_frame, new_box, new_cate):
+    def update(self, new_frame: int, new_box, new_cate):
         """为序列更新新的响应
 
         Args:
@@ -633,8 +633,8 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
     def __init__(self, runtime_size: list, raw_size: list, recheck_cfg,
-                 positive_cfg, video_loader, logger, max_interval: float,
-                 det_thre: float, fps: float) -> None:
+                 positive_cfg, video_loader, logger: BaseMetLog,
+                 max_interval: float, det_thre: float, fps: float) -> None:
         self.queue = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.positive_cates: list[str] = positive_cfg.get(
@@ -783,13 +783,16 @@ class MetExporter(object):
         for output_dict in final_list:
             stacked_img = max_stacker(video_loader=self.recheck_loader,
                                       start_frame=output_dict["start_frame"],
-                                      end_frame=output_dict["end_frame"]+1,
+                                      end_frame=output_dict["end_frame"] + 1,
                                       logger=self.logger)
             if stacked_img is None:
                 self.logger.error(
-                    "Got invalid stacked img. This clip will be dropped." +
-                    f" Clip start_frame={output_dict['start_frame']};" +
+                    "Failed to get stacked img. This clip will be not checked "
+                    +
+                    "and output as input. If you see this please report to dev team."
+                    + f" Clip start_frame = {output_dict['start_frame']}; " +
                     f"end_frame = {output_dict['end_frame']}")
+                new_final_list.append(output_dict)
                 continue
             bbox_list, score_list = self.recheck_model.forward(stacked_img)
             # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list，

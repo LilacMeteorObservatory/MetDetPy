@@ -34,7 +34,7 @@ import cv2
 import numpy as np
 from typing import Optional, Union
 from .utils import pt_offset, Transform, gray2colorimg
-from .MetLog import get_default_logger
+from .metlog import get_default_logger
 
 DEFAULT_VISUAL_DELAY = 200
 DEFAULT_INTERRUPT_KEY = "q"

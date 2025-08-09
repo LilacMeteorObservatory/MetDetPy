@@ -1,36 +1,52 @@
+from __future__ import annotations
+
 import datetime
-import os
+import os.path as path
 import warnings
-from collections import namedtuple
-from logging import Logger
-from typing import Any, Callable, Optional, Sequence, Type, Union
+from typing import Any, Callable, Optional, Sequence, Type, TypeVar, Union
 
 import cv2
 import numpy as np
 from cv2.typing import MatLike
 from easydict import EasyDict
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
 
-from .MetLog import get_default_logger
+from .metlog import get_default_logger
+from .metstruct import Box
 
-VERSION = "V2.2.0"
-box = namedtuple("box", ["x1", "y1", "x2", "y2"])
+VERSION = "V2.3.0"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9
-WORK_PATH = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
+EULER_CONSTANT = 0.5772
+MAX_LOOP_CNT = 10
+# WORK_PATH 指向 MetDetPy 项目根目录位置。
+WORK_PATH = path.split(path.dirname(path.abspath(__file__)))[0]
 
 logger = get_default_logger()
 
 #### Typing alias
 U8Mat = Union[NDArray[np.uint8], MatLike]
+FloatMat = NDArray[np.float64]
+NpCollect = TypeVar("NpCollect", np.int_, np.float64)
 
-STR2DTYPE = {"float32": np.float32, "float16": np.float16, "int8": np.int8}
+STR2DTYPE: dict[str, DTypeLike] = {
+    "float32": np.float32,
+    "float16": np.float16,
+    "int8": np.int8
+}
 SWITCH2BOOL = {"on": True, "off": False}
 
+DTYPE_UPSCALE_MAP: dict[DTypeLike, DTypeLike] = {
+    np.dtype('uint8'): np.dtype('uint16'),
+    np.dtype('uint16'): np.dtype('uint32'),
+    np.dtype('uint32'): np.dtype('uint64'),
+    np.dtype('uint64'): float
+}
 
-def pt_len_sqr(pt1: Union[np.ndarray, list, tuple],
-               pt2: Union[np.ndarray, list, tuple]) -> Union[int, np.ndarray]:
+
+def pt_len_sqr(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
+                                                             FloatMat]):
     """Return the square of the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
     返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
@@ -48,12 +64,11 @@ def pt_len_sqr(pt1: Union[np.ndarray, list, tuple],
         return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 
-def pt_len(
-        pt1: Union[np.ndarray, list, tuple],
-        pt2: Union[np.ndarray, list, tuple]) -> Union[int, float, np.ndarray]:
+def pt_len(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
+                                                         FloatMat]):
     """Return the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
-    返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
+    返回两点之间的实际距离。接受ndarray时，需要最后一维形状为2。
 
     Args:
         pt1 (Union[np.ndarray, list, tuple]): _description_
@@ -65,8 +80,7 @@ def pt_len(
     return np.sqrt(pt_len_sqr(pt1, pt2))
 
 
-def pt_drct(pt1: Union[np.ndarray, list, tuple], pt2: Union[np.ndarray, list,
-                                                            tuple]) -> float:
+def pt_drct(pt1: list[float], pt2: list[float]):
     """Return the direction of the line of two points, in [0, pi]。
     返回两点之间连线的角度值，范围为[0, pi]。
 
@@ -80,7 +94,7 @@ def pt_drct(pt1: Union[np.ndarray, list, tuple], pt2: Union[np.ndarray, list,
     return np.arccos((pt2[1] - pt1[1]) / (pt_len(pt1, pt2)))
 
 
-def pt_offset(pt, offset) -> list:
+def pt_offset(pt: Sequence[float], offset: Sequence[float]):
     assert len(pt) == len(offset)
     return [value + offs for value, offs in zip(pt, offset)]
 
@@ -318,7 +332,7 @@ class EMA(object):
         self.t = 0
         self.warmup_speed = warmup_speed
 
-    def update(self, value) -> None:
+    def update(self, value: Union[U8Mat, int, float]) -> None:
         if self.warmup_speed:
             self.adjust_weight()
         self.cur_value = self.cur_momentum * self.cur_value + (
@@ -364,7 +378,7 @@ class Uint8EMA(EMA):
         self.t = 0
         self.warmup_speed = warmup_speed
 
-    def update(self, value: np.ndarray) -> None:
+    def update(self, value: U8Mat) -> None:
         if self.warmup_speed:
             self.adjust_weight()
         value_copy = np.array(value, dtype=np.int16)
@@ -384,8 +398,106 @@ class Uint8EMA(EMA):
             self.cur_momentum = self.init_momentum
 
 
-def sigma_clip(sequence: Union[list, np.ndarray],
-               sigma: Union[float, int] = 3.00) -> np.ndarray:
+class FastGaussianParam(object):
+    """
+    GaussianParam, but faster. 
+    通过INT量化+优化数据储存提速，仅在输出时换算为浮点数。
+    Streaming mean and variance.
+    Args:
+        object (_type_): _description_
+    TODO: 优化接口，和普通版本统一；进一步支持float类型
+    （理论可以通过后置除法+提高数据范围提高精度）
+    NOTE: FastGaussianParam 能够最大累加而不溢出的数目与数量相关，因此需要在输入前手动扩大数据范围。
+    TODO: 从输入端控制数据类型，避免输入端手动转换（反直觉）    
+    """
+
+    def __init__(self,
+                 sum_mu: U8Mat,
+                 square_num: Optional[U8Mat] = None,
+                 n: Optional[U8Mat] = None,
+                 ddof: int = 1,
+                 dtype_n: DTypeLike = np.dtype("int16")):
+        # 默认对 sum_mu
+        self.sum_mu = sum_mu
+        if square_num is not None:
+            self.square_sum = square_num
+        else:
+            # var默认根据sum_mu构造而成
+            sq_dtype = self.get_upscale_dtype_as(self.sum_mu)
+            self.square_sum = np.square(sum_mu, dtype=sq_dtype)
+        self.n = n if n is not None else np.ones_like(self.sum_mu,
+                                                      dtype=dtype_n)
+        self.ddof = ddof
+
+    @property
+    def mu(self) -> NDArray[np.float64]:
+        return np.round(self.sum_mu / self.n)
+
+    @property
+    def var(self) -> NDArray[np.float64]:
+        #D(X) = ∑((X-E(X))^2)/(n-ddof)
+        #     = (∑X^2 - nE(X)^2) /(n-ddof)
+        #     = (∑X^2 - (∑X)^2/n) /(n-ddof)
+        sum_mu = np.array(self.sum_mu, dtype=self.square_sum.dtype)
+        return (self.square_sum - np.square(sum_mu) / self.n) / (self.n -
+                                                                 self.ddof)
+
+    def upscale(self):
+        upscaled_sum_mu_dtype = self.get_upscale_dtype_as(self.sum_mu)
+        upscaled_sum_sq_dtype = self.get_upscale_dtype_as(self.square_sum)
+        self.sum_mu = np.array(self.sum_mu, dtype=upscaled_sum_mu_dtype)
+        self.square_sum = np.array(self.square_sum,
+                                   dtype=upscaled_sum_sq_dtype)
+
+    def get_upscale_dtype_as(self, ref_array: U8Mat):
+        """必要时候提升数据范围
+        """
+        return DTYPE_UPSCALE_MAP[
+            ref_array.dtype] if ref_array.dtype in DTYPE_UPSCALE_MAP else float
+
+    def apply_zero_var(self, full_img: FastGaussianParam):
+        """修复n为0的情况。应用修复。
+        
+        TODO: 需要长期观测该逻辑。
+        """
+        zero_pos = (self.n == 0)
+        self.n[zero_pos] = full_img.n[zero_pos]
+        self.sum_mu[zero_pos] = full_img.sum_mu[zero_pos]
+        self.square_sum[zero_pos] = full_img.square_sum[zero_pos]
+
+    def __add__(self, g2: FastGaussianParam):
+        g1 = self
+        assert isinstance(g2, FastGaussianParam), "unacceptable object"
+        assert g1.ddof == g2.ddof, "unmatched var calculation!"
+        assert g1.square_sum is not None and g2.square_sum is not None, "Invalid square num!"
+        return FastGaussianParam(sum_mu=g1.sum_mu + g2.sum_mu,
+                                 square_num=g1.square_sum + g2.square_sum,
+                                 n=g1.n + g2.n,
+                                 ddof=g1.ddof)
+
+    def __sub__(self, g2: FastGaussianParam):
+        g1 = self
+        assert isinstance(g2, FastGaussianParam), "unacceptable object"
+        assert g1.ddof == g2.ddof, "unmatched var calculation!"
+        assert (g1.n - g2.n).any() >= 0, "generate n<0 fistribution!"
+        return FastGaussianParam(sum_mu=g1.sum_mu - g2.sum_mu,
+                                 square_num=g1.square_sum - g2.square_sum,
+                                 n=g1.n - g2.n,
+                                 ddof=g1.ddof)
+
+    def mask(self, mask_pos: NDArray[np.bool_]):
+        assert mask_pos.dtype == np.dtype("bool"), "Invalid mask!"
+        self.sum_mu *= mask_pos
+        self.square_sum *= mask_pos
+        self.n = np.array(mask_pos, dtype=np.uint16)
+
+    @property
+    def shape(self):
+        return self.sum_mu.shape
+
+
+def sigma_clip(sequence: Union[list[int], NDArray[np.int_]],
+               sigma: Union[float, int] = 3.00) -> NDArray[np.int_]:
     """Sigma-clipping average, return the sequence where all values are within the given sigma value.
 
     Args:
@@ -398,6 +510,7 @@ def sigma_clip(sequence: Union[list, np.ndarray],
     # sequence should be flatten before execution
     sequence = np.array(sequence).reshape((-1, ))
     mean, std = np.mean(sequence), np.std(sequence)
+    loop_cnt = 0
     while True:
         # update sequence
         sequence = sequence[np.abs(mean - sequence) <= sigma * std]
@@ -405,10 +518,32 @@ def sigma_clip(sequence: Union[list, np.ndarray],
         if updated_mean == mean:
             return sequence
         mean, std = updated_mean, updated_std
+        loop_cnt += 1
+        if loop_cnt >= MAX_LOOP_CNT:
+            return sequence
 
 
-def parse_resize_param(tgt_wh: Union[None, list, str, int],
-                       raw_wh: Union[list, tuple]) -> list[int]:
+def circular_kernel(size: int) -> U8Mat:
+    """
+    生成一个给定大小的圆形卷积核（binary mask）。
+
+    参数：
+        size (int): 卷积核的宽高（必须是正奇数）
+
+    返回：
+        numpy.ndarray: 二维圆形核，中心为1，外围为0
+    """
+    if size % 2 == 0 or size <= 0:
+        raise ValueError("size 必须为正奇数")
+
+    radius = size // 2
+    y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+    mask = x**2 + y**2 <= radius**2
+    return mask.astype(np.uint8)
+
+
+def parse_resize_param(tgt_wh: Union[None, list[int], str, int],
+                       raw_wh: Union[list[int], tuple[int,int]]) -> list[int]:
     """Parse resize tgt_wh according to the video size, and return a list includes target width and height.
 
     This function accepts and returns in [w,h] order (i.e. OpenCV style).
@@ -466,145 +601,8 @@ def parse_resize_param(tgt_wh: Union[None, list, str, int],
     )
 
 
-def save_img(img, filename, quality, compressing):
-    if filename.upper().endswith("PNG"):
-        ext = ".png"
-        params = [int(cv2.IMWRITE_PNG_COMPRESSION), compressing]
-    elif filename.upper().endswith("JPG") or filename.upper().endswith("JPEG"):
-        ext = ".jpg"
-        params = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-    else:
-        suffix = filename.split(".")[-1]
-        raise NameError(
-            f"Unsupported suffix \"{suffix}\"; Only .png and .jpeg/.jpg are supported."
-        )
-    status, buf = cv2.imencode(ext, img, params)
-    if status:
-        with open(
-                filename,
-                mode='wb',
-        ) as f:
-            f.write(buf)  # type: ignore
-    else:
-        raise Exception("imencode failed.")
-
-
-def save_video(video_series: Union[np.ndarray, list], fps: Union[int, float],
-               video_path: str):
-    """ Save a given video clip.
-    
-    Args:
-        video_series (BaseVideoLoader): existing video series storage in np.ndarray or list format.
-        fps (Union[int, float]): video fps.
-        video_path (str): full output path of the video.
-    """
-    cv_writer = None
-    try:
-        real_size = list(reversed(video_series[0].shape[:2]))
-        cv_writer = cv2.VideoWriter(
-            video_path,
-            cv2.VideoWriter_fourcc(*"MJPG"),  # type: ignore
-            fps,  # type: ignore
-            real_size)
-        for clip in video_series:
-            p = cv_writer.write(clip)
-    finally:
-        if cv_writer:
-            cv_writer.release()
-
-
-def save_video_by_stream(video_loader,
-                         fps: Union[int, float],
-                         video_path: str,
-                         start_frame: Optional[int] = None,
-                         end_frame: Optional[int] = None,
-                         logger: Optional[Logger] = None) -> int:
-    """ Save video with stream (to avoid OutOfMemory).
-
-    Args:
-        video_loader (BaseVideoLoader): initialized video loader.
-        fps (Union[int, float]): video fps.
-        video_path (str): full output path of the video.
-        start_frame (Optional[int], optional): the start frame of the stacker. Defaults to None.
-        end_frame (Optional[int], optional): the end frame of the stacker.. Defaults to None.
-        logger (Optional[Logger], optional): a logging.Logger object for logging use. Defaults to None.
-    
-    Return:
-        int - return code. 0 for success.
-    """
-    if start_frame != None or end_frame != None:
-        video_loader.reset(start_frame=start_frame, end_frame=end_frame)
-    cv_writer = None
-    try:
-        video_loader.start()
-        cv_writer = cv2.VideoWriter(
-            video_path,
-            cv2.VideoWriter_fourcc(*"MJPG"),  # type: ignore
-            fps,
-            video_loader.runtime_size)
-        for i in range(video_loader.iterations):
-            cv_writer.write(video_loader.pop())
-    except Exception as e:
-        if logger:
-            logger.error(e.__repr__())
-        return -1
-    finally:
-        video_loader.stop()
-        if cv_writer:
-            cv_writer.release()
-    return 0
-
-
-def load_8bit_image(filename):
-    return cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
-                        cv2.IMREAD_UNCHANGED)
-
-
-def load_mask(mask_fname: Optional[str] = None,
-              opencv_resize: Optional[list[int]] = None,
-              grayscale: bool = False) -> np.ndarray:
-    """
-    Load mask from the given path `mask_fname` and rescale it to the given size (if required).
-    If `None` is provided, then a all-one mask will be returned.
-        
-    Args:
-        mask_fname (Optional[str], optional): path to the mask. Defaults to None.
-        opencv_resize (Optional[list[int]], optional): required resize params (in opencv style, W x H). Defaults to None.
-        grayscale (bool, optional): whether to return a grayscale mask (1-channel ndarray). Defaults to False.
-
-    Raises:
-        ValueError: raised when mask_fname and opencv_resize are both empty.
-
-    Returns:
-        np.ndarray: the resized mask.
-    """
-
-    if mask_fname == None:
-        if opencv_resize is None:
-            raise ValueError(
-                "opencv_resize is required when mask_fname is empty!")
-        if grayscale:
-            return np.ones(transpose_wh(opencv_resize), dtype=np.uint8)
-        else:
-            return np.ones(transpose_wh(opencv_resize + [3]), dtype=np.uint8)
-    mask = load_8bit_image(mask_fname)
-    mask_transformer = Transform()
-    mask_transformer.opencv_resize(opencv_resize)
-    if mask_fname.lower().endswith(".jpg"):
-        mask_transformer.opencv_BGR2GRAY()
-        mask_transformer.opencv_binary(128, 1)
-    elif mask_fname.lower().endswith(".png"):
-        # 对于png，仅取透明度层，且逻辑取反
-        mask = mask[:, :, -1]
-        mask_transformer.opencv_binary(128, 1, inv=True)
-
-    if not grayscale:
-        mask_transformer.expand_3rd_channel(3)
-
-    return mask_transformer.exec_transform(mask)
-
-
-def transpose_wh(size_mat: Union[list, tuple, np.ndarray]) -> list:
+def transpose_wh(size_mat: Union[list[int], tuple[int, ...],
+                                 NDArray[np.int_]]):
     """
     Convert OpenCV style size (width, height, (channel)) to Numpy style size (height, width, (channel)), vice versa.
     """
@@ -617,9 +615,10 @@ def transpose_wh(size_mat: Union[list, tuple, np.ndarray]) -> list:
         f"size list should have length of 2 or 3, got {len(size_mat)}.")
 
 
-def frame2ts(frame, fps):
+def frame2ts(frame: int, fps: float) -> str:
     return datetime.datetime.strftime(
-        datetime.datetime.utcfromtimestamp(frame / fps), "%H:%M:%S.%f")[:-3]
+        datetime.datetime.fromtimestamp(frame / fps, tz=datetime.timezone.utc),
+        "%H:%M:%S.%f")[:-3]
 
 
 def ts2frame(time: str, fps: float) -> int:
@@ -700,26 +699,44 @@ def timestr2int(time: str) -> int:
     return int(time)
 
 
-def color_interpolater(color_list):
-    # 用于创建跨越多种颜色的插值条
-    # 返回一个函数，该函数可以接受[0,1]并返回对应颜色
-    nums = len(color_list)
-    color_list = list(map(np.array, color_list))
-    gap = 1 / (nums - 1)
-    inte_func = []
-    for i in range(nums - 1):
-        inte_func.append(lambda x, i: np.array(
-            (1 - x) * color_list[i] + x * color_list[i + 1], dtype=np.uint8))
+def color_interpolater(input_color_list: list[list[int]]):
+    """
+    用于创建跨越多种颜色的插值条
+    返回一个函数，该函数可以接受[0,1]并返回对应颜色。
+    
 
-    def color_interpolate_func(x):
+    Args:
+        input_color_list (list[list[int]]): list of color list.
+    """
+
+    def gen_func(index: int):
+
+        def calculate_with_color_list(dx: float):
+            return np.array(
+                (1 - dx) * color_list[index] + dx * color_list[index + 1],
+                dtype=np.uint8)
+
+        return calculate_with_color_list
+
+    nums = len(input_color_list)
+    color_list = list(map(np.array, input_color_list))
+    gap = 1 / (nums - 1)
+    inte_func: list[Callable[[float], U8Mat]] = []
+    for i in range(nums - 1):
+        inte_func.append(gen_func(index=i))
+
+    def color_interpolate_func(x: float):
+        if x > 1: x = 1
+        if x < 0: x = 0
         i = max(int((x - EPS) / gap), 0)
         dx = x / gap - i
-        return list(map(int, inte_func[i](dx, i)))
+        return list(map(int, inte_func[i](dx)))
 
     return color_interpolate_func
 
 
-def lineset_nms(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def lineset_nms(
+        lines: NDArray[np.int_]) -> tuple[NDArray[np.int_], NDArray[np.int_]]:
     """
     Conduct NMS for line set.
     对线段合集执行NMS，并从线段集合中区分出“面积”类型。
@@ -780,7 +797,7 @@ def lineset_nms(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return nms_lines, nonline_prob
 
 
-def generate_group_interpolate(lines):
+def generate_group_interpolate(lines: NDArray[np.int_]):
     """生成所有线段的插值点坐标，可用于计算得分。
 
     Args:
@@ -792,11 +809,11 @@ def generate_group_interpolate(lines):
     for i, (num, line) in enumerate(zip(nums, lines)):
         step_x, step_y = float(line[2] - line[0]) / num, float(line[3] -
                                                                line[1]) / num
-        xx = np.ones(
+        xx: NDArray[np.int_] = np.ones(
             (num, ),
             dtype=np.int16) * line[0] if line[0] == line[2] else np.arange(
                 line[0], line[2] + step_x, step=step_x).astype(np.int16)
-        yy = np.ones(
+        yy: NDArray[np.int_] = np.ones(
             (num, ),
             dtype=np.int16) * line[1] if line[1] == line[3] else np.arange(
                 line[1],
@@ -810,7 +827,23 @@ def generate_group_interpolate(lines):
     return coord_list
 
 
-def xywh2xyxy(mat: np.ndarray, inplace=True):
+def map_list(func: Union[type, Callable[..., Any]],
+             datalist: list[Any]) -> list[Any]:
+    """Casting all elements in datalist with the given method.
+    It can be a type or a callable function.
+
+    Args:
+        func (Union[type, Callable[..., Any]]): target data type.
+        datalist (list[Any]): src data list
+
+    Returns:
+        list[Any]: datalist with all elements are converted.
+    """
+    return list(map(func, datalist))
+
+
+def xywh2xyxy(mat: NDArray[np.float64],
+              inplace: bool = True) -> NDArray[np.float64]:
     """Convert coordinates in format of (x,y,w,h) to (x1,y1,x2,y2).
     require multi-lines matrix with shape of (n,4).
 
@@ -834,39 +867,16 @@ def xywh2xyxy(mat: np.ndarray, inplace=True):
         ])
 
 
-def xyxy2wxwh(xyxy: box) -> list[list]:
-    x = (xyxy.x1 + xyxy.x2) / 2
-    y = (xyxy.y1 + xyxy.y2) / 2
-    w = (xyxy.x2 - xyxy.x1) / 2
-    h = (xyxy.y2 - xyxy.y1) / 2
-    return [[x, y], [w, h]]
-
-
-def met2xyxy(met):
+def met2xyxy(met: dict[str, list[int]]):
     """将met的字典转换为xyxy形式的坐标。
 
     Args:
         met (_type_): _description_
     """
-    (x1, y1), (x2, y2) = met["pt1"], met["pt2"]
-    x1, x2 = min(x1, x2), max(x1, x2)
-    y1, y2 = min(y1, y2), max(y1, y2)
-    return box(x1, y1, x2, y2)
+    return Box.from_pts(met["pt1"], met["pt2"])
 
 
-def list2xyxy(met):
-    """将met的字典转换为xyxy形式的坐标。
-
-    Args:
-        met (_type_): _description_
-    """
-    (x1, y1, x2, y2) = met
-    x1, x2 = min(x1, x2), max(x1, x2)
-    y1, y2 = min(y1, y2), max(y1, y2)
-    return box(x1, y1, x2, y2)
-
-
-def calculate_area_iou(mat1, mat2):
+def calculate_area_iou(mat1: Box, mat2: Box):
     """用于计算面积的iou。
 
     Args:
@@ -901,16 +911,18 @@ def calculate_area_iou(mat1, mat2):
     return area_i / (area_a + area_b - area_i)
 
 
-def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
+def box_matching(src_seq: Sequence[list[int]],
+                 tgt_seq: Sequence[list[int]],
+                 iou_threshold: float = 0.5):
     """box matching by iou. create idx from src2tgt.
     Args:
         src_box (_type_): _description_
         tgt_box (_type_): _description_
     """
-    match_ind = []
-    matched_tgt = []
-    tgt_boxes = [list2xyxy(x) for x in tgt_boxes]
-    src_boxes = [list2xyxy(x) for x in src_boxes]
+    match_ind: list[tuple[int, int]] = []
+    matched_tgt: list[int] = []
+    tgt_boxes = [Box.from_list(x) for x in tgt_seq]
+    src_boxes = [Box.from_list(x) for x in src_seq]
     for i, src_box in enumerate(src_boxes):
         best_iou, best_ind = 0, -1
         for j, tgt_box in enumerate(tgt_boxes):
@@ -920,13 +932,13 @@ def box_matching(src_boxes, tgt_boxes, iou_threshold=0.5):
                 best_iou = iou
                 best_ind = j
         if best_ind != -1:
-            match_ind.append([i, best_ind])
+            match_ind.append((i, best_ind))
             matched_tgt.append(best_ind)
     return match_ind
 
 
-def relative2abs_path(path: str) -> str:
-    """Convert relative path to the corresponding absolute path.
+def relative2abs_path(rpath: str):
+    """Convert a relative path to the corresponding absolute path.
 
     Args:
         path (str): ./relative/path
@@ -934,32 +946,12 @@ def relative2abs_path(path: str) -> str:
     Returns:
         str: /the/absolute/path
     """
-    if path.startswith("./"):
-        path = path[2:]
-    return os.path.join(WORK_PATH, path)
+    if rpath.startswith("./"):
+        rpath = rpath[2:]
+    return path.join(WORK_PATH, rpath)
 
 
-def save_path_handler(save_path: str, filename: str, ext: str = "json") -> str:
-    """处理保存路径。
-
-    Args:
-        save_path (str): 保存路径
-        filename (str): 文件名
-        ext (str, optional): 文件后缀名. Defaults to "json".
-
-    Returns:
-        str: 完整路径
-    """
-    # 若路径为文件夹，则在文件夹下保存文件
-    if os.path.isdir(save_path):
-        filename_only = os.path.splitext(os.path.split(filename)[-1])[0]
-        return os.path.join(save_path, f"{filename_only}.{ext}")
-    else:
-        # 若路径为文件，则直接保存
-        return save_path
-
-
-def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
+def gray2colorimg(gray_image: U8Mat, color: Sequence[int]) -> U8Mat:
     """Convert the grayscale image (h,w) to a color one (h,w,3) with the given color。
 
     Args:
@@ -972,7 +964,7 @@ def gray2colorimg(gray_image: np.ndarray, color: np.ndarray) -> np.ndarray:
     return gray_image[:, :, None] * color
 
 
-def expand_cls_pred(cls_pred: np.ndarray) -> np.ndarray:
+def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
     """expand cls prediction from [num, cls] to [num, cls+1].
 
     Args:
@@ -986,7 +978,7 @@ def expand_cls_pred(cls_pred: np.ndarray) -> np.ndarray:
 
 
 def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
-                         kwargs: dict) -> EasyDict:
+                         kwargs: dict[str,Any]) -> EasyDict:
     """ 修改cfg中的对应属性。
 
     Args:
