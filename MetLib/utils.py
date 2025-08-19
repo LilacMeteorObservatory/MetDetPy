@@ -14,6 +14,7 @@ from numpy.typing import DTypeLike, NDArray
 from .metlog import get_default_logger
 from .metstruct import Box
 
+PROJECT_NAME = "MetDetPy"
 VERSION = "V2.3.0"
 EPS = 1e-2
 PI = np.pi / 180.0
@@ -29,6 +30,7 @@ logger = get_default_logger()
 U8Mat = Union[NDArray[np.uint8], MatLike]
 FloatMat = NDArray[np.float64]
 NpCollect = TypeVar("NpCollect", np.int_, np.float64)
+Addable = TypeVar("Addable", int, float)
 
 STR2DTYPE: dict[str, DTypeLike] = {
     "float32": np.float32,
@@ -42,6 +44,16 @@ DTYPE_UPSCALE_MAP: dict[DTypeLike, DTypeLike] = {
     np.dtype('uint16'): np.dtype('uint32'),
     np.dtype('uint32'): np.dtype('uint64'),
     np.dtype('uint64'): float
+}
+
+COLOR_MAP = {
+    "black": (0, 0, 0),
+    "green": (0, 255, 0),
+    "orange": (0, 128, 255),
+    "purple": (128, 64, 128),
+    "red": (0, 0, 255),
+    "white": (255, 255, 255),
+    "yellow": (0, 255, 255)
 }
 
 
@@ -94,7 +106,7 @@ def pt_drct(pt1: list[float], pt2: list[float]):
     return np.arccos((pt2[1] - pt1[1]) / (pt_len(pt1, pt2)))
 
 
-def pt_offset(pt: Sequence[float], offset: Sequence[float]):
+def pt_offset(pt: Sequence[Addable], offset: Sequence[Addable]):
     assert len(pt) == len(offset)
     return [value + offs for value, offs in zip(pt, offset)]
 
@@ -227,8 +239,8 @@ class SlidingWindow(object):
 
     def __init__(self,
                  n: int,
-                 size: Union[list, tuple, np.ndarray],
-                 dtype: Type = int,
+                 size: Sequence[int],
+                 dtype: type = int,
                  force_int: bool = False,
                  calc_std: bool = False) -> None:
         """_summary_
@@ -250,15 +262,15 @@ class SlidingWindow(object):
         sum_dtype = float
         if self.force_int and dtype == np.uint8:
             sum_dtype = np.uint32
-        self.sum = np.zeros(size, dtype=sum_dtype)
+        self.sum: Union[NDArray[np.float64],NDArray[np.uint32]] = np.zeros(size, dtype=sum_dtype)
 
         if calc_std:
             self.square_sum = np.zeros(size, dtype=sum_dtype)
 
-        self.sliding_window = np.zeros(shape=(n, ) + tuple(size),
+        self.sliding_window: NDArray[np.uint16] = np.zeros(shape=(n, ) + tuple(size),
                                        dtype=self.dtype)
 
-    def update(self, new_frame):
+    def update(self, new_frame: U8Mat):
         self.timer += 1
         self.cur_index = (self.timer - 1) % self.n
 
@@ -276,7 +288,7 @@ class SlidingWindow(object):
                                          dtype=np.uint32)
 
     @property
-    def mean(self):
+    def mean(self)->Union[NDArray[np.uint32],NDArray[np.float64]]:
         if self.force_int:
             return np.array(self.sum // self.length, dtype=self.dtype)
         return self.sum / self.length
@@ -286,7 +298,7 @@ class SlidingWindow(object):
         return min(self.n, self.timer)
 
     @property
-    def max(self) -> Union[int, float, np.ndarray]:
+    def max(self) -> U8Mat:
         return np.max(self.sliding_window, axis=0)
 
     @property
@@ -543,7 +555,7 @@ def circular_kernel(size: int) -> U8Mat:
 
 
 def parse_resize_param(tgt_wh: Union[None, list[int], str, int],
-                       raw_wh: Union[list[int], tuple[int,int]]) -> list[int]:
+                       raw_wh: Union[list[int], tuple[int, int]]) -> list[int]:
     """Parse resize tgt_wh according to the video size, and return a list includes target width and height.
 
     This function accepts and returns in [w,h] order (i.e. OpenCV style).
@@ -699,7 +711,7 @@ def timestr2int(time: str) -> int:
     return int(time)
 
 
-def color_interpolater(input_color_list: list[list[int]]):
+def color_interpolater(input_color_list: list[tuple[int,...]]):
     """
     用于创建跨越多种颜色的插值条
     返回一个函数，该函数可以接受[0,1]并返回对应颜色。
@@ -730,7 +742,7 @@ def color_interpolater(input_color_list: list[list[int]]):
         if x < 0: x = 0
         i = max(int((x - EPS) / gap), 0)
         dx = x / gap - i
-        return list(map(int, inte_func[i](dx)))
+        return tuple(map(int, inte_func[i](dx)))
 
     return color_interpolate_func
 
@@ -951,19 +963,6 @@ def relative2abs_path(rpath: str):
     return path.join(WORK_PATH, rpath)
 
 
-def gray2colorimg(gray_image: U8Mat, color: Sequence[int]) -> U8Mat:
-    """Convert the grayscale image (h,w) to a color one (h,w,3) with the given color。
-
-    Args:
-        gray_image (np.ndarray): the grayscale image.
-        color (np.ndarray): the color array, should be with a length of 3.
-
-    Returns:
-        np.ndarray: colored image.
-    """
-    return gray_image[:, :, None] * color
-
-
 def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
     """expand cls prediction from [num, cls] to [num, cls+1].
 
@@ -978,7 +977,7 @@ def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
 
 
 def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
-                         kwargs: dict[str,Any]) -> EasyDict:
+                         kwargs: dict[str, Any]) -> EasyDict:
     """ 修改cfg中的对应属性。
 
     Args:
@@ -1002,7 +1001,7 @@ def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
 
 ID2NAME: dict[int, str] = {}
 NAME2ID: dict[str, int] = {}
-with open(relative2abs_path("./config/class_name.txt")) as f:
+with open(relative2abs_path("./global/class_name.txt")) as f:
     mapper = [x.strip().split() for x in f.readlines()]
     for num, name in mapper:
         ID2NAME[int(num)] = name

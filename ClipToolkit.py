@@ -221,7 +221,7 @@ def main():
                            "-C",
                            type=str,
                            help="Path to the config file.",
-                           default=relative2abs_path("./config/clip_cfg.json"))
+                           default=relative2abs_path("./global/clip_cfg.json"))
     argparser.add_argument(
         "--start-time",
         type=str,

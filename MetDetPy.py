@@ -13,8 +13,8 @@ from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
 from MetLib.fileio import save_path_handler
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.Model import AVAILABLE_DEVICE_ALIAS
+from MetLib.metvisu import BaseVisuAttrs, OpenCVMetVisu, TextVisu, TextColorPair
+from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (LIVE_MODE_SPEED_CTRL_CONST, NUM_CLASS, SWITCH2BOOL,
                           VERSION, frame2time, frame2ts, mod_all_attrs_to_cfg,
                           relative2abs_path)
@@ -46,12 +46,13 @@ def detect_video(video_name: str,
     Returns:
         dict: a dict that records detection config and results.
     """
-    if provider_key:
-        # 如果指定providers，修改配置文件中所有调用model的对应键值。
-        cfg = mod_all_attrs_to_cfg(cfg,
-                                   "model",
-                                   action="add",
-                                   kwargs=dict(providers_key=provider_key))
+    filled_provider_key = provider_key if provider_key else DEFAULT_STR
+    # 修改配置文件中所有调用model的对应键值：提供值否则填充默认值
+    # TODO: 是配置完全迁移到 dacite 前的兼容方案。迁移后，该行可能为非必要。
+    cfg = mod_all_attrs_to_cfg(cfg,
+                               "model",
+                               action="add",
+                               kwargs=dict(providers_key=filled_provider_key))
     # set output mode
     set_default_logger(debug_mode, work_mode)
     logger = get_default_logger()
@@ -116,7 +117,7 @@ def detect_video(video_name: str,
         # Init meteor collector
         meteor_cfg = cfg.collector.meteor_cfg
         recheck_cfg = cfg.collector.recheck_cfg
-        positive_cfg=cfg.collector.get("positive_cfg", None)
+        positive_cfg = cfg.collector.get("positive_cfg", None)
         recheck_loader = None
         if recheck_cfg.switch:
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
@@ -140,11 +141,13 @@ def detect_video(video_name: str,
 
         # Init visualizer
         # TODO: 可视化模块暂未完全支持参数化设置。
-        visual_manager = OpenCVMetVisu(
-            exp_time=exp_time,
-            resolution=video_loader.runtime_size,
-            flag=visual_mode,
-            visu_param_list=[detector.visu_param, meteor_collector.visu_param])
+        visual_manager = OpenCVMetVisu(exp_time=exp_time,
+                                       resolution=video_loader.runtime_size,
+                                       flag=visual_mode,
+                                       visu_param_list=[
+                                           *detector.visu_param,
+                                           *meteor_collector.visu_param
+                                       ])
         # Init main iterator
         main_iterator = range(start_frame, end_frame, exp_frame)
         if work_mode == 'frontend':
@@ -159,7 +162,7 @@ def detect_video(video_name: str,
     tot_iter_num = (end_frame - start_frame) // exp_frame
     tot_get_time = 0
     tot_wait_time = 0
-    visu_info = {}
+    visu_info: list[BaseVisuAttrs] = []
     try:
         video_loader.start()
         for prog_int, i in enumerate(main_iterator):
@@ -182,13 +185,12 @@ def detect_video(video_name: str,
 
             if visual_mode:
                 # 仅在可视化模式下通过detector和collector的可视化接口获取需要渲染的所有内容。
-                visu_info.update(main_bg=x,
-                                 timestamp=[{
-                                     "text": frame2ts(i, fps)
-                                 }])
-                visu_info.update(detector.visu())
-                visu_info.update(meteor_collector.visu(frame_num=i))
-                visual_manager.display_a_frame(visu_info)
+                visu_info.append(
+                    TextVisu("timestamp",
+                             text_list=[TextColorPair(frame2ts(i, fps))]))
+                visu_info.extend(detector.visu())
+                visu_info.extend(meteor_collector.visu(frame_num=i))
+                visual_manager.display_a_frame(x, visu_info)
                 visu_info.clear()
                 if visual_manager.manual_stop:
                     logger.info('Manual interrupt signal detected.')

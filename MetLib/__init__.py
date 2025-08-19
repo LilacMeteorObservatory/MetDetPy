@@ -8,8 +8,10 @@ from .videowrapper import BaseVideoWrapper, OpenCVVideoWrapper, PyAVVideoWrapper
 
 from .videowriter import BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter
 
+from .model import YOLOModel
+
 T = TypeVar("T", type[VanillaVideoLoader], type[BaseVideoWrapper],
-            type[BaseDetector], type[BaseVideoWriter])
+            type[BaseDetector], type[BaseVideoWriter], type[YOLOModel])
 
 
 def get_xxx(name: str, all: list[T]) -> Callable[[str], T]:
@@ -37,7 +39,10 @@ available_writers: list[type[BaseVideoWriter]] = [
     BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter
 ]
 
+available_models_list = [YOLOModel]
+
 get_loader = get_xxx("loader", available_loaders)
 get_wrapper = get_xxx("wrapper", available_wrappers)
-get_detector = get_xxx("detector", all=available_detectors)
+get_detector = get_xxx("detector", available_detectors)
 get_writer = get_xxx("writer", available_writers)
+get_model = get_xxx("model", available_models_list)

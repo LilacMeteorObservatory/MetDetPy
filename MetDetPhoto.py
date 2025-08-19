@@ -14,16 +14,18 @@
 import argparse
 import json
 import os
-from typing import Optional, Union
-
+from typing import Any, cast
+from numpy.typing import NDArray
 import cv2
 import numpy as np
 import tqdm
 
 from MetLib.fileio import load_8bit_image, load_mask, save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.MetVisu import OpenCVMetVisu
-from MetLib.Model import YOLOModel
+from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
+                            OpenCVMetVisu, SquareColorPair, TextColorPair,
+                            TextVisu)
+from MetLib.model import YOLOModel
 from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
@@ -31,22 +33,22 @@ from MetLib.videowrapper import OpenCVVideoWrapper
 SUPPORT_IMG_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_VIDEO_FORMAT = ["avi", "mp4", "mkv", "mpeg"]
 EXCLUDE_LIST = ["PLANE/SATELLITE", "BUGS"]
-DEFAULT_COLOR = [64, 64, 64]
+DEFAULT_COLOR = (64, 64, 64)
 DEFAULT_VISUAL_WINDOW_SIZE = [960, 540]
-CATE2COLOR_MAPPING = {
-    "METEOR": [0, 255, 0],
+CATE2COLOR_MAPPING: dict[str, ColorTuple] = {
+    "METEOR": (0, 255, 0),
     "PLANE/SATELLITE": DEFAULT_COLOR,
-    "RED_SPRITE": [0, 0, 255],
-    "LIGHTNING": [128, 128, 128],
-    "JET": [0, 0, 255],
-    "RARE_SPRITE": [0, 0, 255],
-    "SPACECRAFT": [255, 0, 255]
+    "RED_SPRITE": (0, 0, 255),
+    "LIGHTNING": (128, 128, 128),
+    "JET": (0, 0, 255),
+    "RARE_SPRITE": (0, 0, 255),
+    "SPACECRAFT": (255, 0, 255)
 }
 
 
 class MockVideoObject(object):
 
-    def __init__(self, raw_summary) -> None:
+    def __init__(self, raw_summary: dict[str, Any]) -> None:
         self.raw_summary = raw_summary
 
     def summary(self):
@@ -54,29 +56,20 @@ class MockVideoObject(object):
 
 
 # 可视化参数组
-visu_param = dict(
-    active_meteors=["draw", {
-        "type": "rectangle",
-        "color": "as-input"
-    }],
-    score_bg=[
-        "draw", {
-            "type": "rectangle",
-            "position": "as-input",
-            "color": "as-input",
-            "thickness": -1,
-        }
-    ],
-    score_text=["text", {
-        "position": "as-input",
-        "color": "white"
-    }])
+visu_param: list[BaseVisuAttrs] = [
+    TextVisu("timestamp", position="left-bottom", color="white"),
+    DrawRectVisu(
+        name="activate_meteors",
+        color="as-input",
+    ),
+    DrawRectVisu(name="score_bg", thickness=-1),
+    TextVisu(name="score_text", color="white")
+]
 
 
-def construct_visu_info(img,
-                        boxes: Union[list, np.ndarray],
-                        preds: Union[list, np.ndarray],
-                        watermark_text: str = "") -> dict:
+def construct_visu_info(boxes: NDArray[np.int_],
+                        preds: NDArray[np.float64],
+                        watermark_text: str = ""):
     """构建可视化信息返回串。
 
     Args:
@@ -88,31 +81,28 @@ def construct_visu_info(img,
     Returns:
         dict: visu_info that can be loaded by MetVisu directly.
     """
-    visu_info = dict(main_bg=img,
-                     timestamp=[{
-                         "text": watermark_text
-                     }],
-                     active_meteors=[],
-                     score_bg=[],
-                     score_text=[])
+    active_meteors: list[SquareColorPair] = []
+    score_bg: list[SquareColorPair] = []
+    score_text: list[TextColorPair] = []
     for b, p in zip(boxes, preds):
         cate_id = int(np.argmax(p))
         color = CATE2COLOR_MAPPING.get(ID2NAME[cate_id], DEFAULT_COLOR)
         x1, y1, x2, y2 = b
         text = f"{ID2NAME[cate_id]}:{np.max(p):2f}"
-        visu_info["active_meteors"].append({
-            "position": ((x1, y1), (x2, y2)),
-            "color": color
-        })  # type: ignore
-        visu_info["score_bg"].append({
-            "position": ((x1, y1), pt_offset((x1, y1), (10 * len(text), -15))),
-            "color":
-            color
-        })  # type: ignore
-        visu_info["score_text"].append({
-            "position": pt_offset((x1, y1), (0, -2)),  # type: ignore
-            "text": text
-        })
+        active_meteors.append(
+            SquareColorPair(([x1, y1], [x2, y2]), color=color))
+        score_bg.append(
+            SquareColorPair(
+                ([x1, y1], pt_offset((x1, y1), (10 * len(text), -15))),
+                color=color))
+        score_text.append(
+            TextColorPair(text, position=pt_offset((x1, y1), (0, -2))))
+    visu_info: list[BaseVisuAttrs] = [
+        TextVisu("timestamp", text_list=[TextColorPair(watermark_text)]),
+        DrawRectVisu("activate_meteors", pair_list=active_meteors),
+        DrawRectVisu("score_bg", pair_list=score_bg),
+        TextVisu("score_text", text_list=score_text)
+    ]
     return visu_info
 
 
@@ -172,18 +162,20 @@ model = YOLOModel(model_path,
                   multiscale_partition=args.partition)
 logger.start()
 valid_flag = False
+results: list[dict[str, Any]] = []
+video = None
 try:
     if os.path.isdir(input_path):
         # img folder mode
         img_list = [
-            os.path.join(input_path, x) for x in os.listdir(input_path)
+            os.path.join(input_path, x)
+            for x in cast(list[str], os.listdir(input_path))
             if x.split(".")[-1].lower() in SUPPORT_IMG_FORMAT
         ]
         visual_manager = OpenCVMetVisu(exp_time=1,
                                        resolution=visu_resolution,
                                        flag=args.visu,
-                                       visu_param_list=[visu_param])
-        results = []
+                                       visu_param_list=visu_param)
 
         # temp fix: mock video object
         summary_dict = dict(video=None,
@@ -199,11 +191,10 @@ try:
             img = img * mask
             boxes, preds = model.forward(img)
             if args.visu:
-                visu_info = construct_visu_info(img,
-                                                boxes,
+                visu_info = construct_visu_info(boxes,
                                                 preds,
                                                 watermark_text=img_path)
-                visual_manager.display_a_frame(visu_info)
+                visual_manager.display_a_frame(img, visu_info)
                 if visual_manager.manual_stop:
                     logger.info('Manual interrupt signal detected.')
                     break
@@ -236,7 +227,7 @@ try:
             visual_manager = OpenCVMetVisu(exp_time=1,
                                            resolution=visu_resolution,
                                            flag=args.visu,
-                                           visu_param_list=[visu_param])
+                                           visu_param_list=visu_param)
             boxes, preds = model.forward(img)
             results = [{
                 "img_filename":
@@ -249,11 +240,10 @@ try:
             print(boxes, preds)
             #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
-                visu_info = construct_visu_info(img,
-                                                boxes,
+                visu_info = construct_visu_info(boxes,
                                                 preds,
                                                 watermark_text=input_path)
-                visual_manager.display_a_frame(visu_info)
+                visual_manager.display_a_frame(img, visu_info)
                 cv2.waitKey(0)
         elif suffix in SUPPORT_VIDEO_FORMAT:
             # video mode
@@ -268,7 +258,7 @@ try:
             visual_manager = OpenCVMetVisu(exp_time=1,
                                            resolution=visu_resolution,
                                            flag=args.visu,
-                                           visu_param_list=[visu_param])
+                                           visu_param_list=visu_param)
             results = []
             for i in tqdm.tqdm(range(tot_frames)):
                 img = video.pop()
@@ -276,11 +266,8 @@ try:
                 boxes, preds = model.forward(img)
                 if args.visu:
                     visu_info = construct_visu_info(
-                        img,
-                        boxes,
-                        preds,
-                        watermark_text=f"{i}/{tot_frames} imgs")
-                    visual_manager.display_a_frame(visu_info)
+                        boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
+                    visual_manager.display_a_frame(img, visu_info)
                     if visual_manager.manual_stop:
                         logger.info('Manual interrupt signal detected.')
                         break
@@ -312,7 +299,7 @@ finally:
     logger.stop()
 
 # 保存结果
-if valid_flag and args.save_path:
+if valid_flag and args.save_path and video is not None:
     result_json = dict(version=VERSION,
                        basic_info=video.summary(),
                        type="image-prediction" if isinstance(

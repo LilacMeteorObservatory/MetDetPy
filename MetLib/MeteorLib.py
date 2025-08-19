@@ -1,18 +1,23 @@
 import copy
-import threading
-import queue
 import json
+import queue
+import threading
 
 import numpy as np
 
-from .Model import init_model
-from .stacker import max_stacker
-from .utils import (color_interpolater, pt_drct, frame2ts, pt_len_sqr, pt_len,
-                    pt_offset, box_matching, ID2NAME, NAME2ID, NUM_CLASS)
-from .metlog import BaseMetLog
+from MetLib.videoloader import VanillaVideoLoader
 
-color_mapper = color_interpolater([[128, 128, 128], [128, 128, 128],
-                                   [0, 255, 0]])
+from .metlog import BaseMetLog
+from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
+                      DrawRectVisu, SquareColorPair, TextColorPair, TextVisu)
+from .model import init_model
+from .stacker import max_stacker
+from .utils import (ID2NAME, NAME2ID, NUM_CLASS, box_matching,
+                    color_interpolater, frame2ts, pt_drct, pt_len, pt_len_sqr,
+                    pt_offset)
+
+color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
+                                   (0, 255, 0)])
 
 DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
 
@@ -165,7 +170,7 @@ class MeteorSeries(object):
         self.cate_prob = cate_prob
         self.fps = fps
         self.runtime_length = max(runtime_size)
-        self.range = ([np.inf, np.inf], [-np.inf, -np.inf])
+        self.range = ([2**16, 2**16], [-2**16, -2**16])
         self.calc_new_range(init_pts)
 
     @property
@@ -352,8 +357,9 @@ class MeteorCollector(object):
     全局的流星统计模块。用于记录和管理所有的响应，整合成正在发生（或已经结束）的检测序列，执行必要的重校验。
     """
 
-    def __init__(self, meteor_cfg, eframe, fps, runtime_size, raw_size,
-                 recheck_cfg, positive_cfg, video_loader, logger) -> None:
+    def __init__(self, meteor_cfg, eframe, fps: float, runtime_size: list[int],
+                 raw_size: list[int], recheck_cfg, positive_cfg,
+                 video_loader: VanillaVideoLoader, logger: BaseMetLog) -> None:
         self.min_len = meteor_cfg.min_len
         self.max_interval = meteor_cfg.max_interval * fps
         self.max_acti_frame = meteor_cfg.max_interval * fps
@@ -387,35 +393,12 @@ class MeteorCollector(object):
                                         fps=self.fps)
 
         # 定义可视化接口字段及格式
-        self.visu_param = dict(
-            active_meteors=[
-                "draw", {
-                    "type": "rectangle",
-                    "color": "as-input"
-                }
-            ],
-            active_pts=[
-                "draw", {
-                    "type": "circle",
-                    "position": "as-input",
-                    "color": "as-input",
-                    "radius": 2,
-                    "thickness": -1
-                }
-            ],
-            score_bg=[
-                "draw", {
-                    "type": "rectangle",
-                    "position": "as-input",
-                    "color": "as-input",
-                    "thickness": -1,
-                    "scale_flag": False
-                }
-            ],
-            score_text=["text", {
-                "position": "as-input",
-                "color": "white"
-            }])
+        self.visu_param: list[BaseVisuAttrs] = [
+            DrawRectVisu("active_meteors", color="as-input"),
+            DrawCircleVisu("active_pts", radius=2, thickness=-1),
+            DrawRectVisu("score_bg", thickness=-1, color="as-input"),
+            TextVisu("score_text", color="white")
+        ]
 
     def update(self, cur_frame, lines, cates):
         """
@@ -522,13 +505,16 @@ class MeteorCollector(object):
                              runtime_size=self.runtime_size))
 
     def visu(self, frame_num):
-        active_meteors, active_pts = [], []
-        score_text, score_bg = [], []
+        active_meteors: list[SquareColorPair] = []
+        active_pts: list[DotColorPair] = []
+        score_text: list[TextColorPair] = []
+        score_bg: list[SquareColorPair] = []
         for ms in self.active_meteor:
             pt1, pt2 = ms.range
             color = color_mapper(self.prob_meteor(ms))
 
-            active_meteors.append({"position": (pt1, pt2), "color": color})
+            active_meteors.append(
+                SquareColorPair(dot_pair=(pt1, pt2), color=color))
 
             # 只打印最近的响应点
             first = np.where(ms.coord_list.frame_num >= frame_num -
@@ -537,28 +523,30 @@ class MeteorCollector(object):
                 ms.coord_list.frame_num) if len(first) == 0 else first[0]
             for pts in ms.coord_list[first:]:
                 pt_x, pt_y = pts
-                active_pts.append({"position": (pt_x, pt_y), "color": color})
+                active_pts.append(DotColorPair(dot=(pt_x, pt_y), color=color))
 
             # print score
             pt1 = [min(pt1[0], pt2[0]), min(pt1[1], pt2[1])]
             if pt1[1] <= 15: pt1[1] = max(pt1[1], pt2[1]) + 15
             word_length = len(f"{ID2NAME[ms.cate]}:{self.prob_meteor(ms):.2f}")
-            score_bg.append({
-                "position": (pt1, pt_offset(pt1, (10 * word_length, -15))),
-                "color":
-                color
-            })
-            score_text.append({
-                "position":
-                pt_offset(pt1, (0, -2)),
-                "text":
-                f"{ID2NAME[ms.cate]}:{self.prob_meteor(ms):.2f}"
-            })
+            score_bg.append(
+                SquareColorPair(dot_pair=(pt1,
+                                          pt_offset(pt1,
+                                                    (10 * word_length, -15))),
+                                color=color))
+            score_text.append(
+                TextColorPair(
+                    text=f"{ID2NAME[ms.cate]}:{self.prob_meteor(ms):.2f}",
+                    position=pt_offset(pt1, (0, -2))))
 
-        return dict(active_meteors=active_meteors,
-                    active_pts=active_pts,
-                    score_text=score_text,
-                    score_bg=score_bg)
+        ret: list[BaseVisuAttrs] = [
+            DrawRectVisu("active_meteors", pair_list=active_meteors),
+            DrawCircleVisu("active_pts", dot_list=active_pts),
+            TextVisu("score_text", text_list=score_text),
+            DrawRectVisu("score_bg", pair_list=score_bg)
+        ]
+
+        return ret
 
     def clear(self):
         """将当前时间更新至无穷久以后，清空列表。
@@ -632,10 +620,11 @@ class MetExporter(object):
     DROP_FLAG = "DROP_FLAG"
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
-    def __init__(self, runtime_size: list, raw_size: list, recheck_cfg,
-                 positive_cfg, video_loader, logger: BaseMetLog,
-                 max_interval: float, det_thre: float, fps: float) -> None:
-        self.queue = queue.Queue()
+    def __init__(self, runtime_size: list[int], raw_size: list[int],
+                 recheck_cfg, positive_cfg, video_loader: VanillaVideoLoader,
+                 logger: BaseMetLog, max_interval: float, det_thre: float,
+                 fps: float) -> None:
+        self.queue: queue.Queue[tuple] = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.positive_cates: list[str] = positive_cfg.get(
             "positive_cates", DEFAULT_POSITIVE_CATES_LIST)
@@ -648,7 +637,8 @@ class MetExporter(object):
         self.fps = fps
         if self.recheck:
             self.recheck_loader = video_loader
-            self.recheck_model = init_model(recheck_cfg.model)
+            self.recheck_model = init_model(recheck_cfg.model,
+                                            logger=self.logger)
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = raw_size
         self.rescale_ratio = [x / y for x, y in zip(raw_size, runtime_size)]
@@ -657,7 +647,7 @@ class MetExporter(object):
         self.meteor_list = []
 
     def export(self, flag, data):
-        self.queue.put([flag, data])
+        self.queue.put((flag, data))
 
     def loop(self):
         """

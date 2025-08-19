@@ -13,16 +13,20 @@ BaseDetector(ABC)--|                |--M3Detector
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Callable
+from typing import Callable, Optional, Union
 
 import cv2
 import numpy as np
 
-from .Model import init_model
-from .utils import EMA, PI, SlidingWindow, Uint8EMA, generate_group_interpolate, expand_cls_pred, lineset_nms
+from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
+                      SquareColorPair, TextColorPair, TextVisu)
+from .model import init_model
+from .utils import (EMA, PI, SlidingWindow, U8Mat, Uint8EMA, expand_cls_pred,
+                    generate_group_interpolate, lineset_nms)
 
 NUM_LINES_TOOMUCH = 500
 DEFAULT_INIT_VALUE = 5
+
 
 class SNR_SW(SlidingWindow):
     """
@@ -33,7 +37,7 @@ class SNR_SW(SlidingWindow):
 
     def __init__(self,
                  n: int,
-                 mask: np.ndarray,
+                 mask: U8Mat,
                  est_snr: bool = True,
                  est_area: float = 0,
                  noise_moment: float = 0.99,
@@ -142,8 +146,8 @@ class BaseDetector(metaclass=ABCMeta):
     def detect(self):
         pass
 
-    def visu(self) -> dict:
-        return {}
+    def visu(self) -> list[BaseVisuAttrs]:
+        return []
 
 
 class LineDetector(BaseDetector):
@@ -193,7 +197,8 @@ class LineDetector(BaseDetector):
             self.std2thre = self.sensitivity_func[self.bi_cfg.sensitivity]
             self.bi_threshold = self.abs_sensitivity[self.bi_cfg.sensitivity]
         else:
-            self.bi_threshold = self.bi_cfg.get("init_value",DEFAULT_INIT_VALUE)
+            self.bi_threshold = self.bi_cfg.get("init_value",
+                                                DEFAULT_INIT_VALUE)
         self.bi_threshold_float = self.bi_threshold
 
         # 如果启用动态蒙版（dynamic mask），在此处构建另一个滑窗管理
@@ -208,7 +213,7 @@ class LineDetector(BaseDetector):
             self.max_allow_gap = 0.05
             self.fill_thre = 0.6
 
-        self.visu_param = {}
+        self.visu_param = []
 
     def detect(self) -> tuple[list, list]:
         return [], []
@@ -219,7 +224,7 @@ class LineDetector(BaseDetector):
             self.bi_threshold_float = self.std2thre(self.stack.snr)
             self.bi_threshold = round(self.bi_threshold_float)
 
-    def visu(self) -> dict:
+    def visu(self):
         return super().visu()
 
     def calculate_dy_mask(self, act):
@@ -308,39 +313,16 @@ class M3Detector(LineDetector):
 
     def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
         super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
-        self.visu_param = dict(
-            results=["draw", {
-                "type": "rectangle",
-                "color": "orange"
-            }],
-            std_roi_area=["draw", {
-                "type": "rectangle",
-                "color": "purple"
-            }],
-            mix_bg=["img", {
-                "color": "yellow",
-                "weight": 0.5,
-            }],
-            std_value=["text", {
-                "position": "left-top",
-                "color": "green"
-            }],
-            bi_value=["text", {
-                "position": "left-top",
-                "color": "green"
-            }],
-            lines_num=["text", {
-                "position": "left-top",
-                "color": "green"
-            }],
-            area_ratio=["text", {
-                "position": "left-top",
-                "color": "green"
-            }],
-            lines_warning=["text", {
-                "position": "left-top",
-                "color": "red"
-            }])
+        self.visu_param: list[BaseVisuAttrs] = [
+            DrawRectVisu("results", color="orange"),
+            DrawRectVisu("std_roi_area", color="purple"),
+            ImgVisuAttrs("mix_bg", weight=0.5, color="yellow"),
+            TextVisu("std_value", position="left-top", color="green"),
+            TextVisu("bi_value", position="left-top", color="green"),
+            TextVisu("lines_num", position="left-top", color="green"),
+            TextVisu("area_ratio", position="left-top", color="green"),
+            TextVisu("lines_warning", position="left-top", color="red")
+        ]
 
     def detect(self) -> tuple:
         # Preprocessing
@@ -413,38 +395,47 @@ class M3Detector(LineDetector):
             cls_pred = np.zeros((0, self.num_cls))
         return linesp, cls_pred
 
-    def visu(self) -> dict:
+    def visu(self):
         """ 返回可视化时的所需实际参数，需要与visu_param对应。
         """
         x1, y1, x2, y2 = [-1] * 4
         if getattr(self.stack, "std_roi", None):
             x1, y1, x2, y2 = self.stack.std_roi
-
-        return dict(
-            mix_bg=[{
-                "img": self.dst // 255  # type:ignore
-            }],
-            std_value=[{
-                "text": f"STD:{self.stack.snr:.4f}"
-            }],
-            bi_value=[{
-                "text":
-                f"Bi_Threshold: {self.bi_threshold} (rounded from {self.bi_threshold_float:.4f})"
-            }],
-            lines_num=[{
-                "text":
-                f"Line num: {self.lines_num} (filtered: {self.filtered_line_num})"
-            }],
-            area_ratio=[{
-                "text": f"Diff Area: {self.dst_sum:.2f}%"
-            }],
-            lines_warning=[{
-                "text":
-                "WARNING: TOO MANY LINES!" if self.lines_num > 10 else ""
-            }],
-            std_roi_area=[{
-                "position": [(y1, x1), (y2, x2)]
-            }])
+        visu_list: list[BaseVisuAttrs] = [
+            ImgVisuAttrs("mix_bg", img=self.dst // 255),
+            TextVisu(
+                "std_value",
+                text_list=[TextColorPair(text=f"STD:{self.stack.snr:.4f}")]),
+            TextVisu(
+                "bi_value",
+                text_list=[
+                    TextColorPair(
+                        text=
+                        f"Bi_Threshold: {self.bi_threshold} (rounded from {self.bi_threshold_float:.4f})"
+                    )
+                ]),
+            TextVisu(
+                "lines_num",
+                text_list=[
+                    TextColorPair(
+                        text=
+                        f"Line num: {self.lines_num} (filtered: {self.filtered_line_num})"
+                    )
+                ]),
+            TextVisu("area_ratio",
+                     text_list=[
+                         TextColorPair(text=f"Diff Area: {self.dst_sum:.2f}%")
+                     ]),
+            TextVisu("lines_warning",
+                     text_list=[
+                         TextColorPair(text="WARNING: TOO MANY LINES!" if self.
+                                       lines_num > 10 else "")
+                     ]),
+            DrawRectVisu(
+                "std_roi_area",
+                pair_list=[SquareColorPair(dot_pair=([y1, x1], [y2, x2]))])
+        ]
+        return visu_list
 
 
 class DiffAreaGuidingDetecor(BaseDetector):
@@ -474,19 +465,11 @@ class DiffAreaGuidingDetecor(BaseDetector):
 
     def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
         self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
-        self.visu_param = dict(
-            mix_bg=["img", {
-                "weight": 1
-            }],
-            diff_mask=["img", {
-                "color": "yellow",
-                "weight": 0.5
-            }],
-            cur_emo_value=["text", {
-                "position": "left-top",
-                "color": "green"
-            }],
-        )
+        self.visu_param: list[BaseVisuAttrs] = [
+            ImgVisuAttrs("mix_bg", weight=1),
+            ImgVisuAttrs("diff_mask", color="yellow", weight=0.5),
+            TextVisu("cur_emo_value", position="left-top", color="green")
+        ]
 
     def update(self, new_frame) -> None:
         self.cur_frame = new_frame
@@ -508,18 +491,18 @@ class DiffAreaGuidingDetecor(BaseDetector):
         self.post_update()
         return [], []
 
-    def visu(self) -> dict:
-        #return dict()
-        return dict(mix_bg=[{
-            "img": self.bg_maintainer.cur_value
-        }],
-                    diff_mask=[{
-                        "img": self.diff_img
-                    }],
-                    cur_emo_value=[{
-                        "text":
-                        f"EMA: {self.bg_maintainer.cur_momentum:.4f}"
-                    }])
+    def visu(self):
+        ret: list[BaseVisuAttrs] = [
+            ImgVisuAttrs("mix_bg", img=self.bg_maintainer.cur_value),
+            ImgVisuAttrs("diff_mask", img=self.diff_img),
+            TextVisu(
+                "cur_emo_value",
+                text_list=[
+                    TextColorPair(
+                        text=f"EMA: {self.bg_maintainer.cur_momentum:.4f}")
+                ])
+        ]
+        return ret
 
 
 class MLDetector(BaseDetector):
@@ -540,7 +523,7 @@ class MLDetector(BaseDetector):
                                    dtype=np.uint8,
                                    force_int=True)
         self.model = init_model(cfg.model, logger=self.logger)
-        self.visu_param = dict(results=["rectangle", {"color": "orange"}])
+        self.visu_param = [DrawRectVisu("results", color="orange")]
 
     def update(self, new_frame) -> None:
         self.stack.update(new_frame)
@@ -551,11 +534,19 @@ class MLDetector(BaseDetector):
             return [], []
         return self.result_pos, expand_cls_pred(self.result_cls)
 
-    def visu(self) -> dict:
+    def visu(self):
         """ 返回可视化时的所需实际参数，需要与visu_param对应。
 
         Args:
             bg (np.array): 背景图像
             light (np.array): 响应图像
         """
-        return dict(results=[{"position": x} for x in self.result_pos])
+        visu_list: list[BaseVisuAttrs] = [
+            DrawRectVisu("results",
+                         pair_list=[
+                             SquareColorPair(dot_pair=([x[0], x[1]],
+                                                       [x[2], x[3]]))
+                             for x in self.result_pos
+                         ])
+        ]
+        return visu_list

@@ -700,7 +700,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                                   dtype=np.uint8).reshape(self.buffer_shape)
         ret: list[Any] = []
         try:
-            for i in range(self.exp_frame):
+            for _ in range(self.exp_frame):
                 if self.stopped: break
                 x = self.notify_queue.get(timeout=GET_TIMEOUT)
                 if x == "STOPPED":

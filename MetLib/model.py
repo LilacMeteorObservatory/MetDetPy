@@ -1,21 +1,27 @@
 from abc import ABCMeta, abstractmethod
 from typing import Optional, Union
+
 import cv2
 import numpy as np
 import onnxruntime as ort
+from numpy.typing import DTypeLike, NDArray
 
-from abc import abstractmethod, ABCMeta
-from .metlog import get_default_logger
-from .utils import xywh2xyxy, STR2DTYPE
+from .metlog import BaseMetLog, get_default_logger
+from .metstruct import ModelCfg
+from .utils import STR2DTYPE, U8Mat, xywh2xyxy
 
 ort.set_default_logger_severity(3)
 logger = get_default_logger()
 
-DEVICE_MAPPING = {
+DEFAULT_STR = "default"
+PARTITION_MIN_OVERLAP = 0.2
+MULTISCALE_NMS_OVERLAP_THRE = 0.1
+
+DEVICE_MAPPING: dict[str, list[str]] = {
     "cpu": ["CPUExecutionProvider"],
     "dml": ["DmlExecutionProvider"],
     "cuda": ["CUDAExecutionProvider"],
-    "default": ort.get_available_providers(),
+    DEFAULT_STR: ort.get_available_providers(),
     "coreml": ["CoreMLExecutionProvider"]
 }
 
@@ -24,8 +30,120 @@ AVAILABLE_DEVICE_ALIAS = [
     if pvd_list[0] in ort.get_available_providers()
 ]
 
-PARTITION_MIN_OVERLAP = 0.2
-MULTISCALE_NMS_OVERLAP_THRE = 0.1
+
+class Backend(metaclass=ABCMeta):
+
+    @abstractmethod
+    def __init__(self,
+                 weight_path: str,
+                 dtype: DTypeLike,
+                 warmup: bool,
+                 providers_key: Optional[str] = None,
+                 logger: Optional[BaseMetLog] = None) -> None:
+        pass
+
+    @property
+    def input_shape(self) -> list[list[int]]:
+        pass
+
+    @property
+    @abstractmethod
+    def input_name(self) -> list[str]:
+        pass
+
+    @property
+    @abstractmethod
+    def device(self) -> str:
+        pass
+
+    @abstractmethod
+    def forward(self, x: U8Mat) -> list[list[NDArray[np.float64]]]:
+        pass
+
+
+class ONNXBackend(Backend):
+
+    def __init__(self,
+                 weight_path: str,
+                 dtype: DTypeLike,
+                 warmup: bool,
+                 providers_key: Optional[str] = None,
+                 logger: Optional[BaseMetLog] = None) -> None:
+        f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
+        Args:
+            weight_path (str): /path/to/the/weight/file.
+            dtype (np.dtype): converted numpy data type.
+            warmup (bool, optional): warmup to model before batch processing. Defaults to True.
+            providers_key (str, optional): model provider. Defaults to None.
+            logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+        """
+        self.weight_path = weight_path
+        self.dtype = dtype
+        # load model
+        if providers_key and (not providers_key in DEVICE_MAPPING) and logger:
+            logger.warning(
+                f"Gicen provider {providers_key} is not supported." +
+                "Fall back to default provider.")
+        if not providers_key:
+            providers = DEVICE_MAPPING[DEFAULT_STR]
+        else:
+            providers = DEVICE_MAPPING.get(providers_key,
+                                           DEVICE_MAPPING[DEFAULT_STR])
+        self.model_session = ort.InferenceSession(self.weight_path,
+                                                  providers=providers)
+        self.shapes: list[list[int]] = [
+            x.shape for x in self.model_session.get_inputs()
+        ]
+        self.names: list[str] = [
+            x.name for x in self.model_session.get_inputs()
+        ]
+
+        self.single_input = True if len(self.shapes) == 1 else False
+
+        # make sure batch=1
+        # Warming up
+        if warmup:
+            # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
+            # 无法适配当前backend模型
+            _ = self.model_session.run(
+                [], {
+                    name: np.zeros(shape, dtype=self.dtype)
+                    for name, shape in zip(self.input_name, self.input_shape)
+                })
+
+    @property
+    def input_shape(self) -> list[list[int]]:
+        return self.shapes
+
+    @property
+    def input_name(self) -> list[str]:
+        return self.names
+
+    @property
+    def device(self) -> str:
+        return self.model_session.get_providers()[0]
+
+    def forward(
+            self, x: Union[U8Mat,
+                           list[U8Mat]]) -> list[list[NDArray[np.float64]]]:
+        """ run inference session with given input.
+
+        Args:
+            x (Union[np.ndarray, list[np.ndarray]]): input tensor. Its type should varies
+                according to the model. For model with multi-inputs, x should be a list of
+                tensors; otherwise x should be a tensor.
+
+        Returns:
+            list: raw output.
+        """
+        assert len(self.input_name) > 0, "invalid input name cnt."
+        if self.single_input:
+            return self.model_session.run(None, {self.input_name[0]: x})
+
+        return self.model_session.run(None, {
+            name: tensor
+            for name, tensor in zip(self.input_name, x)
+        })
 
 
 class YOLOModel(object):
@@ -40,9 +158,9 @@ class YOLOModel(object):
                  multiscale_pred: int = 1,
                  multiscale_partition: int = 2,
                  hw_tolerance: float = 0.2,
-                 providers_key: str = "default",
-                 logger=logger) -> None:
-        """Init a YOLOModel that handles YOLO-like inputs and outputs.
+                 providers_key: Optional[str] = None,
+                 logger: BaseMetLog = logger) -> None:
+        r"""Init a YOLOModel that handles YOLO-like inputs and outputs.
 
         Args:
             weight_path (str): /path/to/the/weight/file.
@@ -61,11 +179,11 @@ class YOLOModel(object):
                 This can improve recall and precision, but may also increase the time cost. Defaults to 1.
             multiscale_partition (int, optional): The number of partitions for multi-scale images at each level.
                 For example, at the first sub-level, if the multiscale_partition is set to 2, the image will 
-                be divided into \(2^{1} \times 2^{1} = 2 \times 2\) sub-images and sent to the model. 
+                be divided into $\(2^{1} \times 2^{1} = 2 \times 2\)$ sub-images and sent to the model. 
                 The default value is 2.
             hw_tolerance (float, optional): The max allowed scaling ratio. When running with multiscale mode,
                 if diff height-width ratio is larger than excepted, image division will be applied.
-            providers_key (str, optional): model provider. Defaults to "default".
+            providers_key (str, optional): model provider. Defaults to None -> "default".
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
         """
         self.weight_path = weight_path
@@ -79,6 +197,8 @@ class YOLOModel(object):
         self.multiscale_pred = multiscale_pred
         self.multiscale_partition = multiscale_partition
         self.hw_tolerance = hw_tolerance
+        if providers_key is None:
+            providers_key = DEFAULT_STR
 
         # init model
         model_suffix = self.weight_path.split(".")[-1].lower()
@@ -98,7 +218,7 @@ class YOLOModel(object):
         self.hw_ratio = self.h / self.w
         self.scale_w, self.scale_h = 1, 1
 
-    def _forward(self, x: np.ndarray) -> tuple:
+    def _forward(self, x: U8Mat):
         """simple forward function with rescale.
 
         Args:
@@ -139,6 +259,7 @@ class YOLOModel(object):
                                    score_threshold=self.pos_thre,
                                    nms_threshold=self.nms_thre)
             results = results[list(res)]
+
         # resize back if necessary
         if self.resize:
             results[:, 0] *= self.scale_w
@@ -146,14 +267,19 @@ class YOLOModel(object):
             results[:, 1] *= self.scale_h
             results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
-        result_pos = np.array(results[:, :4], dtype=int)
+        result_pos: NDArray[np.int_] = np.array(results[:, :4], dtype=int)
         # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
         # TODO: 通过优化模型取缔这个tricky的设置。
-        result_cls = np.sqrt(
-            np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
+        result_cls: NDArray[np.float64] = np.sqrt(
+            np.einsum(
+                "ab,a->ab",
+                results[:, 5:],
+                results[
+                    :,  # type: ignore
+                    4]))
         return result_pos, result_cls
 
-    def forward(self, x: np.ndarray):
+    def forward(self, x: U8Mat):
         """forward function that supports multiscale inference.
         
         Results will be recombined.
@@ -177,7 +303,7 @@ class YOLOModel(object):
         x = x.astype(self.dtype) / 255
 
         if self.multiscale_pred == 0:
-            return self.forward(x)
+            return self._forward(x)
 
         transpose_flag = False
         input_hw_ratio = h / w
@@ -205,8 +331,8 @@ class YOLOModel(object):
         )
 
         # 根据 rep 情况 分检测用 patch_index_list
-        result_pos = []
-        result_cls = []
+        result_pos: list[NDArray[np.int_]] = []
+        result_cls: list[NDArray[np.float64]] = []
         try:
             for scale in range(self.multiscale_pred):
                 if scale > 0:
@@ -234,138 +360,56 @@ class YOLOModel(object):
             # 异常跳过
             logger.error(
                 f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
-                f"Skip this frame to continue detection...")
-            return [], []
-        result_pos = np.concatenate(result_pos, axis=0)
-        result_cls = np.concatenate(result_cls, axis=0)
+                f"Results of this frame could be lost...")
+            return np.concatenate(result_pos,
+                                  axis=0), np.concatenate(result_cls, axis=0)
+        concat_result_pos = np.concatenate(result_pos, axis=0)
+        concat_result_cls = np.concatenate(result_cls, axis=0)
 
         # 重整后 NMS
         res = cv2.dnn.NMSBoxes(
-            bboxes=result_pos[:, :4],  # type: ignore
-            scores=np.max(result_cls, axis=-1),
+            bboxes=concat_result_pos[:, :4],  # type: ignore
+            scores=np.max(concat_result_cls, axis=-1),
             score_threshold=self.pos_thre,
             nms_threshold=MULTISCALE_NMS_OVERLAP_THRE)
-        result_pos = result_pos[list(res)]
-        result_cls = result_cls[list(res)]
+        concat_result_pos = concat_result_pos[list(res)]
+        concat_result_cls = concat_result_cls[list(res)]
 
         # 输出前将结果转置回来
         if transpose_flag:
-            result_pos = result_pos[:, [1, 0, 3, 2]]
+            concat_result_pos = concat_result_pos[:, [1, 0, 3, 2]]
 
-        return result_pos, result_cls
-
-
-class Backend(metaclass=ABCMeta):
-
-    @abstractmethod
-    def __init__(self, weight_path, dtype, warmup) -> None:
-        pass
-
-    @property
-    def input_shape(self):
-        pass
-
-    @property
-    def input_name(self):
-        pass
-
-    @property
-    def device(self):
-        pass
-
-    @abstractmethod
-    def forward(self, x) -> list:
-        pass
+        return concat_result_pos, concat_result_cls
 
 
-class ONNXBackend(Backend):
-
-    def __init__(self,
-                 weight_path: str,
-                 dtype: np.dtype,
-                 warmup: bool,
-                 providers_key: Optional[str] = None,
-                 logger=None) -> None:
-        f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
-        Args:
-            weight_path (str): /path/to/the/weight/file.
-            dtype (np.dtype): converted numpy data type.
-            warmup (bool, optional): warmup to model before batch processing. Defaults to True.
-            providers_key (str, optional): model provider. Defaults to "default".
-            logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
-        """
-        self.weight_path = weight_path
-        self.dtype = dtype
-        # load model
-        if providers_key and (not providers_key in DEVICE_MAPPING) and logger:
-            logger.warning(
-                f"Gicen provider {providers_key} is not supported." +
-                "Fall back to default provider.")
-        if not providers_key:
-            providers = DEVICE_MAPPING["default"]
-        else:
-            providers = DEVICE_MAPPING.get(providers_key,
-                                           DEVICE_MAPPING["default"])
-        self.model_session = ort.InferenceSession(self.weight_path,
-                                                  providers=providers)
-        self.shapes = [x.shape for x in self.model_session.get_inputs()]
-        self.names = [x.name for x in self.model_session.get_inputs()]
-
-        self.single_input = True if len(self.shapes) == 1 else False
-
-        # make sure batch=1
-        # Warming up
-        if warmup:
-            # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
-            # 无法适配当前backend模型
-            _ = self.model_session.run(
-                [], {
-                    name: np.zeros(shape, dtype=self.dtype)
-                    for name, shape in zip(self.input_name, self.input_shape)
-                })
-
-    @property
-    def input_shape(self) -> list:
-        return self.shapes
-
-    @property
-    def input_name(self) -> list:
-        return self.names
-
-    @property
-    def device(self):
-        return self.model_session.get_providers()[0]
-
-    def forward(self, x: Union[np.ndarray, list[np.ndarray]]):
-        """ run inference session with given input.
-
-        Args:
-            x (Union[np.ndarray, list[np.ndarray]]): input tensor. Its type should varies
-                according to the model. For model with multi-inputs, x should be a list of
-                tensors; otherwise x should be a tensor.
-
-        Returns:
-            list: raw output.
-        """
-        if self.single_input:
-            return self.model_session.run(None, {self.input_name[0]: x})
-
-        return self.model_session.run(None, {
-            name: tensor
-            for name, tensor in zip(self.input_name, x)
-        })
-
-
-
-available_models = {"YOLOModel": YOLOModel}
+available_models = {cls.__name__: cls for cls in [YOLOModel]}
 SUFFIX2BACKEND = {"onnx": ONNXBackend}
 
 
-# TODO: 稍微有点不美观...
-def init_model(cfg, **kwargs):
-    assert "name" in cfg, "Must specify model name in \"model\"."
-    if not cfg.get("name") in available_models:
-        raise Exception(f"No model named {cfg.get('name')}.")
-    Model = available_models[cfg.get('name')]
-    del cfg["name"]
-    return Model(**cfg, **kwargs)
+def init_model(cfg: ModelCfg, logger: BaseMetLog):
+    """ 兼容现有 Easydict 数据类型的模型初始化实现。
+    NOTE: 因为 Model 可能会被其他子模块使用，因此单独实现了初始化模块。
+
+    Args:
+        cfg (ModelCfg): _description_
+        logger (BaseMetLog): _description_
+
+    Raises:
+        Exception: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    if not cfg.name in available_models:
+        raise Exception(f"No model named {cfg.name}.")
+    Model = available_models[cfg.name]
+    return Model(weight_path=cfg.weight_path,
+                 dtype=cfg.dtype,
+                 nms=cfg.nms,
+                 warmup=cfg.warmup,
+                 pos_thre=cfg.pos_thre,
+                 nms_thre=cfg.nms_thre,
+                 multiscale_pred=cfg.multiscale_pred,
+                 multiscale_partition=cfg.multiscale_partition,
+                 providers_key=cfg.providers_key,
+                 logger=logger)

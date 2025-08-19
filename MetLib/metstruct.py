@@ -231,6 +231,23 @@ class MDRF(object):
     results: Union[list[SingleMDRecord], list[SingleImgRecord]]
 
 
+########### Model Config Dataclasses ################
+
+
+@dataclasses.dataclass
+class ModelCfg(object):
+    name: str
+    weight_path: str
+    dtype: str
+    nms: bool
+    warmup: bool
+    pos_thre: float
+    nms_thre: float
+    multiscale_pred: int
+    multiscale_partition: int
+    providers_key: Optional[str] = "default"
+
+
 ########### ClipToolkit Dataclasses ################
 
 
