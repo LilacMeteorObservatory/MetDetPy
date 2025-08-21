@@ -1,4 +1,3 @@
-#import logging
 import argparse
 import json
 import time
@@ -125,7 +124,7 @@ def detect_video(video_name: str,
                                             mask_name,
                                             resize_option,
                                             grayscale=False,
-                                            exp_option=exp_time,
+                                            exp_option="real-time",
                                             merge_func=merge_func)
 
         meteor_collector = MeteorCollector(
