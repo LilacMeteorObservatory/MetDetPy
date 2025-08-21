@@ -127,15 +127,16 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
     def set_to(self, frame_num: int) -> bool:
         """设置当前指针位置。
 
+        由于VideoCapture接口有限，帧定位和跳转可能存在如下问题：
+        1. 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。
+        2. 对于关键帧较为稀疏的输入，无法准确跳转到指定位置。
+        
         Args:
             frame_num (int): 期望跳转位置
 
         Returns:
             bool: 是否成功跳转
         """
-        # TODO: 对于部分编码损坏的视频，set_to会耗时很长，并且后续会读取失败。应当做对应处置。
-        # TODO 2: 对于不能set_to的，能否向后继续跳转？
-        #return self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         return self.video.set(cv2.CAP_PROP_POS_MSEC,
                               frame2time(frame_num, self.fps))
 
@@ -150,9 +151,8 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
         """
         self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
         status = True
-        import tqdm
-        for _ in tqdm.tqdm(range(frame_num)):
-            status, _ = self.video.read()
+        for _ in range(frame_num):
+            status = self.video.grab()
             if not status: return status
         return status
 
@@ -215,10 +215,17 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                 code=-1,
                 message="Invalid time_base value: None",
             )
+        # backward seeking makes sure cur frame is before the target.
         # seems seek using us instead of ms.
         self.container.seek(frame2time(frame_num, self.fps) * 1000,
                             any_frame=False,
                             backward=True)
+        # 2-stage seeking, decoding until find the frame_num.
+        for packet in self.container.demux(video=0):
+            for decoded_frame in packet.decode():
+                cur_frame = self.pts2frame(decoded_frame.pts)
+                if cur_frame >= frame_num:
+                    return True
         return True
 
     def get_video_pos(self) -> int:
@@ -226,5 +233,14 @@ class PyAVVideoWrapper(BaseVideoWrapper):
             frame = self.container.demux(video=0).__next__().decode()
             if len(frame) == 0:
                 continue
-            return int(frame[0].pts * float(self.video.time_base) *
-                       self.fps) if self.video.time_base is not None else -1
+            return self.pts2frame(frame[0].pts)
+
+    def pts2frame(self, pts: int):
+        if self.video.time_base is None:
+            return -1
+        return int(pts * float(self.video.time_base) * self.fps)
+
+    def frame2pts(self, frame_num: int):
+        if self.video.time_base is None:
+            return -1
+        return int(frame_num / self.fps / self.video.time_base)
