@@ -7,7 +7,7 @@
     },
     "loader": {
         "name": "ThreadVideoLoader",
-        "wrapper": "OpenCVVideoWrapper",
+        "wrapper": "PyAVVideoWrapper",
         "resize": 960,
         "exp_time": "auto",
         "merge_func": "max",
@@ -46,7 +46,7 @@
             ],
             "speed_range": [
                 3,
-                12
+                18
             ],
             "drct_range": [
                 0,
