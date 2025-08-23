@@ -235,6 +235,17 @@ class MDRF(object):
 
 
 @dataclasses.dataclass
+class LoaderCfg(object):
+    name: str
+    wrapper: str
+    resize: Union[list[int], int, str]
+    exp_time: Union[float, str]
+    merge_func: str
+    grayscale: bool
+    upper_bound: float
+
+
+@dataclasses.dataclass
 class ModelCfg(object):
     name: str
     weight_path: str
@@ -246,6 +257,29 @@ class ModelCfg(object):
     multiscale_pred: int
     multiscale_partition: int
     providers_key: Optional[str] = "default"
+
+
+@dataclasses.dataclass
+class MeteorCfg(object):
+    min_len: int
+    max_interval: Union[float, int]
+    time_range: tuple[int, int]
+    speed_range: tuple[int, int]
+    drct_range: tuple[int, int]
+    det_thre: float
+    thre2: int
+
+
+@dataclasses.dataclass
+class RecheckCfg(object):
+    switch: bool
+    model: ModelCfg
+
+
+@dataclasses.dataclass
+class CollectorCfg(object):
+    meteor_cfg: MeteorCfg
+    recheck_cfg: RecheckCfg
 
 
 ########### ClipToolkit Dataclasses ################
@@ -269,7 +303,8 @@ class ExportOption(object):
 @dataclasses.dataclass
 class ConnectParam(object):
     switch: bool
-    ksize: int
+    ksize_multiplier: float
+    gamma: float
     threshold: int
 
 
@@ -284,6 +319,7 @@ class SimpleDenoiseParam(object):
 
 @dataclasses.dataclass
 class MFNRDenoiseParam(object):
+    bg_algorithm: str
     sigma_high: float
     sigma_low: float
     bg_fix_factor: float

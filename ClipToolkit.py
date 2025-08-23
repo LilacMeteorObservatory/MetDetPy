@@ -21,6 +21,7 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
 import argparse
 import json
 import os
+import time
 from os.path import join as path_join
 from os.path import split as path_split
 from typing import Any, Optional, cast
@@ -36,7 +37,7 @@ from MetLib.metstruct import (MDRF, ClipCfg, ClipRequest, ExportOption,
                               ImageFrameData, SimpleTarget, VideoFrameData)
 from MetLib.stacker import (max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
-from MetLib.utils import U8Mat, frame2ts, relative2abs_path, ts2frame
+from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, ts2frame
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
@@ -221,7 +222,7 @@ def main():
                            "-C",
                            type=str,
                            help="Path to the config file.",
-                           default=relative2abs_path("./global/clip_cfg.json"))
+                           default=CLIP_CONFIG_PATH)
     argparser.add_argument(
         "--start-time",
         type=str,
@@ -298,7 +299,8 @@ def main():
                            help="apply debug mode.")
 
     args = argparser.parse_args()
-
+    
+    t0 = time.time()
     # basic option
     cfg_json_path, mode, default_suffix, save_path, debug_mode  = \
         args.cfg, args.mode, args.suffix, args.save_path, args.debug
@@ -448,8 +450,8 @@ def main():
                         f"Error occured when writing the video to {video_frame.saved_filename}."
                     )
     finally:
+        logger.debug(f"Time cost: {(time.time()-t0):.2f}s.")
         logger.stop()
-
 
 if __name__ == "__main__":
     main()

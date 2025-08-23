@@ -9,7 +9,8 @@
         "blur_ksize": 31,
         "connect_lines": {
             "switch": true,
-            "ksize": 15,
+            "ksize_multiplier": 1.5,
+            "gamma": 1,
             "threshold": 30
         },
         "simple_param": {
@@ -20,6 +21,7 @@
             "bi_sigma_space": 6
         },
         "mfnr_param": {
+            "bg_algorithm":"mean",
             "sigma_high": 3.0,
             "sigma_low": 3.0,
             "bg_fix_factor": 1.5

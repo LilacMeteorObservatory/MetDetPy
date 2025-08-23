@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import cv2
 import numpy as np
@@ -6,8 +6,12 @@ from numpy.typing import NDArray
 
 from .metlog import BaseMetLog, get_useable_logger
 from .metstruct import DenoiseOption
-from .utils import EULER_CONSTANT, FastGaussianParam, U8Mat, circular_kernel
+from .utils import (EULER_CONSTANT, FastGaussianParam, U8Mat, circular_kernel,
+                    estimate_snr_smooth_residual)
 from .videoloader import BaseVideoLoader, VanillaVideoLoader
+
+SUPPORT_BG_ALGO = ["median", "med-of-med", "sigma-clipping", "mean"]
+
 
 class BaseImgContainer(object):
     """ImgContainer is a class that receives stream inputs (by its `append`) 
@@ -55,6 +59,35 @@ class FastGaussianContainer(BaseImgContainer):
             self.container += fg_frame
 
 
+def median_of_medians(img_list: list[U8Mat],
+                      block_size: Optional[int] = None) -> NDArray[np.float64]:
+    """
+    calculate median_of_medians, faster and memory-efficient.
+    if block_size is not given, using sqrt(N) as default.
+    """
+    if block_size is None:
+        block_size = int(len(img_list)**(1 / 2))
+    block_num = (len(img_list) - 1) // block_size + 1
+    medians: list[U8Mat] = []
+    for i in range(block_num):
+        block_median: U8Mat = np.median(img_list[i * block_size:(i + 1) *
+                                                 block_size],
+                                        axis=0)
+        medians.append(block_median)
+    final_medians = np.median(medians, axis=0)
+    return final_medians
+
+
+def gamma_luminance_transform(img: U8Mat, gamma: float):
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2Lab)
+    L, A, B = cv2.split(lab)
+    table = np.power(np.arange(256) / 255.0, gamma) * 255
+    L_gamma = cv2.LUT(L, table.astype(np.uint8))
+    lab_result = cv2.merge([L_gamma, A, B])
+    result = cv2.cvtColor(lab_result, cv2.COLOR_Lab2BGR)
+    return result
+
+
 def single_sigma_clipping(img_list: list[U8Mat],
                           ref_fg_img: FastGaussianParam,
                           sigma_high: float = 3.0,
@@ -99,13 +132,12 @@ def fill_large_contours(src: U8Mat, max_allow_area: int = 30):
     参数:
         input_image_path: 输入二值图像路径
         output_image_path: 输出图像路径
-        min_area: 最小面积阈值，默认为100像素
+        min_area: 最小面积阈值
     """
-    contours, hierarchy = cv2.findContours(src, cv2.RETR_CCOMP,
-                                           cv2.CHAIN_APPROX_SIMPLE)
-    for i, cnt in enumerate(contours):
-        if cv2.contourArea(cnt) > max_allow_area and hierarchy[0][i][
-                3] != -1:  # hierarchy[0][i][3] != -1 表示是内轮廓(封闭区域)
+    contours, _ = cv2.findContours(src, cv2.RETR_CCOMP,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if cv2.contourArea(cnt) > max_allow_area:
             cv2.drawContours(src, [cnt], 0, [0, 0, 0], -1)
 
     return src
@@ -209,8 +241,9 @@ def dust_and_scratches(img: U8Mat, radius: int, threshold: int):
 def connect_highlight_area(light_img: U8Mat,
                            light_diff_img: Union[NDArray[np.float64], U8Mat],
                            rep_times: int = 1,
-                           kernel_size: int = 31,
+                           ksize_multiplier: float = 1.0,
                            clip_threshold: int = 30,
+                           gamma: float = 1.0,
                            logger: Optional[BaseMetLog] = None) -> U8Mat:
     """尝试连接图像中的断线。
 
@@ -236,6 +269,10 @@ def connect_highlight_area(light_img: U8Mat,
     masked_light_img = light_img * binary_highlight_mask[..., None]
     init_binary_mask = np.copy(binary_highlight_mask)
     # 对Mask和亮场执行闭运算
+    # kernel_size 取长边 *0.01*multiplier 后归到最邻近2k+1
+    kernel_size = int((max(light_img.shape) * 0.01 * ksize_multiplier) // 2 *
+                      2 + 1)
+    logger.debug(f"Calculated ksize for connection = {kernel_size}")
     close_kernel = circular_kernel(kernel_size)
     binary_highlight_mask = cv2.morphologyEx(binary_highlight_mask,
                                              cv2.MORPH_CLOSE,
@@ -249,6 +286,9 @@ def connect_highlight_area(light_img: U8Mat,
     masked_hat = binary_highlight_mask - init_binary_mask
     # mask搜索并移除面积较大的区域（通常可能是错误填充）
     masked_hat = fill_large_contours(masked_hat, 20)
+    # 亮度优化，但这个因图而异的情况很严重...
+    # TODO: 自适应亮度优化
+    masked_light_img = gamma_luminance_transform(masked_light_img, gamma=gamma)
     ext_light_img = masked_light_img * masked_hat[..., None]
     return np.max([light_img, ext_light_img], axis=0)
 
@@ -277,18 +317,41 @@ def mfnr_mix_stacker(video_loader: VanillaVideoLoader,
         video_loader,
         [MaxImgContainer, AllImgContainer, FastGaussianContainer], start_frame,
         end_frame, logger)
-    logger.debug("Apply single sigma-clipping...")
-    sc_avg_img = single_sigma_clipping(img_stack,
-                                       init_fg_img,
-                                       sigma_high=3.0,
-                                       sigma_low=3.0)
+    if max_img is None or img_stack is None or init_fg_img is None:
+        return None
+    # 估算最大值图像的SNR
+    inp_snr = estimate_snr_smooth_residual(max_img)
+    logger.debug(f"Maxinum stack image SNR: {inp_snr:.2f} db.")
+    assert mfnr_param.bg_algorithm in SUPPORT_BG_ALGO, (
+        f"unsupported bg algo! select from {SUPPORT_BG_ALGO}, but {mfnr_param.bg_algorithm} got."
+    )
+    logger.debug(f"Apply {mfnr_param.bg_algorithm}...")
+    # 获取背景估计
+    if mfnr_param.bg_algorithm == "sigma-clipping":
+        sc_avg_img = single_sigma_clipping(img_stack,
+                                           init_fg_img,
+                                           sigma_high=3.0,
+                                           sigma_low=3.0)
+        est_bg_mu = sc_avg_img.mu
+        est_bg_var = np.mean(np.sqrt(sc_avg_img.var))
+    elif mfnr_param.bg_algorithm == "mean":
+        # 直接使用均值，背景值和方差可能存在估算偏差，但更快。
+        est_bg_mu = init_fg_img.mu
+        est_bg_var = cast(np.float64, np.mean(np.sqrt(init_fg_img.var)))
+    else:
+        if mfnr_param.bg_algorithm == "median" or len(img_stack) <= 16:
+            est_bg_mu: NDArray[np.float64] = np.median(img_stack, axis=0)
+        else:
+            est_bg_mu: NDArray[np.float64] = median_of_medians(img_stack)
+        # 因为没有sigma裁剪，所以使用原始图像作为var估计。不准确，但是快。
+        est_bg_var = cast(np.float64, np.mean(np.sqrt(init_fg_img.var)))
+
     logger.debug("Calculate gumbel-dist parameters...")
 
     gumble_mean = get_gumbel_mean(len(img_stack))
     # 计算实际最大亮度与预期最大亮度的差异 => max_bias_diff_img
     expect_max_upper: NDArray[np.float64] = (
-        sc_avg_img.mu + np.mean(np.sqrt(sc_avg_img.var)) * gumble_mean *
-        mfnr_param.bg_fix_factor)
+        est_bg_mu + est_bg_var * gumble_mean * mfnr_param.bg_fix_factor)
     max_bias_diff_img: NDArray[np.float64] = max_img.astype(
         np.float64) - expect_max_upper
     # 计算有高离群的亮均值作为阈值，和高光部分求并集作为前景组分
@@ -310,12 +373,14 @@ def mfnr_mix_stacker(video_loader: VanillaVideoLoader,
 
     # 如果需要的话，尝试连接亮部的断线。
     if connect_cfg.switch:
-        max_img = connect_highlight_area(max_img,
-                                         max_bias_diff_img,
-                                         rep_times=1,
-                                         kernel_size=connect_cfg.ksize,
-                                         clip_threshold=connect_cfg.threshold,
-                                         logger=logger)
+        max_img = connect_highlight_area(
+            max_img,
+            max_bias_diff_img,
+            rep_times=1,
+            ksize_multiplier=connect_cfg.ksize_multiplier,
+            clip_threshold=connect_cfg.threshold,
+            gamma=connect_cfg.gamma,
+            logger=logger)
 
     # 亮度补正，高光保护
     # 亮度达到255时系数为0，下限时候为1。
@@ -324,15 +389,17 @@ def mfnr_mix_stacker(video_loader: VanillaVideoLoader,
         (1 - highlight_preserve))
     logger.debug(
         f"highlight fix factor = " +
-        f"{(np.mean(np.sqrt(sc_avg_img.var)) * gumble_mean * mfnr_param.bg_fix_factor):.4f}"
-    )
-    fixed_max_img: NDArray[np.float64] = max_img - (
-        (np.mean(np.sqrt(sc_avg_img.var)) * gumble_mean) *
-        highlight_fix_factor)
+        f"{(est_bg_var * gumble_mean * mfnr_param.bg_fix_factor):.4f}")
+    fixed_max_img: NDArray[np.float64] = max_img.astype(np.float64) - (
+        (est_bg_var * gumble_mean) * highlight_fix_factor)
+    fixed_max_img = np.clip(fixed_max_img, 0, 255)
 
     # 混合最大值图像和修正平均值图像
-    mix_img_uint8 = np.round(fixed_max_img * stage1_diff_blur + sc_avg_img.mu *
+    mix_img_uint8 = np.round(fixed_max_img * stage1_diff_blur + est_bg_mu *
                              (1 - stage1_diff_blur)).astype(np.uint8)
+    # 估算叠加后图像的SNR
+    out_snr = estimate_snr_smooth_residual(mix_img_uint8)
+    logger.debug(f"MFNR-stacked image SNR: {out_snr:.2f} db.")
     return mix_img_uint8
 
 
@@ -354,15 +421,26 @@ def simple_denoise_stacker(
         Optional[np.ndarray]: _description_
     """
     logger = get_useable_logger(logger)
-    highlight_preserve, blur_ksize = denoise_cfg.highlight_preserve, denoise_cfg.blur_ksize
-    connect_cfg, simple_cfg = denoise_cfg.connect_lines, denoise_cfg.simple_param
     max_img: U8Mat = _batch_stacker(video_loader, [MaxImgContainer],
                                     start_frame, end_frame, logger)[0]
+    if max_img is None:
+        return None
+    return simple_denoise(max_img, denoise_cfg, logger)
+
+
+def simple_denoise(max_img: U8Mat, denoise_cfg: DenoiseOption,
+                   logger: BaseMetLog) -> U8Mat:
+    highlight_preserve, blur_ksize = denoise_cfg.highlight_preserve, denoise_cfg.blur_ksize
+    connect_cfg, simple_cfg = denoise_cfg.connect_lines, denoise_cfg.simple_param
+    # 估算最大值图像的SNR
+    inp_snr = estimate_snr_smooth_residual(max_img)
+    logger.debug(f"Maxinum stack image SNR: {inp_snr:.2f} db.")
     # 使用蒙尘划痕拆分出高亮区域
     est_bg_img = dust_and_scratches(max_img,
                                     radius=simple_cfg.ds_radius,
                                     threshold=simple_cfg.ds_threshold)
-
+    from .fileio import save_img
+    save_img(est_bg_img, "est_bg.jpg", quality=90, compressing=3)
     # 计算实际最大亮度与预期最大亮度的差异 => max_bias_diff_img
     max_diff_img: NDArray[np.float64] = max_img.astype(np.float64) - est_bg_img
     # 计算有高离群的亮均值作为阈值，和高光部分求并集作为前景组分
@@ -389,8 +467,9 @@ def simple_denoise_stacker(
             cp_max_img,
             filtered_diff_img,
             rep_times=1,
-            kernel_size=connect_cfg.ksize,
+            ksize_multiplier=connect_cfg.ksize_multiplier,
             clip_threshold=connect_cfg.threshold,
+            gamma=connect_cfg.gamma,
             logger=logger)
     # 背景部分使用双边滤波，和前景混合。
     denoise_bg = cv2.bilateralFilter(max_img,
@@ -399,4 +478,7 @@ def simple_denoise_stacker(
                                      sigmaSpace=simple_cfg.bi_sigma_space)
     mixed_img = (fg_mask_blur * cp_max_img +
                  (1 - fg_mask_blur) * denoise_bg).astype(np.uint8)
+    # 估算最大值图像的SNR
+    out_snr = estimate_snr_smooth_residual(mixed_img)
+    logger.debug(f"Denoised image SNR: {out_snr:.2f} db.")
     return mixed_img

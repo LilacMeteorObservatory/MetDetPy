@@ -9,10 +9,10 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from .utils import Transform, U8Mat, transpose_wh, relative2abs_path
+from .utils import Transform, U8Mat, transpose_wh, WORK_PATH
 from .metlog import BaseMetLog, get_useable_logger
 
-COLOR_PATH_MAPPING = {"sRGB": relative2abs_path("./resource/sRGB.icc")}
+COLOR_PATH_MAPPING = {"sRGB": os.path.join(WORK_PATH, "resource", "sRGB.icc")}
 
 
 def is_ext_with(path: str, ext: str):
@@ -103,7 +103,7 @@ def save_img(img: U8Mat,
                 logger.warning(
                     f"Failed to load {color_space} config. Save without color space..."
                 )
-            
+
         except (ImportError, OSError):
             logger.warning(
                 "Failed to load pyexiv2. EXIF data and colorprofile can not be written to files."
