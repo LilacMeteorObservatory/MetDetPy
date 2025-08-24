@@ -18,6 +18,8 @@ from typing import Callable, Optional, Union
 import cv2
 import numpy as np
 
+from MetLib.metstruct import BinaryCfg
+
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model
@@ -176,7 +178,7 @@ class LineDetector(BaseDetector):
     abs_sensitivity = {"high": 3, "normal": 5, "low": 7}
     cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+    def __init__(self, window_sec, fps, mask, num_cls, cfg: BinaryCfg, logger):
         self.mask = mask
         self.num_cls = num_cls
         self.logger = logger
@@ -197,8 +199,7 @@ class LineDetector(BaseDetector):
             self.std2thre = self.sensitivity_func[self.bi_cfg.sensitivity]
             self.bi_threshold = self.abs_sensitivity[self.bi_cfg.sensitivity]
         else:
-            self.bi_threshold = self.bi_cfg.get("init_value",
-                                                DEFAULT_INIT_VALUE)
+            self.bi_threshold = self.bi_cfg.init_value
         self.bi_threshold_float = self.bi_threshold
 
         # 如果启用动态蒙版（dynamic mask），在此处构建另一个滑窗管理
@@ -209,9 +210,8 @@ class LineDetector(BaseDetector):
                                               force_int=True)
 
         # 动态间隔()
-        if self.dynamic_cfg.get("dy_gap", 0.05):
-            self.max_allow_gap = 0.05
-            self.fill_thre = 0.6
+        # TODO: 待下线
+        self.max_allow_gap = 0.05
 
         self.visu_param = []
 

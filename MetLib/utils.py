@@ -8,14 +8,13 @@ from typing import Any, Callable, Optional, Sequence, TypeVar, Union
 import cv2
 import numpy as np
 from cv2.typing import MatLike
-from easydict import EasyDict
 from numpy.typing import DTypeLike, NDArray
 
 from .metlog import get_default_logger
 from .metstruct import Box
 
 PROJECT_NAME = "MetDetPy"
-VERSION = "V2.3.0"
+VERSION = "V2.3.0-beta"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9
@@ -77,8 +76,8 @@ def pt_len_sqr(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
         return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 
-def pt_len(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
-                                                         FloatMat]):
+def pt_len(pt1: Union[list[int], list[float], FloatMat],
+           pt2: Union[list[int], list[float], FloatMat]):
     """Return the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
     返回两点之间的实际距离。接受ndarray时，需要最后一维形状为2。
@@ -1016,29 +1015,6 @@ def estimate_snr_smooth_residual(image: U8Mat, kernel_size: int = 5) -> float:
 
     snr = 10 * np.log10(var_signal / var_noise)
     return snr
-
-
-def mod_all_attrs_to_cfg(cfg: EasyDict, name: str, action: str,
-                         kwargs: dict[str, Any]) -> EasyDict:
-    """ 修改cfg中的对应属性。
-
-    Args:
-        cfg (EasyDict): _description_
-        name (str): _description_
-        action (str): _description_
-    """
-    # currently only "add" action is supported.
-    assert action in [
-        "add",
-    ], f"action {action} is not supported!"
-    for key in cfg.keys():
-        if isinstance(cfg[key], EasyDict):
-            mod_all_attrs_to_cfg(cfg[key], name, action, kwargs)
-        if key == name:
-            if action == "add":
-                for (new_key, new_attr) in kwargs.items():
-                    cfg[key][new_key] = new_attr
-    return cfg
 
 
 ID2NAME: dict[int, str] = {}

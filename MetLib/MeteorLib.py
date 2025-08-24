@@ -2,8 +2,10 @@ import copy
 import json
 import queue
 import threading
+from typing import Optional
 
 import numpy as np
+from numpy.typing import NDArray
 
 from MetLib.videoloader import VanillaVideoLoader
 
@@ -20,6 +22,10 @@ color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
 DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
+
+# Typing Alias
+IntArray = NDArray[np.int_]
+FloatArray = NDArray[np.float64]
 
 
 class Name2Label(object):
@@ -89,14 +95,14 @@ class PointList(object):
         self.pts = np.zeros((0, 2), dtype=np.int32)
         self.frame_num = np.zeros((0, ), dtype=np.int16)
 
-    def append(self, new_pt: np.ndarray, frame: int):
+    def append(self, new_pt: IntArray, frame: int):
         if new_pt.shape == (2, ):
             new_pt = new_pt.reshape(-1, 2)
         self.pts = np.concatenate([self.pts, new_pt], axis=0)
         self.frame_num = np.concatenate(
             [self.frame_num, np.array(frame)], axis=0)
 
-    def extend(self, new_pts: np.ndarray, frame: int):
+    def extend(self, new_pts: IntArray, frame: int):
         self.pts = np.concatenate([self.pts, np.array(new_pts)], axis=0)
         self.frame_num = np.concatenate(
             [self.frame_num, np.ones((len(new_pts), )) * frame], axis=0)
@@ -115,7 +121,7 @@ class PointList(object):
         else:
             return self.pts[self.iteration]
 
-    def get_pts_as_list(self) -> list:
+    def get_pts_as_list(self) -> list[list[float]]:
         return [[np.round(x[0], 3), np.round(x[1], 3)] for x in self.pts]
 
     def __getitem__(self, i: int):
@@ -132,9 +138,10 @@ class MeteorSeries(object):
         object (_type_): _description_
     """
 
-    def __init__(self, start_frame: int, cur_frame: int, init_pts: list,
-                 max_acceptable_dist: int, max_acti_frame: int, cate_prob,
-                 fps: float, runtime_size: list[int]):
+    def __init__(self, start_frame: int, cur_frame: int, init_pts: IntArray,
+                 max_acceptable_dist: int, max_acti_frame: int,
+                 cate_prob: NDArray[np.float64], fps: float,
+                 runtime_size: list[int]):
         """_summary_
 
         Args:
@@ -359,7 +366,7 @@ class MeteorCollector(object):
 
     def __init__(self, meteor_cfg, eframe, fps: float, runtime_size: list[int],
                  raw_size: list[int], recheck_cfg, positive_cfg,
-                 video_loader: VanillaVideoLoader, logger: BaseMetLog) -> None:
+                 video_loader: Optional[VanillaVideoLoader], logger: BaseMetLog) -> None:
         self.min_len = meteor_cfg.min_len
         self.max_interval = meteor_cfg.max_interval * fps
         self.max_acti_frame = meteor_cfg.max_interval * fps
@@ -621,7 +628,7 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
 
     def __init__(self, runtime_size: list[int], raw_size: list[int],
-                 recheck_cfg, positive_cfg, video_loader: VanillaVideoLoader,
+                 recheck_cfg, positive_cfg, video_loader: Optional[VanillaVideoLoader],
                  logger: BaseMetLog, max_interval: float, det_thre: float,
                  fps: float) -> None:
         self.queue: queue.Queue[tuple] = queue.Queue()

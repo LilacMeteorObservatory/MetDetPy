@@ -246,12 +246,25 @@ print("Done.")
 print("Copy resource folder...", end="", flush=True)
 shutil.copytree("./resource", "./dist/MetDetPy/resource")
 print("Done.")
+print("Copy global folder...", end="", flush=True)
+shutil.copytree("./global", "./dist/MetDetPy/global")
+print("Done.")
 
 # copy necessary py file (from lib)
 # for now only uuid.py is detected should be like so.
 import uuid
 
 shutil.copy(uuid.__file__, "./dist/MetDetPy")
+
+# copy pyexiv2
+try:
+    import pyexiv2
+    pyexiv_path, init_file = os.path.split(pyexiv2.__file__)
+    # TODO: A temp way to remove dll version pyexiv2. Should be fixed in the future.
+    shutil.rmtree("./dist/MetDetPy/pyexiv2")
+    shutil.copytree(pyexiv_path, "./dist/MetDetPy/pyexiv2")
+except Exception as e:
+    pass
 
 # package codes with zip(if applied).
 if apply_zip:

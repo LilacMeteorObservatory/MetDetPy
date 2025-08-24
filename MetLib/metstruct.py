@@ -56,8 +56,31 @@ class Box(object):
         return [[x, y], [w, h]]
 
 
+########### MDRF Defination ################
+
+
 @dataclasses.dataclass
-class BasicInfo(object):
+class DictAble(object):
+
+    def _key2value(self, attr_name: str) -> Any:
+        value = self.__getattribute__(attr_name)
+        if isinstance(value, DictAble):
+            return value.to_dict()
+        if isinstance(value, (list, tuple)):
+            return [
+                v.to_dict() if isinstance(v, DictAble) else v for v in value
+            ]
+        return value
+
+    def to_dict(self):
+        return {
+            key: self._key2value(key)
+            for key in self.__annotations__.keys()
+        }
+
+
+@dataclasses.dataclass
+class BasicInfo(DictAble):
     loader: str
     video: Optional[str]
     mask: Optional[str]
@@ -71,7 +94,7 @@ class BasicInfo(object):
 
 
 @dataclasses.dataclass
-class MDTarget(object):
+class MDTarget(DictAble):
     """Standard meteor detect target class.
     
     MDTarget describe a single result (a meteor, sprite), including its 
@@ -105,7 +128,7 @@ class MDTarget(object):
 
 
 @dataclasses.dataclass
-class SingleMDRecord(object):
+class SingleMDRecord(DictAble):
     """Meteor Detection single record.
     A record refers to a certain frame or a time clip,
     thus it contains list[MDTarget].
@@ -153,7 +176,7 @@ class SingleMDRecord(object):
 
 
 @dataclasses.dataclass
-class SingleImgRecord(object):
+class SingleImgRecord(DictAble):
     boxes: list[list[int]]
     preds: list[str]
     prob: list[str]
@@ -216,37 +239,32 @@ class SingleImgRecord(object):
                               target_list=self.build_target_list())
 
 
-@dataclasses.dataclass
-class MDRF(object):
-    """Standard Meteor Detection Recording Format (for video).
-
-    Args:
-        object (_type_): _description_
-    """
-    version: str
-    basic_info: BasicInfo
-    config: dict[str, Any]
-    type: str
-    anno_size: list[int]
-    results: Union[list[SingleMDRecord], list[SingleImgRecord]]
-
-
-########### Model Config Dataclasses ################
+########### Config Dataclasses ################
 
 
 @dataclasses.dataclass
-class LoaderCfg(object):
+class MockVideoObject(DictAble):
+    video: Optional[str] = None
+    image_folder: Optional[str] = None
+    resolution: Optional[list[int]] = None
+
+    def summary(self):
+        return self
+
+
+@dataclasses.dataclass
+class LoaderCfg(DictAble):
     name: str
     wrapper: str
     resize: Union[list[int], int, str]
     exp_time: Union[float, str]
     merge_func: str
     grayscale: bool
-    upper_bound: float
+    upper_bound: Optional[float] = None
 
 
 @dataclasses.dataclass
-class ModelCfg(object):
+class ModelCfg(DictAble):
     name: str
     weight_path: str
     dtype: str
@@ -260,26 +278,88 @@ class ModelCfg(object):
 
 
 @dataclasses.dataclass
-class MeteorCfg(object):
+class BinaryCoreCfg(DictAble):
+    adaptive_bi_thre: bool
+    init_value: int
+    sensitivity: str
+    area: float
+    interval: int
+
+
+@dataclasses.dataclass
+class HoughLineCfg(DictAble):
+    threshold: int
+    min_len: int
+    max_gap: int
+
+
+@dataclasses.dataclass
+class DynamicCfg(DictAble):
+    dy_mask: bool
+    window_sec: float
+
+
+@dataclasses.dataclass
+class BinaryCfg(DictAble):
+    binary: BinaryCoreCfg
+    hough_line: HoughLineCfg
+    dynamic: DynamicCfg
+
+@dataclasses.dataclass
+class DLCfg(DictAble):
+    model: ModelCfg
+
+@dataclasses.dataclass
+class DetectorCfg(DictAble):
+    name: str
+    window_sec: float
+    cfg: Union[BinaryCfg, DLCfg]
+
+
+@dataclasses.dataclass
+class MeteorCfg(DictAble):
     min_len: int
     max_interval: Union[float, int]
-    time_range: tuple[int, int]
-    speed_range: tuple[int, int]
-    drct_range: tuple[int, int]
+    time_range: list[int]
+    speed_range: list[int]
+    drct_range: list[float]
     det_thre: float
     thre2: int
 
 
 @dataclasses.dataclass
-class RecheckCfg(object):
+class RecheckCfg(DictAble):
     switch: bool
     model: ModelCfg
 
 
 @dataclasses.dataclass
-class CollectorCfg(object):
+class CollectorCfg(DictAble):
     meteor_cfg: MeteorCfg
     recheck_cfg: RecheckCfg
+    positive_cfg: dict[str, Any]
+
+
+@dataclasses.dataclass
+class MainDetectCfg(DictAble):
+    loader: LoaderCfg
+    detector: DetectorCfg
+    collector: CollectorCfg
+
+
+@dataclasses.dataclass
+class MDRF(DictAble):
+    """Standard Meteor Detection Recording Format (for video).
+
+    Args:
+        object (_type_): _description_
+    """
+    version: str
+    basic_info: Union[BasicInfo, MockVideoObject, None]
+    config: Optional[MainDetectCfg]
+    type: str
+    anno_size: Optional[list[int]]
+    results: Union[list[SingleMDRecord], list[SingleImgRecord]]
 
 
 ########### ClipToolkit Dataclasses ################

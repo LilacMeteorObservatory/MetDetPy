@@ -1,10 +1,10 @@
 import argparse
 import json
 import time
-from typing import Any, Optional
+from typing import Optional
 
 import tqdm
-from easydict import EasyDict
+from dacite import from_dict
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
@@ -12,29 +12,30 @@ from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
 from MetLib.fileio import save_path_handler
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.metvisu import BaseVisuAttrs, OpenCVMetVisu, TextVisu, TextColorPair
+from MetLib.metstruct import MDRF, BinaryCfg, MainDetectCfg, ModelCfg
+from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
+                            TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (LIVE_MODE_SPEED_CTRL_CONST, NUM_CLASS, SWITCH2BOOL,
-                          VERSION, frame2time, frame2ts, mod_all_attrs_to_cfg,
-                          relative2abs_path)
+                          VERSION, frame2time, frame2ts, relative2abs_path)
 
 
 def detect_video(video_name: str,
                  mask_name: str,
-                 cfg: Any,
+                 cfg: MainDetectCfg,
                  debug_mode: bool = False,
                  visual_mode: bool = False,
                  work_mode: str = "frontend",
-                 time_range: tuple[Optional[int],
-                                   Optional[int]] = (None, None),
+                 time_range: tuple[Optional[str],
+                                   Optional[str]] = (None, None),
                  live_mode: bool = False,
-                 provider_key: Optional[str] = None) -> dict:
+                 provider_key: Optional[str] = None) -> MDRF:
     """The main API of MetDetPy, detecting meteors from the given video.
 
     Args:
         video_name (str): The path to the video file.
         mask_name (str): The path to the mask file.
-        cfg (Easydict): Configuration dict.
+        cfg (MainDetectCfg): Configuration dict.
         debug_mode (bool, optional): when applying debug mode, more details will be logged. Defaults to False.
         visual_mode (bool, optional): when applying visual mode, display a window showing the current detecting frames. Defaults to False.
         work_mode (str, optional): stdout stream working mode. Select from "backend" and "frontend". Defaults to "frontend".
@@ -46,12 +47,10 @@ def detect_video(video_name: str,
         dict: a dict that records detection config and results.
     """
     filled_provider_key = provider_key if provider_key else DEFAULT_STR
-    # 修改配置文件中所有调用model的对应键值：提供值否则填充默认值
-    # TODO: 是配置完全迁移到 dacite 前的兼容方案。迁移后，该行可能为非必要。
-    cfg = mod_all_attrs_to_cfg(cfg,
-                               "model",
-                               action="add",
-                               kwargs=dict(providers_key=filled_provider_key))
+    cfg.collector.recheck_cfg.model.providers_key = filled_provider_key
+    if isinstance(cfg.detector.cfg, ModelCfg):
+        cfg.detector.cfg.providers_key = filled_provider_key
+
     # set output mode
     set_default_logger(debug_mode, work_mode)
     logger = get_default_logger()
@@ -67,7 +66,7 @@ def detect_video(video_name: str,
         DetectorCls = get_detector(cfg.detector.name)
         resize_option = cfg.loader.resize
         exp_option = cfg.loader.exp_time
-        exp_upper_bound = cfg.loader.get("exp_upper_bound", None)
+        exp_upper_bound = cfg.loader.upper_bound
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
@@ -116,7 +115,7 @@ def detect_video(video_name: str,
         # Init meteor collector
         meteor_cfg = cfg.collector.meteor_cfg
         recheck_cfg = cfg.collector.recheck_cfg
-        positive_cfg = cfg.collector.get("positive_cfg", None)
+        positive_cfg = cfg.collector.positive_cfg
         recheck_loader = None
         if recheck_cfg.switch:
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
@@ -158,7 +157,6 @@ def detect_video(video_name: str,
         raise e
     # MAIN DETECTION PART
     t1 = time.time()
-    tot_iter_num = (end_frame - start_frame) // exp_frame
     tot_get_time = 0
     tot_wait_time = 0
     visu_info: list[BaseVisuAttrs] = []
@@ -168,7 +166,7 @@ def detect_video(video_name: str,
             # Logging for backend only.
             if work_mode == 'backend' and (
                 (i - start_frame) // exp_frame) % eq_int_fps == 0:
-                logger.processing(frame2time(i, fps))
+                logger.processing(str(frame2time(i, fps)))
             t2 = time.time()
             x = video_loader.pop()
             tot_get_time += (time.time() - t2)
@@ -208,7 +206,7 @@ def detect_video(video_name: str,
         if not visual_manager.manual_stop:
             logger.info('VideoLoader-stop detected.')
     except Exception as e:
-        logger.error(e)
+        logger.error(e.__repr__())
         raise e
     finally:
         video_loader.release()
@@ -220,11 +218,11 @@ def detect_video(video_name: str,
             logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
         logger.stop()
 
-    return dict(version=VERSION,
+    return MDRF(version=VERSION,
                 basic_info=video_info,
                 config=cfg,
                 type="prediction",
-                anno_size=video_info["resolution"],
+                anno_size=video_info.resolution,
                 results=meteor_collector.met_exporter.meteor_list)
 
 
@@ -325,7 +323,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     with open(args.cfg, mode='r', encoding='utf-8') as f:
-        cfg: Any = EasyDict(json.load(f))
+        cfg = from_dict(MainDetectCfg, json.load(f))
     # TODO: 添加对于cfg的格式检查
 
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
@@ -336,14 +334,14 @@ if __name__ == "__main__":
         cfg.loader.resize = args.resize
 
     # 与二值化有关的参数仅在使用直线型检测器时生效
-    if isinstance(get_loader(cfg.loader.name), LineDetector):
+    if isinstance(cfg.detector.cfg, BinaryCfg):
         if args.adaptive_thre:
-            cfg.detector.bi_cfg.adaptive_bi_thre = SWITCH2BOOL[
+            cfg.detector.cfg.binary.adaptive_bi_thre = SWITCH2BOOL[
                 args.adaptive_thre]
         if args.sensitivity:
             cfg.detector.cfg.binary.sensitivity = args.sensitivity
         if args.bi_thre:
-            cfg.detector.bi_cfg.init_value = args.bi_thre
+            cfg.detector.cfg.binary.init_value = args.bi_thre
 
     if args.recheck:
         cfg.collector.recheck_cfg.switch = SWITCH2BOOL[args.recheck]
@@ -365,4 +363,4 @@ if __name__ == "__main__":
     if args.save_path:
         save_path = save_path_handler(args.save_path, args.target, ext="json")
         with open(save_path, mode="w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
+            json.dump(result.to_dict(), f, ensure_ascii=False, indent=4)

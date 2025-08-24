@@ -26,6 +26,8 @@ from multiprocess import Process  # type: ignore
 from multiprocess import Queue as MQueue  # type: ignore
 from multiprocess import RawArray, freeze_support  # type: ignore
 
+from MetLib.metstruct import BasicInfo  # type: ignore
+
 from .fileio import load_mask
 from .metlog import get_default_logger
 from .utils import (MergeFunction, Transform, U8Mat, frame2time,
@@ -145,8 +147,17 @@ class BaseVideoLoader(metaclass=ABCMeta):
     def stopped(self) -> bool:
         pass
 
-    def summary(self) -> dict[str, Any]:
-        return dict(loader=self.__class__.__name__)
+    def summary(self) -> BasicInfo:
+        return BasicInfo(loader=self.__class__.__name__,
+                         video=None,
+                         mask=None,
+                         start_time=self.start_time,
+                         end_time=self.end_time,
+                         resolution=self.raw_size,
+                         runtime_resolution=self.runtime_size,
+                         exp_time=self.exp_time,
+                         total_frames=self.iterations,
+                         fps=self.fps)
 
     #### Video Basic Attributes ####
 
@@ -157,7 +168,7 @@ class BaseVideoLoader(metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def raw_size(self) -> Union[list[int], tuple[int, int]]:
+    def raw_size(self) -> list[int]:
         pass
 
     @property
@@ -392,20 +403,20 @@ class VanillaVideoLoader(BaseVideoLoader):
         return self.video.num_frames
 
     @property
-    def raw_size(self) -> Union[list[int], tuple[int, int]]:
+    def raw_size(self) -> list[int]:
         return self.video.size
 
-    def summary(self) -> dict[str, Any]:
-        return dict(loader=self.__class__.__name__,
-                    video=self.video_name,
-                    mask=self.mask_name,
-                    start_time=self.start_time,
-                    end_time=self.end_time,
-                    resolution=self.raw_size,
-                    runtime_resolution=self.runtime_size,
-                    exp_time=self.exp_time,
-                    total_frames=self.iterations,
-                    fps=self.fps)
+    def summary(self) -> BasicInfo:
+        return BasicInfo(loader=self.__class__.__name__,
+                         video=self.video_name,
+                         mask=self.mask_name,
+                         start_time=self.start_time,
+                         end_time=self.end_time,
+                         resolution=self.raw_size,
+                         runtime_resolution=self.runtime_size,
+                         exp_time=self.exp_time,
+                         total_frames=self.iterations,
+                         fps=self.fps)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__} summary:\n"+\

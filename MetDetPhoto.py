@@ -14,14 +14,16 @@
 import argparse
 import json
 import os
-from typing import Any, cast
-from numpy.typing import NDArray
+from typing import cast
+
 import cv2
 import numpy as np
 import tqdm
+from numpy.typing import NDArray
 
 from MetLib.fileio import load_8bit_image, load_mask, save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
+from MetLib.metstruct import MDRF, MockVideoObject, SingleImgRecord
 from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
@@ -44,16 +46,6 @@ CATE2COLOR_MAPPING: dict[str, ColorTuple] = {
     "RARE_SPRITE": (0, 0, 255),
     "SPACECRAFT": (255, 0, 255)
 }
-
-
-class MockVideoObject(object):
-
-    def __init__(self, raw_summary: dict[str, Any]) -> None:
-        self.raw_summary = raw_summary
-
-    def summary(self):
-        return self.raw_summary
-
 
 # 可视化参数组
 visu_param: list[BaseVisuAttrs] = [
@@ -162,7 +154,7 @@ model = YOLOModel(model_path,
                   multiscale_partition=args.partition)
 logger.start()
 valid_flag = False
-results: list[dict[str, Any]] = []
+results: list[SingleImgRecord] = []
 video = None
 try:
     if os.path.isdir(input_path):
@@ -178,10 +170,7 @@ try:
                                        visu_param_list=visu_param)
 
         # temp fix: mock video object
-        summary_dict = dict(video=None,
-                            image_folder=input_path,
-                            resolution=None)
-        video = MockVideoObject(summary_dict)
+        video = MockVideoObject(image_folder=input_path)
         for img_path in tqdm.tqdm(img_list):
             img = load_8bit_image(img_path)
             if img is None:
@@ -199,14 +188,17 @@ try:
                     logger.info('Manual interrupt signal detected.')
                     break
             if len(boxes) > 0:
-                results.append({
-                    "img_filename":
-                    img_path,
-                    "boxes": [list(map(int, x)) for x in boxes],
-                    "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds],
-                    "prob":
-                    [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
-                })
+                results.append(
+                    SingleImgRecord(boxes=[list(map(int, x)) for x in boxes],
+                                    preds=[
+                                        ID2NAME[int(np.argmax(pred))]
+                                        for pred in preds
+                                    ],
+                                    prob=[
+                                        f"{pred[int(np.argmax(pred))]:.2f}"
+                                        for pred in preds
+                                    ],
+                                    img_filename=img_path))
 
     elif os.path.isfile(input_path):
         suffix = input_path.split(".")[-1].lower()
@@ -214,10 +206,7 @@ try:
         if suffix in SUPPORT_IMG_FORMAT:
             # img mode
             # temp fix: mock video object
-            summary_dict = dict(video=None,
-                                image_folder=input_path,
-                                resolution=None)
-            video = MockVideoObject(summary_dict)
+            video = MockVideoObject(image_folder=input_path)
             img = load_8bit_image(input_path)
             if img is None:
                 raise ValueError(
@@ -229,14 +218,16 @@ try:
                                            flag=args.visu,
                                            visu_param_list=visu_param)
             boxes, preds = model.forward(img)
-            results = [{
-                "img_filename":
-                input_path,
-                "boxes": [list(map(int, x)) for x in boxes],
-                "preds": [ID2NAME[int(np.argmax(pred))] for pred in preds],
-                "prob":
-                [f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds]
-            }]
+
+            results = [
+                SingleImgRecord(
+                    boxes=[list(map(int, x)) for x in boxes],
+                    preds=[ID2NAME[int(np.argmax(pred))] for pred in preds],
+                    prob=[
+                        f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds
+                    ],
+                    img_filename=input_path)
+            ]
             print(boxes, preds)
             #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
@@ -263,16 +254,16 @@ try:
             for i in tqdm.tqdm(range(tot_frames)):
                 img = video.pop()
                 if img is None: continue
-                boxes, preds = model.forward(img)
+                boxes, probs = model.forward(img)
                 if args.visu:
                     visu_info = construct_visu_info(
-                        boxes, preds, watermark_text=f"{i}/{tot_frames} imgs")
+                        boxes, probs, watermark_text=f"{i}/{tot_frames} imgs")
                     visual_manager.display_a_frame(img, visu_info)
                     if visual_manager.manual_stop:
                         logger.info('Manual interrupt signal detected.')
                         break
                 # TODO: fix this in the future.
-                preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
+                preds = [ID2NAME[int(np.argmax(pred))] for pred in probs]
                 if args.exclude_noise:
                     selected_id = [
                         i for i, pred in enumerate(preds)
@@ -281,11 +272,15 @@ try:
                     boxes = [boxes[i] for i in selected_id]
                     preds = [preds[i] for i in selected_id]
                 if len(boxes) > 0:
-                    results.append({
-                        "num_frame": i,
-                        "boxes": [list(map(int, x)) for x in boxes],
-                        "preds": preds
-                    })
+                    results.append(
+                        SingleImgRecord(
+                            boxes=[list(map(int, x)) for x in boxes],
+                            preds=preds,
+                            prob=[
+                                f"{pred[int(np.argmax(pred))]:.2f}"
+                                for pred in probs
+                            ],
+                            num_frame=i))
         else:
             raise NotImplementedError(
                 f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_IMG_FORMAT}."
@@ -300,13 +295,14 @@ finally:
 
 # 保存结果
 if valid_flag and args.save_path and video is not None:
-    result_json = dict(version=VERSION,
-                       basic_info=video.summary(),
-                       type="image-prediction" if isinstance(
-                           video, MockVideoObject) else "timelapse-prediction",
-                       anno_size=video.summary()["resolution"],
-                       results=results)
+    fin_result = MDRF(version=VERSION,
+                      basic_info=video.summary(),
+                      config=None,
+                      type="image-prediction" if isinstance(
+                          video, MockVideoObject) else "timelapse-prediction",
+                      anno_size=video.summary().resolution,
+                      results=results)
     with open(save_path_handler(args.save_path, input_path, ext="json"),
               mode="w",
               encoding="utf-8") as f:
-        json.dump(result_json, f, ensure_ascii=False, indent=4)
+        json.dump(fin_result.to_dict(), f, ensure_ascii=False, indent=4)

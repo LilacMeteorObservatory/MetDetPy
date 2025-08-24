@@ -272,7 +272,7 @@ class TextVisu(BaseVisuAttrs):
 class OpenCVMetVisu(object):
 
     def __init__(self,
-                 exp_time: int,
+                 exp_time: float,
                  resolution: list[int],
                  flag: bool = True,
                  delay: int = DEFAULT_VISUAL_DELAY,
