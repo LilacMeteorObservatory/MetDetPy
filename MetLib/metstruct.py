@@ -5,7 +5,7 @@ metstruct 定义 MetDetPy 使用的结构化数据和相关解析方法。
 
 import dataclasses
 import datetime
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from dacite import from_dict
 
@@ -67,6 +67,7 @@ class DictAble(object):
         if isinstance(value, DictAble):
             return value.to_dict()
         if isinstance(value, (list, tuple)):
+            value = cast(list[Any], value)
             return [
                 v.to_dict() if isinstance(v, DictAble) else v for v in value
             ]
