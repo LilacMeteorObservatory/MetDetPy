@@ -66,7 +66,7 @@ class SNR_SW(SlidingWindow):
                                         force_int=True,
                                         calc_std=False)
 
-    def update(self, new_frame):
+    def update(self, new_frame: U8Mat):
         super().update(new_frame)
         self.sub_sw.update(self.get_subarea(new_frame))
         # TODO: 经验公式：当每隔std_interval计算一次时，标准差会存在偏大的情况。结果可除以sqrt(std_interval)以修正数据值。
@@ -76,17 +76,18 @@ class SNR_SW(SlidingWindow):
         # 每std_interval时间更新一次std
         if self.est_snr:
             if self.timer > self.n and self.timer % self.std_interval == 0:
-                self.noise_cur_value: np.floating = np.std(
+                self.noise_cur_value = np.std(
                     self.sub_sw.sliding_window -
                     np.array(self.sub_sw.mean, dtype=float))
                 self.noise_ema.update(self.noise_cur_value)
             elif 1 < self.timer <= self.n:
-                self.noise_cur_value: np.floating = np.std(
+                self.noise_cur_value = np.std(
                     self.sub_sw.sliding_window[:self.timer] -
                     np.array(self.sub_sw.mean, dtype=float))
                 self.noise_ema.update(self.noise_cur_value)
 
-    def select_subarea(self, mask, area: float) -> Callable:
+    def select_subarea(self, mask: U8Mat,
+                       area: float) -> Callable[[U8Mat], U8Mat]:
         """用于选择一个尽量好的子区域评估STD。
 
         Args:
@@ -141,7 +142,7 @@ class BaseDetector(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def update(self, new_frame) -> None:
+    def update(self, new_frame:U8Mat) -> None:
         pass
 
     @abstractmethod

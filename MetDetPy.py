@@ -59,7 +59,6 @@ def detect_video(video_name: str,
     # initialization
     try:
         t0 = time.time()
-
         # parse preprocessing params
         VideoLoaderCls = get_loader(cfg.loader.name)
         VideoWrapperCls = get_wrapper(cfg.loader.wrapper)
@@ -151,6 +150,7 @@ def detect_video(video_name: str,
         if work_mode == 'frontend':
             main_iterator = tqdm.tqdm(main_iterator, ncols=100)
     except Exception as e:
+        logger.error(e.__repr__())
         logger.error(
             'Fatal error occured when initializing. MetDetPy will exit.')
         logger.stop()

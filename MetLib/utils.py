@@ -56,6 +56,13 @@ COLOR_MAP = {
     "yellow": (0, 255, 255)
 }
 
+PLATFORM_MAPPING = {
+    "win32": "win",
+    "cygwin": "win",
+    "darwin": "macos",
+    "linux2": "linux",
+    "linux": "linux"
+}
 
 def pt_len_sqr(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
                                                              FloatMat]):
@@ -346,7 +353,8 @@ class EMA(object):
         self.t = 0
         self.warmup_speed = warmup_speed
 
-    def update(self, value: Union[U8Mat, int, float]) -> None:
+    def update(self, value: Union[U8Mat, int, float,
+                                  np.floating[Any]]) -> None:
         if self.warmup_speed:
             self.adjust_weight()
         self.cur_value = self.cur_momentum * self.cur_value + (

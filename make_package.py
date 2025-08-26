@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 from typing import Union
 
-from MetLib.utils import PROJECT_NAME, VERSION
+from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
 
 # alias
 join_path = os.path.join
@@ -68,15 +68,6 @@ def file_to_zip(path_original: str, z: zipfile.ZipFile):
     for f in f_list:
         z.write(f, str(f)[len(path_original):])
 
-
-platform_mapping = {
-    "win32": "win",
-    "cygwin": "win",
-    "darwin": "macos",
-    "linux2": "linux",
-    "linux": "linux"
-}
-
 argparser = argparse.ArgumentParser()
 
 argparser.add_argument("--tool",
@@ -115,7 +106,7 @@ apply_zip = args.apply_zip
 
 # 根据平台/版本决定确定编译/打包后的程序后缀
 
-platform = platform_mapping[sys.platform]
+platform = PLATFORM_MAPPING[sys.platform]
 exec_suffix = ""
 if (platform == "win"):
     exec_suffix = ".exe"
