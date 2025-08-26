@@ -12,6 +12,7 @@ import av
 import av.error
 import cv2
 from cv2.typing import MatLike
+import os
 
 from .utils import frame2time, time2frame
 
@@ -172,9 +173,17 @@ class PyAVVideoWrapper(BaseVideoWrapper):
     """
 
     def __init__(self, video_name: str) -> None:
-        self.container = av.open(video_name)
+        self.container = av.open(video_name,
+                                 options={'threads': str(os.cpu_count())})
         self.video = self.container.streams.video[0]
-        self.color_fmt = None
+        self.video.thread_type = "FRAME"
+
+    @property
+    def num_frames_by_container(self):
+        # serve as a provision.
+        if self.container.duration is None:
+            return 0
+        return int(self.container.duration / 1e6 * self.fps)
 
     @property
     def fps(self):
@@ -187,7 +196,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
     @property
     def num_frames(self):
-        return self.video.frames
+        return self.video.frames if self.video.frames != 0 else self.num_frames_by_container
 
     @property
     def size(self):

@@ -339,7 +339,8 @@ class VanillaVideoLoader(BaseVideoLoader):
         if end_frame != None:
             self.end_frame = min(end_frame, self.video_total_frames)
         assert 0 <= self.start_frame < self.end_frame, ValueError(
-            "Invalid start time or end time.")
+            f"Invalid start time or end time: got {self.start_frame} and {self.end_frame}."
+        )
 
         if exp_frame != None:
             self.exp_frame = exp_frame
