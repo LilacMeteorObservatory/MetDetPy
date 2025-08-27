@@ -27,7 +27,6 @@ from os.path import split as path_split
 from typing import Any, Optional, cast
 
 import cv2
-from dacite import from_dict
 
 from MetLib import *
 from MetLib.fileio import (change_file_path, is_ext_with, load_8bit_image,
@@ -89,10 +88,7 @@ def jsonsf2request(json_str: str):
     else:
         data = json.loads(json_str)
     assert isinstance(data, list), "Json must be a list!"
-    return [
-        from_dict(data_class=ClipRequest, data=req).to_video_data()
-        for req in data
-    ]
+    return [ClipRequest.from_dict(req).to_video_data() for req in data]
 
 
 def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
@@ -120,7 +116,7 @@ def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
             raise FileNotFoundError(
                 f"{target_name} can not be opened as a file.")
 
-        mdrf_data = from_dict(data_class=MDRF, data=raw_data)
+        mdrf_data = MDRF.from_dict(raw_data)
         video_name = mdrf_data.basic_info.video
         data = mdrf_data.results
         # 根据 MDRF 类型分流处理
@@ -299,7 +295,7 @@ def main():
                            help="apply debug mode.")
 
     args = argparser.parse_args()
-    
+
     t0 = time.time()
     # basic option
     cfg_json_path, mode, default_suffix, save_path, debug_mode  = \
@@ -311,7 +307,7 @@ def main():
     # 获取，同步从命令行获取的配置
     with open(cfg_json_path, mode='r', encoding='utf-8') as f:
         cfg_json = json.load(f)
-    clip_cfg = from_dict(data_class=ClipCfg, data=cfg_json)
+    clip_cfg = ClipCfg.from_dict(cfg_json)
     update_cfg_from_args(clip_cfg, args)
 
     denoise_cfg = clip_cfg.image_denoise
@@ -452,6 +448,7 @@ def main():
     finally:
         logger.debug(f"Time cost: {(time.time()-t0):.2f}s.")
         logger.stop()
+
 
 if __name__ == "__main__":
     main()

@@ -3,25 +3,30 @@ import json
 import os
 import threading
 import time
-from typing import Any
-
+from typing import Any, Callable, TypeVar, Union
+from numpy.typing import NDArray
 import numpy as np
 import psutil
-from easydict import EasyDict
 
 from MetDetPy import detect_video
 from MetLib.fileio import save_path_handler
-from MetLib.MeteorLib import MetExporter
-from MetLib.utils import (NAME2ID, NUM_CLASS, VERSION, calculate_area_iou,
-                          met2xyxy, relative2abs_path, ts2frame)
+from MetLib.metstruct import (MDRF, BasicInfo, MainDetectCfg, MDTarget,
+                              MockVideoObject, SingleMDRecord)
+from MetLib.utils import (NAME2ID, NUM_CLASS, calculate_area_iou, met2xyxy,
+                          relative2abs_path)
 from MetLib.videowrapper import OpenCVVideoWrapper
 
+T = TypeVar("T")
 
-class MockExporter(object):
-    def __init__(self, raw_size):
-        self.raw_size=raw_size
 
-def monitor_performance(func, args: list, kwargs: dict, interval=0.5) -> tuple:
+def scale(x: list[int], scaler: list[float]):
+    return [int(i * s) for (i, s) in zip(x, scaler)]
+
+
+def monitor_performance(func: Callable[..., T],
+                        args: list[Any],
+                        kwargs: dict[str, Any],
+                        interval: float = 0.5) -> tuple[dict[str, float], T]:
     """运行给定的函数，并统计运行期间的CPU和内存开销。
 
     Args:
@@ -35,8 +40,8 @@ def monitor_performance(func, args: list, kwargs: dict, interval=0.5) -> tuple:
     """
     process = psutil.Process()
     start_time = time.time()
-    cpu_samples = []
-    memory_samples = []
+    cpu_samples: list[float] = []
+    memory_samples: list[float] = []
 
     # 定义采样线程
     def sample():
@@ -79,8 +84,8 @@ def monitor_performance(func, args: list, kwargs: dict, interval=0.5) -> tuple:
     return stats, result
 
 
-def get_regularized_results(result_dict,
-                            video: OpenCVVideoWrapper) -> list[dict]:
+def get_regularized_results(result_dict: MDRF,
+                            video: OpenCVVideoWrapper) -> list[MDTarget]:
     """从报告结果生成真实尺寸和帧时间表示下的结果列表.
 
     主要涉及到尺寸重放缩与时间戳转换
@@ -92,28 +97,26 @@ def get_regularized_results(result_dict,
         list[dict]: _description_
     """
     real_size = video.size
-    fps = video.fps
 
-    anno_size = getattr(result_dict, "anno_size", None)
-    results = getattr(result_dict, "results", None)
+    anno_size = result_dict.anno_size
+    results = result_dict.results
     assert anno_size != None and results != None, \
             "Metrics can only be applied when \"anno_size\" and \"results\" are provided!"
-    if len(results) > 0 and results[0].get("target", None):
-        results = [target for x in results for target in x["target"]]
+    results_flatten = [
+        target for x in results if isinstance(x, SingleMDRecord)
+        for target in x.target
+    ]
     ax, ay = anno_size
     dx, dy = real_size
-    scaler = dx / ax, dy / ay
-    scale = lambda x: [i * s for (i, s) in zip(x, scaler)]
+    scaler = [dx / ax, dy / ay]
 
-    for single_anno in results:
-        single_anno["pt1"] = scale(single_anno["pt1"])
-        single_anno["pt2"] = scale(single_anno["pt2"])
-        single_anno["start_frame"] = ts2frame(single_anno["start_time"], fps)
-        single_anno["end_frame"] = ts2frame(single_anno["end_time"], fps)
-    return results
+    for single_anno in results_flatten:
+        single_anno.pt1 = scale(single_anno.pt1, scaler)
+        single_anno.pt2 = scale(single_anno.pt2, scaler)
+    return results_flatten
 
 
-def calculate_time_iou(met_a, met_b):
+def calculate_time_iou(met_a: MDTarget, met_b: MDTarget):
     """计算时间ioU.
 
     Args:
@@ -123,13 +126,14 @@ def calculate_time_iou(met_a, met_b):
     Returns:
         _type_: _description_
     """
-    if (met_a["start_frame"]
-            >= met_b["end_frame"]) or (met_a["end_frame"]
-                                       <= met_b["start_frame"]):
+    #last_activate_frame
+    if (met_a.start_frame
+            >= met_b.last_activate_frame) or (met_a.last_activate_frame
+                                              <= met_b.start_frame):
         return 0
     t = sorted([
-        met_a["start_frame"], met_a["end_frame"], met_b["start_frame"],
-        met_b["end_frame"]
+        met_a.start_frame, met_a.last_activate_frame, met_b.start_frame,
+        met_b.last_activate_frame
     ],
                reverse=True)
     return (t[1] - t[2]) / (t[0] - t[3])
@@ -139,7 +143,7 @@ def compare_with_annotation():
     pass
 
 
-def print_confusion_matrix(matrix, labels):
+def print_confusion_matrix(matrix: NDArray[np.int_], labels: list[str]):
     """
     打印混淆矩阵的纯文本表格
     Args:
@@ -170,11 +174,11 @@ def print_confusion_matrix(matrix, labels):
 
 
 def compare(video: OpenCVVideoWrapper,
-            base_dict,
-            new_dict,
-            pos_thre=0.5,
-            tiou=0.3,
-            aiou=0.3) -> dict:
+            base_dict: MDRF,
+            new_dict: MDRF,
+            pos_thre: float = 0.5,
+            tiou: float = 0.3,
+            aiou: float = 0.3) -> MDRF:
     """比较两个结果。
 
     与其他运行结果比较：
@@ -206,33 +210,29 @@ def compare(video: OpenCVVideoWrapper,
     base_results = get_regularized_results(base_dict, video)
     new_results = get_regularized_results(new_dict, video)
 
-    mismatch_collection = []
-    mock_exporter = MockExporter(new_dict.anno_size)
+    mismatch_collection: list[MDTarget] = []
 
     # 主要指标
     # True Positive / False Positive（误报） / False Negative（漏报）
-    tp, fp, fn = 0, 0, 0
+    tp, fp = 0, 0
     gt_id = 0
     end_flag = False
 
-    tp_list = []
-    fp_list = []
-    fn_list = []
     confusion_matrix = np.zeros((NUM_CLASS + 1, NUM_CLASS + 1), dtype=np.int16)
 
-    matched_pair_list = []
+    matched_pair_list: list[tuple[int, int]] = []
     matched_id = np.zeros((len(base_results), ), dtype=bool)
 
     # 正样本阈值：默认0.5
     # 匹配要求：TIoU threshold=0.3(??) & IoU threshold=0.3 且具有唯一性(?)
     for i, instance in enumerate(new_results):
         # 只在与Ground Truth对比时需要过滤非置信（得分低于正样本阈值）的预测
-        if gt_mode and instance["score"] <= pos_thre:
+        if gt_mode and instance.score <= pos_thre:
             continue
 
         # 向后更新gt_id
         # move gt_id to the next possible match
-        while instance["start_time"] >= base_results[gt_id]["end_time"]:
+        while instance.start_time >= base_results[gt_id].end_time:
             gt_id += 1
             if gt_id == len(base_results):
                 end_flag = True
@@ -243,32 +243,32 @@ def compare(video: OpenCVVideoWrapper,
         # 为当前instance向后查找是否存在匹配
         match_flag = False
         cur_id = gt_id
-        while instance["end_time"] >= base_results[cur_id]["start_time"]:
+        while instance.end_time >= base_results[cur_id].start_time:
             if matched_id[cur_id] == 0 \
                 and (calculate_time_iou(instance,base_results[cur_id]) >= tiou) \
-                and calculate_area_iou(met2xyxy(instance), met2xyxy(base_results[cur_id])) >= aiou:
+                and calculate_area_iou(met2xyxy(instance.to_dict()), met2xyxy(base_results[cur_id].to_dict())) >= aiou:
                 # TEMP FIX: 向前兼容v2.1.0的标注，低置信度转DROPPED进行判定。
-                if base_results[cur_id].get("score", 1) <= pos_thre:
-                    base_results[cur_id]["category"] = "DROPPED"
-                base_category = base_results[cur_id].get("category", "METEOR")
+                if base_results[cur_id].score <= pos_thre:
+                    base_results[cur_id].category = "DROPPED"
+                base_category = base_results[cur_id].category
                 # 兼容。。。
                 if base_category == "UNKNOWN_AREA":
                     base_category = "OTHERS"
-                confusion_matrix[NAME2ID[instance["category"]],
+                confusion_matrix[NAME2ID[instance.category],
                                  NAME2ID[base_category]] += 1
-                if NAME2ID[instance["category"]] != NAME2ID[base_category]:
-                    mismatch_collection.append(MetExporter.init_output_dict(mock_exporter,instance))
+                if NAME2ID[instance.category] != NAME2ID[base_category]:
+                    mismatch_collection.append(instance)
                 match_flag = True
                 tp += 1
                 matched_id[cur_id] = 1
-                matched_pair_list.append([i, cur_id])
+                matched_pair_list.append((i, cur_id))
                 break
             cur_id += 1
             if cur_id == len(base_results):
                 match_flag = False
                 break
         if not match_flag:
-            confusion_matrix[NAME2ID[instance["category"]], -1] += 1
+            confusion_matrix[NAME2ID[instance.category], -1] += 1
             fp += 1
 
     new_predict_num = len(new_results)
@@ -278,7 +278,7 @@ def compare(video: OpenCVVideoWrapper,
     fn_num = old_predict_num - tp_num
     tn_num = new_predict_num - tp_num
 
-    compare_result = {
+    compare_result: dict[str, Union[int, float]] = {
         "matched_num":
         tp_num,
         "new_predict_num":
@@ -299,7 +299,11 @@ def compare(video: OpenCVVideoWrapper,
 
     import copy
     return_dict = copy.deepcopy(new_dict)
-    return_dict["results"] = mismatch_collection
+    assert new_dict.anno_size is not None, "Invalid anno size..."
+    return_dict.results = [
+        SingleMDRecord.from_target(x, new_dict.anno_size)
+        for x in mismatch_collection
+    ]
     return return_dict
 
     #print(
@@ -309,44 +313,15 @@ def compare(video: OpenCVVideoWrapper,
     #print(np.array(gt_meteors)[matched_id==0][:10])
 
 
-def generate_result(video, raw_basic_info, cfg, performance,
-                    results: list) -> EasyDict:
-    """根据检测结果生成报告字典。
-
-    Args:
-        results (list): _description_
-
-    Returns:
-        dict: _description_
-    """
-    # 构造结果信息中的基础部分
-    result_basic_info = raw_basic_info
-    if not result_basic_info.get("fps", None):
-        result_basic_info.fps = video.fps
-    if not result_basic_info.get("desc", None):
-        result_basic_info.desc = "待检测视频的基础信息 | Basic infomation about the video"
-    # 补充performance部分
-    performance["desc"] = "硬件指标 | Hardware performance"
-    performance["cpu_core"] = psutil.cpu_count(logical=True)
-    # TODO: 调用接口获取的分辨率仍然是960x540下的。这个需要在未来更正。紧急！
-    return EasyDict(
-        version=VERSION,
-        basic_info=result_basic_info,
-        config=cfg,
-        performance=performance,
-        type="prediction",
-        anno_size=[960, 540],  #video.size,
-        results=results)
-
-
-def generate_full_result(results, performance):
+def generate_full_result(results: MDRF,
+                         performance: dict[str, Union[float, str, None]]):
     # 补充必要信息
-    results["basic_info"][
-        "desc"] = "待检测视频的基础信息 | Basic infomation about the video"
+    assert isinstance(results.basic_info, BasicInfo), "Invalid basic info!"
+    results.basic_info.desc = "待检测视频的基础信息 | Basic infomation about the video"
     performance["desc"] = "硬件指标 | Hardware performance"
     performance["cpu_core"] = psutil.cpu_count(logical=True)
-    results["performance"] = performance
-    return EasyDict(results)
+    results.performance = performance
+    return results
 
 
 def main():
@@ -393,64 +368,55 @@ def main():
     args = parser.parse_args()
 
     ## Load video and config
-    with open(args.json, mode='r', encoding='utf-8') as f:
-        video_dict: Any = EasyDict(json.load(f))
-
-    with open(args.cfg, mode='r', encoding='utf-8') as f:
-        cfg = EasyDict(json.load(f))
-
+    video_dict = MDRF.from_json_file(args.json)
+    cfg = MainDetectCfg.from_json_file(args.cfg)
+    # 暂时不支持比对图像检测结果。
+    if video_dict.basic_info is None or isinstance(video_dict.basic_info,
+                                                   MockVideoObject):
+        return
     video_name = video_dict.basic_info.video
     mask_name = video_dict.basic_info.mask
     start_time = video_dict.basic_info.start_time
     end_time = video_dict.basic_info.end_time
 
     # 对于json文件放置在video/mask同路径下的，使用共享的相对路径
-    shared_path = os.path.split(args.json)[0]
+    shared_path: str = os.path.split(args.json)[0]
     if os.path.split(video_name)[0] == "":
         video_name = os.path.join(shared_path, video_name)
         video_dict.basic_info.video = video_name
-    if (mask_name != "") and (os.path.split(mask_name)[0] == ""):
+    if (mask_name) and (os.path.split(mask_name)[0] == ""):
         mask_name = os.path.join(shared_path, mask_name)
         video_dict.basic_info.mask = mask_name
 
     video = OpenCVVideoWrapper(video_name)
     try:
         if args.load:
-            with open(args.load, mode='r', encoding="utf-8") as f:
-                new_result = EasyDict(json.load(f))
+            new_result = MDRF.from_json_file(args.load)
         else:
             performance, results = monitor_performance(
                 detect_video, [video_name, mask_name, cfg, args.debug],
                 dict(work_mode="frontend",
                      time_range=(str(start_time), str(end_time))))
-            if isinstance(results, list):
-                # version<=2.1.0 返回值为list，整理以生成完整报告
-                new_result = generate_result(
-                    video,
-                    raw_basic_info=video_dict.basic_info,
-                    cfg=cfg,
-                    performance=performance,
-                    results=results)
-            elif isinstance(results, dict):
-                # 为version>=2.1.1补充performance信息
-                new_result = generate_full_result(results, performance)
-            else:
-                raise NotImplementedError(
-                    f"not support result type: {results.type}!")
+            # 补充performance信息
+            new_result = generate_full_result(results,
+                                              performance)  # type: ignore
             if args.save_path:
                 # List of predictions
                 save_path = save_path_handler(args.save_path,
                                               video_name,
                                               ext="json")
                 with open(save_path, mode='w', encoding="utf-8") as f:
-                    json.dump(new_result, f, ensure_ascii=False, indent=4)
+                    json.dump(new_result.to_dict(),
+                              f,
+                              ensure_ascii=False,
+                              indent=4)
 
         if args.metric:
             mismatch = compare(video,
                                base_dict=video_dict,
                                new_dict=new_result)
             with open("mismatch.json", mode="w", encoding="utf-8") as f:
-                json.dump(mismatch, f, ensure_ascii=False, indent=4)
+                json.dump(mismatch.to_dict(), f, ensure_ascii=False, indent=4)
     finally:
         video.release()
 

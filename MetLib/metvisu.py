@@ -145,7 +145,7 @@ class DrawVisuAttrs(BaseVisuAttrs):
 @dataclasses.dataclass
 class SquareColorPair(object):
     dot_pair: tuple[list[int], list[int]]
-    color: Union[ColorTuple, str, None] = None
+    color: Union[tuple[int, ...], ColorTuple, str, None] = None
     thickness: Optional[int] = None
 
     def sync(self, src: DrawRectVisu):
@@ -182,7 +182,7 @@ class DrawRectVisu(DrawVisuAttrs):
 @dataclasses.dataclass
 class DotColorPair(object):
     dot: tuple[int, int]
-    color: Union[ColorTuple, str, None]
+    color: Union[tuple[int, ...], ColorTuple, str, None]
     radius: Optional[int] = None
 
     def sync(self, src: DrawCircleVisu):
@@ -202,7 +202,7 @@ class DrawCircleVisu(DrawVisuAttrs):
     dot_list: Union[list[DotColorPair], LAZY_FLAG] = AS_INPUT
     radius: Union[int, None] = None
     sync_attributes: list[str] = dataclasses.field(
-        default_factory=lambda: ["color", "thickness","radius"])
+        default_factory=lambda: ["color", "thickness", "radius"])
 
     def render(self, src_img: U8Mat, scaler: tuple[float, float]):
         if self.dot_list == AS_INPUT or self.thickness is None:

@@ -21,13 +21,17 @@
             "bi_sigma_space": 6
         },
         "mfnr_param": {
-            "bg_algorithm":"mean",
+            "bg_algorithm": "mean",
             "sigma_high": 3.0,
             "sigma_low": 3.0,
             "bg_fix_factor": 1.5
         }
     },
     "export": {
+        "positive_category_list": [
+            "METEOR",
+            "RED_SPRITE"
+        ],
         "exclude_category_list": [],
         "with_bbox": false,
         "with_annotation": false,

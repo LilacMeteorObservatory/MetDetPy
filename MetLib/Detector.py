@@ -13,12 +13,13 @@ BaseDetector(ABC)--|                |--M3Detector
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, cast, Sequence
 
 import cv2
 import numpy as np
 
-from MetLib.metstruct import BinaryCfg
+from MetLib.metlog import BaseMetLog
+from MetLib.metstruct import BinaryCfg, DLCfg
 
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
@@ -138,15 +139,15 @@ class BaseDetector(metaclass=ABCMeta):
     """
 
     @abstractmethod
-    def __init__(self, *args) -> None:
+    def __init__(self, *args: Any) -> None:
         pass
 
     @abstractmethod
-    def update(self, new_frame:U8Mat) -> None:
+    def update(self, new_frame: U8Mat) -> None:
         pass
 
     @abstractmethod
-    def detect(self):
+    def detect(self) -> tuple[Sequence[list[int]], Sequence[list[np.float64]]]:
         pass
 
     def visu(self) -> list[BaseVisuAttrs]:
@@ -170,7 +171,7 @@ class LineDetector(BaseDetector):
     动态间隔
     """
     # version I
-    sensitivity_func = {
+    sensitivity_func: dict[str, Callable[[float], float]] = {
         #"low": lambda x: 1.5 * x**2 + 4.2, # TODO:not sure, unstable update, needs more sample to validate.
         "low": lambda x: 2.0 * x**2 + 4.4,
         "normal": lambda x: 1.2 * x**2 + 3.6,
@@ -179,7 +180,8 @@ class LineDetector(BaseDetector):
     abs_sensitivity = {"high": 3, "normal": 5, "low": 7}
     cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-    def __init__(self, window_sec, fps, mask, num_cls, cfg: BinaryCfg, logger):
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         self.mask = mask
         self.num_cls = num_cls
         self.logger = logger
@@ -216,10 +218,10 @@ class LineDetector(BaseDetector):
 
         self.visu_param = []
 
-    def detect(self) -> tuple[list, list]:
+    def detect(self) -> tuple[list[list[int]], list[list[np.float64]]]:
         return [], []
 
-    def update(self, new_frame: np.ndarray):
+    def update(self, new_frame: U8Mat):
         self.stack.update(new_frame)
         if self.bi_cfg.adaptive_bi_thre and (self.stack.snr != 0):
             self.bi_threshold_float = self.std2thre(self.stack.snr)
@@ -228,7 +230,7 @@ class LineDetector(BaseDetector):
     def visu(self):
         return super().visu()
 
-    def calculate_dy_mask(self, act):
+    def calculate_dy_mask(self, act: U8Mat):
         # if "dynamic_mask" is applied, stack and mask dst
         self.dy_mask_list.update(act)
         # TODO: 进一步使Dy_mask稳定作用在持续产生响应的区域，并提供可调整的阈值。
@@ -245,7 +247,8 @@ class ClassicDetector(LineDetector):
     '''
     classic_max_size = 4
 
-    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         # 4帧窗口（硬编码）
         window_sec = self.classic_max_size / fps
         super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
@@ -257,10 +260,10 @@ class ClassicDetector(LineDetector):
         sw = self.stack.sliding_window
         # 短于4帧时不进行判定
         if self.stack.timer < self.stack_maxsize:
-            return [], sw[id3]
+            return super().detect()
 
         # 差分2,3帧，二值化，膨胀（高亮为有差异部分）
-        diff23 = cv2.absdiff(sw[id2], sw[id3])
+        diff23 = cast(U8Mat, cv2.absdiff(sw[id2], sw[id3]))
         _, diff23 = cv2.threshold(diff23, self.bi_threshold, 255,
                                   cv2.THRESH_BINARY)
         diff23 = 255 - cv2.dilate(diff23, self.cv_op)  # type: ignore
@@ -282,13 +285,13 @@ class ClassicDetector(LineDetector):
                                       minLineLength=self.hough_cfg.min_len,
                                       maxLineGap=self.hough_cfg.max_gap)
 
-        self.linesp = [] if self.linesp is None else self.linesp[0]
+        self.linesp_ext: Sequence[list[int]] = [] if self.linesp is None else self.linesp[:, 0, :]
         # TODO:
         # 1. Classic Detector的可视化接口尚未实现
         # 2. ClassicDetector的输出统一为METEOR判定。可能需要考虑逻辑是否会变更。
-        cls_pred = np.zeros((len(self.linesp), self.num_cls))
+        cls_pred = np.zeros((len(self.linesp_ext), self.num_cls))
         cls_pred[:, 0] = 1
-        return self.linesp, cls_pred
+        return self.linesp_ext, cls_pred
 
     def visu(self):
         raise NotImplementedError
@@ -312,7 +315,8 @@ class M3Detector(LineDetector):
         _type_: _description_
     """
 
-    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
         self.visu_param: list[BaseVisuAttrs] = [
             DrawRectVisu("results", color="orange"),
@@ -325,7 +329,7 @@ class M3Detector(LineDetector):
             TextVisu("lines_warning", position="left-top", color="red")
         ]
 
-    def detect(self) -> tuple:
+    def detect(self):
         # Preprocessing
         # Mainly calculate diff_img (which basically equals to max-mid)
         light_img = self.stack.max
@@ -343,8 +347,7 @@ class M3Detector(LineDetector):
         if self.dynamic_cfg.dy_mask:
             dst = self.calculate_dy_mask(dst)
 
-        self.dst_sum = np.sum(
-            dst / 255.) / self.mask_area * 100  # type: ignore
+        self.dst_sum = cast(float,np.sum(dst / 255.) / self.mask_area * 100)
         gap = max(
             0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
@@ -355,14 +358,14 @@ class M3Detector(LineDetector):
                                  threshold=self.hough_cfg.threshold,
                                  minLineLength=self.hough_cfg.min_len,
                                  maxLineGap=gap)
-        linesp = np.array([]) if linesp is None else linesp[:, 0, :]
+        linesp_ext = np.array([]) if linesp is None else linesp[:, 0, :]
 
         # 如果产生的响应数目非常多，忽略该帧
         # TODO: 会造成无法响应面积式的现象。需要调整。
         # 下调了阈值以提升面积召回。更合理的版本：
-        self.lines_num = len(linesp)
+        self.lines_num = len(linesp_ext)
         if self.lines_num > NUM_LINES_TOOMUCH:
-            linesp = np.array([])
+            linesp_ext = np.array([])
 
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
         # 这一步骤会造成一些暗弱流星的丢失。
@@ -380,13 +383,13 @@ class M3Detector(LineDetector):
 
         # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
         # TODO: 重整类别格式，前置NMS
-        self.linesp = linesp
+        self.linesp_ext = linesp_ext
         self.dst = dst
         # NMS
         # Another TODO: 不确定是否会产生额外的性能开销。
-        if len(linesp) > 0:
-            linesp, nonline_probs = lineset_nms(linesp)
-            self.filtered_line_num = len(linesp)
+        if len(linesp_ext) > 0:
+            linesp_ext, nonline_probs = lineset_nms(linesp_ext)
+            self.filtered_line_num = len(linesp_ext)
             cls_pred = np.zeros((self.filtered_line_num, self.num_cls))
             # -1 为OTHERS 所以实际上需要约定该值为OTHERS。
             cls_pred[:, -1] = nonline_probs
@@ -394,7 +397,7 @@ class M3Detector(LineDetector):
         else:
             self.filtered_line_num = 0
             cls_pred = np.zeros((0, self.num_cls))
-        return linesp, cls_pred
+        return linesp_ext, cls_pred
 
     def visu(self):
         """ 返回可视化时的所需实际参数，需要与visu_param对应。
@@ -464,7 +467,8 @@ class DiffAreaGuidingDetecor(BaseDetector):
         BaseDetector (_type_): _description_
     """
 
-    def __init__(self, window_sec, fps, mask, num_cls, cfg, logger):
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
         self.visu_param: list[BaseVisuAttrs] = [
             ImgVisuAttrs("mix_bg", weight=1),
@@ -472,7 +476,7 @@ class DiffAreaGuidingDetecor(BaseDetector):
             TextVisu("cur_emo_value", position="left-top", color="green")
         ]
 
-    def update(self, new_frame) -> None:
+    def update(self, new_frame:U8Mat) -> None:
         self.cur_frame = new_frame
 
     def post_update(self) -> None:
@@ -513,7 +517,8 @@ class MLDetector(BaseDetector):
         BaseDetector (_type_): _description_
     """
 
-    def __init__(self, window_sec, mask, fps, num_cls, cfg, logger) -> None:
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: DLCfg, logger: BaseMetLog):
         # stack
         self.mask = mask
         self.num_cls = num_cls
@@ -526,13 +531,13 @@ class MLDetector(BaseDetector):
         self.model = init_model(cfg.model, logger=self.logger)
         self.visu_param = [DrawRectVisu("results", color="orange")]
 
-    def update(self, new_frame) -> None:
+    def update(self, new_frame:U8Mat) -> None:
         self.stack.update(new_frame)
 
     def detect(self):
         self.result_pos, self.result_cls = self.model.forward(self.stack.max)
         if len(self.result_pos) == 0:
-            return [], []
+            return super().detect()
         return self.result_pos, expand_cls_pred(self.result_cls)
 
     def visu(self):

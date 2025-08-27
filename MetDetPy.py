@@ -4,7 +4,6 @@ import time
 from typing import Optional
 
 import tqdm
-from dacite import from_dict
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
@@ -12,12 +11,13 @@ from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
 from MetLib.fileio import save_path_handler
 from MetLib.MeteorLib import MeteorCollector
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.metstruct import MDRF, BinaryCfg, MainDetectCfg, ModelCfg
+from MetLib.metstruct import MDRF, BinaryCfg, ClipCfg, MainDetectCfg, ModelCfg, RuntimeParams
 from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
-from MetLib.utils import (LIVE_MODE_SPEED_CTRL_CONST, NUM_CLASS, SWITCH2BOOL,
-                          VERSION, frame2time, frame2ts, relative2abs_path)
+from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
+                          NUM_CLASS, SWITCH2BOOL, VERSION, frame2time,
+                          frame2ts, relative2abs_path)
 
 
 def detect_video(video_name: str,
@@ -75,6 +75,10 @@ def detect_video(video_name: str,
             assert not grayscale, "Require grayscale OFF when using subclass of LineDetector."
         else:
             raise NotImplementedError("Detector not ready to use.")
+
+        # Load global config
+        global_config = ClipCfg.from_json_file(CLIP_CONFIG_PATH)
+
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         video_loader = VideoLoaderCls(VideoWrapperCls,
@@ -92,9 +96,16 @@ def detect_video(video_name: str,
 
         # get properties from VideoLoader
         start_frame, end_frame = video_loader.start_frame, video_loader.end_frame
-        fps, exp_frame, eq_fps, eq_int_fps, exp_time = (
-            video_loader.fps, video_loader.exp_frame, video_loader.eq_fps,
-            video_loader.eq_int_fps, video_loader.exp_time)
+
+        rt_param = RuntimeParams(
+            fps=video_loader.fps,
+            exp_frame=video_loader.exp_frame,
+            eq_fps=video_loader.eq_fps,
+            eq_int_fps=video_loader.eq_int_fps,
+            exp_time=video_loader.exp_time,
+            runtime_size=video_loader.runtime_size,
+            raw_size=video_loader.raw_size,
+            positive_category_list=global_config.export.positive_category_list)
 
         logger.info(
             f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
@@ -105,16 +116,14 @@ def detect_video(video_name: str,
         # Init detector
         cfg_det = cfg.detector
         detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
-                                             fps=eq_fps,
+                                             fps=rt_param.eq_fps,
                                              mask=video_loader.mask,
                                              num_cls=NUM_CLASS,
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
         # Init meteor collector
-        meteor_cfg = cfg.collector.meteor_cfg
         recheck_cfg = cfg.collector.recheck_cfg
-        positive_cfg = cfg.collector.positive_cfg
         recheck_loader = None
         if recheck_cfg.switch:
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
@@ -125,20 +134,14 @@ def detect_video(video_name: str,
                                             exp_option="real-time",
                                             merge_func=merge_func)
 
-        meteor_collector = MeteorCollector(
-            meteor_cfg,
-            eframe=exp_frame,
-            fps=fps,
-            runtime_size=video_loader.runtime_size,
-            raw_size=video_loader.raw_size,
-            recheck_cfg=recheck_cfg,
-            positive_cfg=positive_cfg,
-            video_loader=recheck_loader,
-            logger=logger)
+        meteor_collector = MeteorCollector(cfg.collector,
+                                           rt_param,
+                                           video_loader=recheck_loader,
+                                           logger=logger)
 
         # Init visualizer
         # TODO: 可视化模块暂未完全支持参数化设置。
-        visual_manager = OpenCVMetVisu(exp_time=exp_time,
+        visual_manager = OpenCVMetVisu(exp_time=rt_param.exp_time,
                                        resolution=video_loader.runtime_size,
                                        flag=visual_mode,
                                        visu_param_list=[
@@ -146,7 +149,7 @@ def detect_video(video_name: str,
                                            *meteor_collector.visu_param
                                        ])
         # Init main iterator
-        main_iterator = range(start_frame, end_frame, exp_frame)
+        main_iterator = range(start_frame, end_frame, rt_param.exp_frame)
         if work_mode == 'frontend':
             main_iterator = tqdm.tqdm(main_iterator, ncols=100)
     except Exception as e:
@@ -165,8 +168,9 @@ def detect_video(video_name: str,
         for prog_int, i in enumerate(main_iterator):
             # Logging for backend only.
             if work_mode == 'backend' and (
-                (i - start_frame) // exp_frame) % eq_int_fps == 0:
-                logger.processing(str(frame2time(i, fps)))
+                (i - start_frame) //
+                    rt_param.exp_frame) % rt_param.eq_int_fps == 0:
+                logger.processing(str(frame2time(i, rt_param.fps)))
             t2 = time.time()
             x = video_loader.pop()
             tot_get_time += (time.time() - t2)
@@ -176,15 +180,17 @@ def detect_video(video_name: str,
             detector.update(x)
             lines, cates = detector.detect()
 
-            if len(lines) or (((i - start_frame) // exp_frame) % eq_int_fps
-                              == 0):
+            if len(lines) or (((i - start_frame) // rt_param.exp_frame) %
+                              rt_param.eq_int_fps == 0):
                 meteor_collector.update(i, lines=lines, cates=cates)
 
             if visual_mode:
                 # 仅在可视化模式下通过detector和collector的可视化接口获取需要渲染的所有内容。
                 visu_info.append(
                     TextVisu("timestamp",
-                             text_list=[TextColorPair(frame2ts(i, fps))]))
+                             text_list=[
+                                 TextColorPair(frame2ts(i, rt_param.fps))
+                             ]))
                 visu_info.extend(detector.visu())
                 visu_info.extend(meteor_collector.visu(frame_num=i))
                 visual_manager.display_a_frame(x, visu_info)
@@ -195,8 +201,9 @@ def detect_video(video_name: str,
 
             # 直播模式等待进度
             if live_mode:
-                expect_time_cost = (prog_int * exp_frame /
-                                    fps) * LIVE_MODE_SPEED_CTRL_CONST
+                expect_time_cost = (
+                    prog_int * rt_param.exp_frame /
+                    rt_param.fps) * LIVE_MODE_SPEED_CTRL_CONST
                 cur_time_cost = time.time() - t0
                 if (cur_time_cost < expect_time_cost):
                     tot_wait_time += (expect_time_cost - cur_time_cost)
@@ -322,9 +329,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    with open(args.cfg, mode='r', encoding='utf-8') as f:
-        cfg = from_dict(MainDetectCfg, json.load(f))
-    # TODO: 添加对于cfg的格式检查
+    cfg = MainDetectCfg.from_json_file(args.cfg)
 
     # 当通过参数的指定部分选项时，替代配置文件中的缺省项
     # replace cfg value

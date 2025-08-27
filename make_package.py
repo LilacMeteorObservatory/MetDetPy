@@ -68,6 +68,13 @@ def file_to_zip(path_original: str, z: zipfile.ZipFile):
     for f in f_list:
         z.write(f, str(f)[len(path_original):])
 
+
+def copy_tree(tree_path: str, tgt_path: str):
+    print(f"Copy {tree_path} folder...", end="", flush=True)
+    shutil.copytree(f"./{tree_path}", f"{tgt_path}/{tree_path}")
+    print("Done.")
+
+
 argparser = argparse.ArgumentParser()
 
 argparser.add_argument("--tool",
@@ -189,7 +196,6 @@ stack_cfg: dict[str, Union[bool, str]] = {
 }
 stack_cfg.update(nuitka_base)
 
-# 编译视频叠加工具ClipToolkit.py
 nuitka_compile(compile_tool,
                stack_cfg,
                target=join_path(work_path, "ClipToolkit.py"))
@@ -202,7 +208,6 @@ mep_cfg: dict[str, Union[bool, str]] = {
 
 mep_cfg.update(nuitka_base)
 
-# 编译主要检测器MetDetPy.py
 nuitka_compile(compile_tool,
                mep_cfg,
                target=join_path(work_path, "MetDetPhoto.py"))
@@ -228,18 +233,9 @@ shutil.move(join_path(compile_path, "MetDetPy.dist"),
 print("Done.")
 
 # copy configuration file
-print("Copy config json folder...", end="", flush=True)
-shutil.copytree("./config", "./dist/MetDetPy/config")
-print("Done.")
-print("Copy weights folder...", end="", flush=True)
-shutil.copytree("./weights", "./dist/MetDetPy/weights")
-print("Done.")
-print("Copy resource folder...", end="", flush=True)
-shutil.copytree("./resource", "./dist/MetDetPy/resource")
-print("Done.")
-print("Copy global folder...", end="", flush=True)
-shutil.copytree("./global", "./dist/MetDetPy/global")
-print("Done.")
+src_list = ["config", "weights", "resource", "global"]
+for src_folder in src_list:
+    copy_tree(src_folder, "./dist/MetDetPy")
 
 # copy necessary py file (from lib)
 # for now only uuid.py is detected should be like so.

@@ -31,6 +31,11 @@ U8Mat = Union[NDArray[np.uint8], MatLike]
 FloatMat = NDArray[np.float64]
 NpCollect = TypeVar("NpCollect", np.int_, np.float64)
 Addable = TypeVar("Addable", int, float)
+IntArray = Union[list[int], NDArray[np.int_]]
+FloatArray = Union[list[float], NDArray[np.float64]]
+CalcArray = TypeVar("CalcArray", IntArray, FloatArray)
+IntSeq2D = Sequence[IntArray]
+FloatSeq2D = Sequence[FloatArray]
 
 STR2DTYPE: dict[str, DTypeLike] = {
     "float32": np.float32,
@@ -64,8 +69,8 @@ PLATFORM_MAPPING = {
     "linux": "linux"
 }
 
-def pt_len_sqr(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
-                                                             FloatMat]):
+
+def pt_len_sqr(pt1: CalcArray, pt2: CalcArray):
     """Return the square of the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
     返回两点之间的距离的平方。接受ndarray时，需要最后一维形状为2。
@@ -83,8 +88,7 @@ def pt_len_sqr(pt1: Union[list[float], FloatMat], pt2: Union[list[float],
         return (pt1[1] - pt2[1])**2 + (pt1[0] - pt2[0])**2
 
 
-def pt_len(pt1: Union[list[int], list[float], FloatMat],
-           pt2: Union[list[int], list[float], FloatMat]):
+def pt_len(pt1: CalcArray, pt2: CalcArray):
     """Return the distance between two points. 
     When passing a matrix, make sure the last dim has length of 2 (like [n,2]).
     返回两点之间的实际距离。接受ndarray时，需要最后一维形状为2。
@@ -99,7 +103,7 @@ def pt_len(pt1: Union[list[int], list[float], FloatMat],
     return np.sqrt(pt_len_sqr(pt1, pt2))
 
 
-def pt_drct(pt1: list[float], pt2: list[float]):
+def pt_drct(pt1: CalcArray, pt2: CalcArray) -> float:
     """Return the direction of the line of two points, in [0, pi]。
     返回两点之间连线的角度值，范围为[0, pi]。
 
@@ -275,9 +279,9 @@ class SlidingWindow(object):
         if calc_std:
             self.square_sum = np.zeros(size, dtype=sum_dtype)
 
-        self.sliding_window: NDArray[np.uint16] = np.zeros(shape=(n, ) +
-                                                           tuple(size),
-                                                           dtype=self.dtype)
+        self.sliding_window: NDArray[np.uint8] = np.zeros(shape=(n, ) +
+                                                          tuple(size),
+                                                          dtype=self.dtype)
 
     def update(self, new_frame: U8Mat):
         self.timer += 1
@@ -907,12 +911,12 @@ def calculate_area_iou(mat1: Box, mat2: Box):
     """
     # 若x/y轴宽为0，取另一轴做单轴比较
     if (mat1.x1 == mat1.x2 == mat2.x1 == mat2.x2):
-        o_y = sorted([mat1.y1, mat1.y2, mat2.y1, mat2.y2], reverse=True)[1:-1]
+        o_y = sorted([mat1.y1, mat1.y2, mat2.y1, mat2.y2], reverse=True)
         if mat1.y1 == mat2.y1 and mat1.y2 == mat2.y2:
             return 1
         return (o_y[2] - o_y[1]) / (o_y[3] - o_y[0])
     if (mat1.y1 == mat1.y2 == mat2.y1 == mat2.y2):
-        o_x = sorted([mat1.x1, mat1.x2, mat2.x1, mat2.x2], reverse=True)[1:-1]
+        o_x = sorted([mat1.x1, mat1.x2, mat2.x1, mat2.x2], reverse=True)
         if mat1.x1 == mat2.x1 and mat1.x2 == mat2.x2:
             return 1
         return (o_x[2] - o_x[1]) / (o_x[3] - o_x[0])

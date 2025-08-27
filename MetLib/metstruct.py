@@ -5,9 +5,11 @@ metstruct 定义 MetDetPy 使用的结构化数据和相关解析方法。
 
 import dataclasses
 import datetime
+import json
 from typing import Any, Optional, Union, cast
 
 from dacite import from_dict
+import numpy as np
 
 
 @dataclasses.dataclass
@@ -55,6 +57,17 @@ class Box(object):
         h = (self.y2 - self.y1) // 2
         return [[x, y], [w, h]]
 
+@dataclasses.dataclass
+class RuntimeParams(object):
+    fps: float
+    exp_frame: int
+    eq_fps: float
+    eq_int_fps: int
+    exp_time: float
+    runtime_size: list[int]
+    raw_size: list[int]
+    positive_category_list: list[str]
+    
 
 ########### MDRF Defination ################
 
@@ -71,19 +84,36 @@ class DictAble(object):
             return [
                 v.to_dict() if isinstance(v, DictAble) else v for v in value
             ]
+        if isinstance(value, np.float64):  # type: ignore
+            return float(cast(float, value))
+        if isinstance(value, np.int64):  # type: ignore
+            return int(cast(int, value))
         return value
 
-    def to_dict(self):
+    def to_dict(self, full: bool = True):
         return {
             key: self._key2value(key)
             for key in self.__annotations__.keys()
         }
 
+    def to_json(self, full: bool = True):
+        return json.dumps(self.to_dict(full))
+
+    @classmethod
+    def from_dict(cls, dict: dict[str, Any]):
+        return from_dict(data_class=cls, data=dict)
+
+    @classmethod
+    def from_json_file(cls, json_path: str):
+        with open(json_path, mode="r", encoding="utf-8") as f:
+            json_dict = json.load(f)
+        return from_dict(data_class=cls, data=json_dict)
+
 
 @dataclasses.dataclass
 class BasicInfo(DictAble):
     loader: str
-    video: Optional[str]
+    video: str
     mask: Optional[str]
     start_time: int
     end_time: int
@@ -92,6 +122,7 @@ class BasicInfo(DictAble):
     exp_time: float
     total_frames: int
     fps: float
+    desc: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -119,13 +150,26 @@ class MDTarget(DictAble):
     category: str
     pt1: list[int]
     pt2: list[int]
-    center_point_list: list[list[int]]
     drct_loss: float
     score: float
     real_dist: float
+    center_point_list: list[list[int]] = dataclasses.field(
+        default_factory=lambda: [])
+    raw_score: Optional[float] = None
+    recheck_score: Optional[float] = None
+    exclude_attrs: list[str] = dataclasses.field(
+        default_factory=lambda: ["center_point_list"])
 
     def to_simple_target(self):
         return SimpleTarget(pt1=self.pt1, pt2=self.pt2, preds=self.category)
+
+    def to_dict(self, full: bool = True):
+        return {
+            key: self._key2value(key)
+            for key in self.__annotations__.keys()
+            if key != "exclude_attrs" and (
+                full or not key in self.exclude_attrs)
+        }
 
 
 @dataclasses.dataclass
@@ -174,6 +218,21 @@ class SingleMDRecord(DictAble):
         This function is for typing-check only.
         """
         raise ValueError("convert failed because img_filename is None.")
+
+    @classmethod
+    def from_target(cls, target: MDTarget, video_size: list[int]):
+        return cls.from_target_list([target], video_size)
+
+    @classmethod
+    def from_target_list(cls, target_list: list[MDTarget],
+                         video_size: list[int]):
+        # TODO: 这部分全用的str...需要确认是否可能在特殊情况引起异常。
+        return cls(start_frame=min([x.start_frame for x in target_list]),
+                   start_time=min([x.start_time for x in target_list]),
+                   end_time=max([x.last_activate_time for x in target_list]),
+                   end_frame=max([x.last_activate_frame for x in target_list]),
+                   video_size=video_size,
+                   target=target_list)
 
 
 @dataclasses.dataclass
@@ -306,9 +365,11 @@ class BinaryCfg(DictAble):
     hough_line: HoughLineCfg
     dynamic: DynamicCfg
 
+
 @dataclasses.dataclass
 class DLCfg(DictAble):
     model: ModelCfg
+
 
 @dataclasses.dataclass
 class DetectorCfg(DictAble):
@@ -319,10 +380,10 @@ class DetectorCfg(DictAble):
 
 @dataclasses.dataclass
 class MeteorCfg(DictAble):
-    min_len: int
-    max_interval: Union[float, int]
-    time_range: list[int]
-    speed_range: list[int]
+    min_len: float
+    max_interval: float
+    time_range: list[float]
+    speed_range: list[float]
     drct_range: list[float]
     det_thre: float
     thre2: int
@@ -361,6 +422,7 @@ class MDRF(DictAble):
     type: str
     anno_size: Optional[list[int]]
     results: Union[list[SingleMDRecord], list[SingleImgRecord]]
+    performance: Optional[dict[str, Union[float, str, None]]] = None
 
 
 ########### ClipToolkit Dataclasses ################
@@ -368,6 +430,8 @@ class MDRF(DictAble):
 
 @dataclasses.dataclass
 class ExportOption(object):
+    positive_category_list: list[str] = dataclasses.field(
+        default_factory=lambda: ["METEOR", "RED_SPRITE"])
     exclude_category_list: list[str] = dataclasses.field(
         default_factory=lambda: [])
     jpg_quality: int = 95
@@ -418,7 +482,7 @@ class DenoiseOption(object):
 
 
 @dataclasses.dataclass
-class ClipCfg(object):
+class ClipCfg(DictAble):
     loader: str
     wrapper: str
     writer: str
@@ -427,7 +491,7 @@ class ClipCfg(object):
 
 
 @dataclasses.dataclass
-class ClipRequest(object):
+class ClipRequest(DictAble):
     time: list[str]
     filename: Optional[str] = None
     target: Optional[list[dict[str, Any]]] = None
