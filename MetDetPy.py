@@ -6,12 +6,13 @@ from typing import Optional
 import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
+from MetLib.collector import MeteorCollector
 from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
-from MetLib.MeteorLib import MeteorCollector
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.metstruct import MDRF, BinaryCfg, ClipCfg, MainDetectCfg, ModelCfg, RuntimeParams
+from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, MainDetectCfg,
+                              ModelCfg, RuntimeParams)
 from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
