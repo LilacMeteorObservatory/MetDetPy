@@ -26,10 +26,9 @@ from multiprocess import Process  # type: ignore
 from multiprocess import Queue as MQueue  # type: ignore
 from multiprocess import RawArray, freeze_support  # type: ignore
 
-from MetLib.metstruct import BasicInfo  # type: ignore
-
 from .fileio import load_mask
 from .metlog import get_default_logger
+from .metstruct import BasicInfo
 from .utils import (MergeFunction, Transform, U8Mat, frame2time,
                     parse_resize_param, sigma_clip, time2frame, timestr2int)
 from .videowrapper import BaseVideoWrapper

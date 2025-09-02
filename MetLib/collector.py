@@ -4,11 +4,9 @@ from typing import Literal, Optional, Union, cast
 
 import numpy as np
 
-from MetLib.metstruct import (CollectorCfg, MDTarget, RecheckCfg,
-                              RuntimeParams, SingleMDRecord)
-from MetLib.videoloader import VanillaVideoLoader
-
 from .metlog import BaseMetLog
+from .metstruct import (CollectorCfg, MDTarget, RecheckCfg, RuntimeParams,
+                        SingleMDRecord)
 from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
                       DrawRectVisu, SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model
@@ -16,6 +14,7 @@ from .stacker import max_stacker
 from .utils import (ID2NAME, NAME2ID, NUM_CLASS, FloatArray, FloatSeq2D,
                     IntArray, IntSeq2D, box_matching, color_interpolater,
                     frame2ts, pt_drct, pt_len, pt_len_sqr, pt_offset)
+from .videoloader import VanillaVideoLoader
 
 color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
@@ -121,7 +120,7 @@ class PointList(object):
     def get_pts_as_list(self) -> list[list[int]]:
         return [[int(x[0]), int(x[1])] for x in self.pts]
 
-    def __getitem__(self, i: int)->IntSeq2D:
+    def __getitem__(self, i: int) -> IntSeq2D:
         return self.pts[i]
 
     def __len__(self):
@@ -376,10 +375,15 @@ class MeteorCollector(object):
         self.thre2 = collector_cfg.meteor_cfg.thre2 * runtime_param.exp_frame
         self.runtime_size = runtime_param.runtime_size
         self.active_meteor = [
-            MeteorSeries(2**16, 2**16,
-                         np.array([[-100, -100], [-101, -101],
-                                   [-102, -102]]), np.nan, np.nan, None,  # type: ignore
-                         runtime_param.fps, self.runtime_size)
+            MeteorSeries(
+                2**16,
+                2**16,
+                np.array([[-100, -100], [-101, -101], [-102, -102]]),
+                np.nan,
+                np.nan,
+                None,  # type: ignore
+                runtime_param.fps,
+                self.runtime_size)
         ]
         self.waiting_meteor: list[MeteorSeries] = []
         self.cur_frame = 0
@@ -485,10 +489,11 @@ class MeteorCollector(object):
             # 对于面积类型（未知类别，闪电，精灵），使用边界点及中心点作为点集
             # TODO: 目前使用硬编码。未来优化。
             if cate_id in [Name2Label.METEOR, Name2Label.PLANE_SATELLITE]:
-                line = cast(
-                    IntSeq2D,
-                    np.array([line_pts[:2], line_pts[2:],
-                              (line_pts[:2] + line_pts[2:]) // 2]))  # type: ignore
+                line = cast(IntSeq2D,
+                            np.array([
+                                line_pts[:2], line_pts[2:],
+                                (line_pts[:2] + line_pts[2:]) // 2
+                            ]))  # type: ignore
             else:
                 x1, y1, x2, y2 = line_pts
                 # 有点奇怪
@@ -792,7 +797,8 @@ class MetExporter(object):
             # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list，
             # 未检出box收集到drop_list中。
             raw_bbox_list = [[*x.pt1, *x.pt2] for x in output_dict.target]
-            matched_pairs = box_matching(bbox_list, raw_bbox_list) # type: ignore
+            matched_pairs = box_matching(bbox_list,
+                                         raw_bbox_list)  # type: ignore
             fixed_output: list[MDTarget] = []
             unmatched_proposal_list = [True for _ in output_dict.target]
             for l, r in matched_pairs:

@@ -13,14 +13,13 @@ BaseDetector(ABC)--|                |--M3Detector
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Any, Callable, Optional, Union, cast, Sequence
+from typing import Any, Callable, Optional, Sequence, Union, cast
 
 import cv2
 import numpy as np
 
-from MetLib.metlog import BaseMetLog
-from MetLib.metstruct import BinaryCfg, DLCfg
-
+from .metlog import BaseMetLog
+from .metstruct import BinaryCfg, DLCfg
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model

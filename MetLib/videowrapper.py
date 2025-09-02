@@ -5,6 +5,7 @@ API to obtain metadata and frame data.
 VideoWrapper对读取视频的API进行初步包装, 使VideoLoader能够使用统一的接口获取元数据及帧数据。
 """
 
+import os
 from abc import ABCMeta, abstractmethod
 from typing import Optional
 
@@ -12,7 +13,6 @@ import av
 import av.error
 import cv2
 from cv2.typing import MatLike
-import os
 
 from .utils import frame2time, time2frame
 

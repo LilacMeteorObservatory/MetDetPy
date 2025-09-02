@@ -1,11 +1,12 @@
-from typing import Optional, Union, Sequence, Any
+from abc import ABCMeta
+from typing import Any, Optional, Sequence, Union
 
+import av
 import cv2
+
 from .metlog import BaseMetLog, get_useable_logger
 from .utils import U8Mat, transpose_wh
 from .videoloader import BaseVideoLoader
-from abc import ABCMeta
-import av
 
 # TODO: save_video 和 save_video_by_stream 的底层通常一致，可以考虑做抽象。
 # TODO: 通过 PyAV 支持编码输出和其他格式。
