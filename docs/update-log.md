@@ -40,11 +40,6 @@ Note:
 1. 炸屏优化（1. 天亮/天暗时的亮度突变过滤；2.火流星等直接炸屏的场景检出）
 2. 飞行器/大面积时间不容易被后验检测器检出。
 
-中值滤波，-done / 直接均值 -done
-，ClipToolkit降噪混合算法 - 需要评估
-FFMpeg日志屏蔽【PyAV作为替代】
-TODO: pyexiv2 pkging.
-
 ## Version 2.3.0
 
 ✅ New Feature(s)

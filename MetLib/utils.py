@@ -14,7 +14,7 @@ from .metlog import get_default_logger
 from .metstruct import Box
 
 PROJECT_NAME = "MetDetPy"
-VERSION = "V2.3.0-beta"
+VERSION = "V2.3.1"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9
@@ -405,7 +405,7 @@ class Uint8EMA(EMA):
         self.warmup_speed = warmup_speed
 
     def update(self, value: U8Mat) -> None:
-        if self.warmup_speed:
+        if self.warmup_speed > 0:
             self.adjust_weight()
         value_copy = np.array(value, dtype=np.int16)
         self.cur_value = (self.cur_momentum * self.cur_value +

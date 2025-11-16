@@ -15,7 +15,8 @@ except AttributeError:
     sys.stdout.writelines("Unable to set output encoding.")
     sys.stdout.flush()
 level_header = [
-    "Dropped", "Debug", "Processing", "Info", "Warning", "Error", "Meteor"
+    "Dropped", "Debug", "Processing", "Info", "Warning", "Error", "Meteor",
+    "Fatal"
 ]
 
 LV_DROPPED = 0
@@ -25,6 +26,7 @@ LV_INFO = 3
 LV_WARNING = 4
 LV_ERROR = 5
 LV_METEOR = 6
+LV_FATAL = 7
 
 
 class BaseMetLog(object):
@@ -46,6 +48,9 @@ class BaseMetLog(object):
 
     def error(self, string: str):
         self.log(LV_ERROR, string)
+
+    def fatal(self, string: str):
+        self.log(LV_FATAL, string)
 
     def meteor(self, string: str):
         self.log(LV_METEOR, string)
@@ -104,7 +109,11 @@ class ThreadMetLog(BaseMetLog):
             time.sleep(self.wait_interval)
             cur_log = self.log_pool.get()
             strf, lv, string = cur_log
-            self.print(f"{strf}{level_header[lv]}: {string}", flush=self.flush)
+            if lv == LV_FATAL:
+                sys.stderr.write(f"{strf}{level_header[lv]}: {string}\n")
+                sys.stderr.flush()
+            else:
+                self.print(f"{strf}{level_header[lv]}: {string}", flush=self.flush)
         self.log_pool.task_done()
 
     def log(self, level: int, string: str):

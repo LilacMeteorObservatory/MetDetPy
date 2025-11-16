@@ -243,7 +243,8 @@ try:
                                       mask_name=args.mask,
                                       exp_option="real-time",
                                       debayer=args.debayer,
-                                      debayer_pattern=args.debayer_pattern)
+                                      debayer_pattern=args.debayer_pattern,
+                                      continue_on_err=True)
             tot_frames = video.iterations
             video.start()
             visual_manager = OpenCVMetVisu(exp_time=1,

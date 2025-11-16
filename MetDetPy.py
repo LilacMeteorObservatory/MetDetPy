@@ -82,16 +82,18 @@ def detect_video(video_name: str,
 
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
-        video_loader = VideoLoaderCls(VideoWrapperCls,
-                                      video_name,
-                                      mask_name,
-                                      resize_option,
-                                      start_time=start_time,
-                                      end_time=end_time,
-                                      grayscale=grayscale,
-                                      exp_option=exp_option,
-                                      exp_upper_bound=exp_upper_bound,
-                                      merge_func=merge_func)
+        video_loader = VideoLoaderCls(
+            VideoWrapperCls,
+            video_name,
+            mask_name,
+            resize_option,
+            start_time=start_time,
+            end_time=end_time,
+            grayscale=grayscale,
+            exp_option=exp_option,
+            exp_upper_bound=exp_upper_bound,
+            merge_func=merge_func,
+            continue_on_err=cfg.loader.continue_on_err)
         video_info = video_loader.summary()
         logger.info(video_loader.__repr__())
 
@@ -133,7 +135,8 @@ def detect_video(video_name: str,
                                             resize_option,
                                             grayscale=False,
                                             exp_option="real-time",
-                                            merge_func=merge_func)
+                                            merge_func=merge_func,
+                                            continue_on_err=True)
 
         meteor_collector = MeteorCollector(cfg.collector,
                                            rt_param,
@@ -188,10 +191,9 @@ def detect_video(video_name: str,
             if visual_mode:
                 # 仅在可视化模式下通过detector和collector的可视化接口获取需要渲染的所有内容。
                 visu_info.append(
-                    TextVisu("timestamp",
-                             text_list=[
-                                 TextColorPair(frame2ts(i, rt_param.fps))
-                             ]))
+                    TextVisu(
+                        "timestamp",
+                        text_list=[TextColorPair(frame2ts(i, rt_param.fps))]))
                 visu_info.extend(detector.visu())
                 visu_info.extend(meteor_collector.visu(frame_num=i))
                 visual_manager.display_a_frame(x, visu_info)
@@ -202,9 +204,8 @@ def detect_video(video_name: str,
 
             # 直播模式等待进度
             if live_mode:
-                expect_time_cost = (
-                    prog_int * rt_param.exp_frame /
-                    rt_param.fps) * LIVE_MODE_SPEED_CTRL_CONST
+                expect_time_cost = (prog_int * rt_param.exp_frame /
+                                    rt_param.fps) * LIVE_MODE_SPEED_CTRL_CONST
                 cur_time_cost = time.time() - t0
                 if (cur_time_cost < expect_time_cost):
                     tot_wait_time += (expect_time_cost - cur_time_cost)

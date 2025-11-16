@@ -86,7 +86,7 @@ class DictAble(object):
             ]
         if isinstance(value, np.float64):  # type: ignore
             return float(cast(float, value))
-        if isinstance(value, np.int64):  # type: ignore
+        if isinstance(value, (np.int64, np.int32)):  # type: ignore
             return int(cast(int, value))
         return value
 
@@ -321,6 +321,7 @@ class LoaderCfg(DictAble):
     merge_func: str
     grayscale: bool
     upper_bound: Optional[float] = None
+    continue_on_err: bool = False
 
 
 @dataclasses.dataclass

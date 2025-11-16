@@ -148,7 +148,7 @@ class BaseVideoLoader(metaclass=ABCMeta):
 
     def summary(self) -> BasicInfo:
         return BasicInfo(loader=self.__class__.__name__,
-                         video=None,
+                         video="",
                          mask=None,
                          start_time=self.start_time,
                          end_time=self.end_time,
@@ -235,6 +235,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
+                 continue_on_err: bool = False,
                  **kwargs: Any) -> None:
         """
         # VanillaVideoLoader
@@ -270,6 +271,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.read_stopped = True
         self.debayer = debayer
         self.debayer_pattern = debayer_pattern
+        self.continue_on_err = continue_on_err
 
         # load video and mask
         self.video = video_wrapper(video_name)
@@ -364,6 +366,14 @@ class VanillaVideoLoader(BaseVideoLoader):
             if status and self.cur_frame is not None:
                 frame_list.append(
                     self.preprocess.exec_transform(self.cur_frame))
+                
+                self.logger.warning(
+                        f"Load frame failed at {self.start_frame + i}")
+                if not self.continue_on_err:
+                    self.stop()
+                    break
+                else:
+                    continue
             else:
                 self.stop()
                 self.logger.warning(
@@ -531,6 +541,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
+                 continue_on_err: bool = False,
                  maxsize: int = 32,
                  **kwargs: Any) -> None:
         self.maxsize = maxsize
@@ -539,7 +550,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
-                         merge_func, **kwargs)
+                         merge_func, continue_on_err, **kwargs)
 
     def clear_queue(self):
         """clear queue.
@@ -593,11 +604,14 @@ class ThreadVideoLoader(VanillaVideoLoader):
                         self.cur_frame)
                     self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
                 else:
-                    self.stop()
                     self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
-                    self.queue.put(FAILED_FLAG, timeout=PUT_TIMEOUT)
-                    break
+                    if not self.continue_on_err:
+                        self.stop()
+                        self.queue.put(FAILED_FLAG, timeout=PUT_TIMEOUT)
+                        break
+                    else:
+                        continue
         except Exception as e:
             raise e
         finally:
@@ -662,6 +676,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  exp_option: Union[int, float, str] = "auto",
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
+                 continue_on_err: bool = False,
                  maxsize: int = 32,
                  **kwargs: Any) -> None:
         self.maxsize = maxsize
@@ -669,7 +684,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
-                         merge_func, **kwargs)
+                         merge_func, continue_on_err, **kwargs)
 
     def start(self):
         w, h = self.runtime_size
@@ -740,11 +755,15 @@ class ProcessVideoLoader(VanillaVideoLoader):
                     break
                 self.status, self.cur_frame = self.video.read()
                 # Load frame failed.
+                # if continue_on_err is set, just skip this frame.
                 if not self.status or self.cur_frame is None:
-                    self.stop()
                     self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
-                    break
+                    if not self.continue_on_err:
+                        self.stop()
+                        break
+                    else:
+                        continue
                 self.cur_frame = self.preprocess.exec_transform(self.cur_frame)
                 np_buffer[self.cur_pos] = self.cur_frame
                 self.cur_pos = (self.cur_pos + 1) % self.maxsize

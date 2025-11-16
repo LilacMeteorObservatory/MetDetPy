@@ -439,8 +439,6 @@ def simple_denoise(max_img: U8Mat, denoise_cfg: DenoiseOption,
     est_bg_img = dust_and_scratches(max_img,
                                     radius=simple_cfg.ds_radius,
                                     threshold=simple_cfg.ds_threshold)
-    from .fileio import save_img
-    save_img(est_bg_img, "est_bg.jpg", quality=90, compressing=3)
     # 计算实际最大亮度与预期最大亮度的差异 => max_bias_diff_img
     max_diff_img: NDArray[np.float64] = max_img.astype(np.float64) - est_bg_img
     # 计算有高离群的亮均值作为阈值，和高光部分求并集作为前景组分

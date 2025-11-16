@@ -350,7 +350,8 @@ def main():
                                   exp_option="real-time",
                                   resize_interpolation=cv2.INTER_LANCZOS4,
                                   debayer=args.debayer,
-                                  debayer_pattern=args.debayer_pattern)
+                                  debayer_pattern=args.debayer_pattern,
+                                  continue_on_err=True)
     VideoWriterCls = get_writer(clip_cfg.writer)
     # get video name
     _, video_name_nopath = path_split(video_name)
@@ -406,8 +407,8 @@ def main():
                 else:
                     results = max_stacker(video_loader)
                 if results is None:
-                    logger.error(
-                        f"Fail to generate image for data: {video_loader.video_name}"
+                    logger.fatal(
+                        f"Failed to generate image for data: {video_loader.video_name}"
                         f" with start-time={video_loader.start_time} "
                         f"and end-time={video_loader.end_time}.")
                     continue

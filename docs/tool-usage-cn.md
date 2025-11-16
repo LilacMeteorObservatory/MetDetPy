@@ -51,7 +51,7 @@ python ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image 
     精简模式通过仅传入一个视频文件作为位置参数以启用，用于产生单个图像堆栈或视频切片。产生文件的起止时间，格式和其他参数需要通过可选参数指定，默认为完整视频堆栈一张`JPG`格式的图像作为结果。这种方式下不需要构建`JSON`文件或转义字符串，更容易在命令行场景使用。使用例如下：
 
 ```sh
-python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name 。/test/generated_img.jpg
+python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name ./test/generated_img.jpg
 ```
 
 3. 样本生成模式

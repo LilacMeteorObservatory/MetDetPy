@@ -12,7 +12,8 @@
         "exp_time": "auto",
         "merge_func": "max",
         "grayscale": true,
-        "upper_bound": 0.5
+        "upper_bound": 0.5,
+        "continue_on_err": true
     },
     "detector": {
         "name": "M3Detector",
