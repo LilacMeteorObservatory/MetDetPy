@@ -130,7 +130,7 @@ class ThreadMetLog(BaseMetLog):
 
     def stop(self):
         self.stopped = True
-        self.thread.join(timeout=2)
+        self.thread.join(timeout=10)
 
 
 met_logger = ThreadMetLog()

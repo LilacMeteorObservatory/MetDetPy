@@ -366,7 +366,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             if status and self.cur_frame is not None:
                 frame_list.append(
                     self.preprocess.exec_transform(self.cur_frame))
-                
+            else:
                 self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
                 if not self.continue_on_err:
@@ -374,11 +374,6 @@ class VanillaVideoLoader(BaseVideoLoader):
                     break
                 else:
                     continue
-            else:
-                self.stop()
-                self.logger.warning(
-                    f"Load frame failed at {self.start_frame + i}")
-                break
         self.cur_iter -= self.exp_frame
         if self.cur_iter <= 0: self.stop()
 
@@ -597,7 +592,8 @@ class ThreadVideoLoader(VanillaVideoLoader):
         try:
             for i in range(self.iterations):
                 if self.read_stopped or not self.status:
-                    break
+                    if not self.continue_on_err:
+                        break
                 self.status, self.cur_frame = self.video.read()
                 if self.status and self.cur_frame is not None:
                     self.processed_frame = self.preprocess.exec_transform(
@@ -752,7 +748,8 @@ class ProcessVideoLoader(VanillaVideoLoader):
         try:
             for i in range(self.iterations):
                 if self.read_stopped or not self.status:
-                    break
+                    if not self.continue_on_err:
+                        break
                 self.status, self.cur_frame = self.video.read()
                 # Load frame failed.
                 # if continue_on_err is set, just skip this frame.
