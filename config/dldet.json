@@ -15,7 +15,7 @@
         "exp_time": 0.5,
         "merge_func": "max",
         "grayscale": false,
-        "continue_on_err": true
+        "continue_on_err": false
     },
     "detector": {
         "name": "MLDetector",

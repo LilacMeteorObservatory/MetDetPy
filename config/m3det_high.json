@@ -13,7 +13,7 @@
         "merge_func": "max",
         "grayscale": true,
         "upper_bound": 0.5,
-        "continue_on_err": true
+        "continue_on_err": false
     },
     "detector": {
         "name": "M3Detector",
@@ -33,7 +33,7 @@
             },
             "dynamic": {
                 "dy_mask": true,
-                "interval":2
+                "window_sec":2
             }
         }
     },
