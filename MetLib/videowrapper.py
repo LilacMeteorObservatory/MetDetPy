@@ -237,6 +237,16 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                     return True
         return True
 
+    def force_set_to(self, frame_num: int) -> bool:
+        self.container.seek(0, any_frame=False, backward=True)
+        # demux without decoding to fast seek
+        for packet in self.container.demux(video=0):
+            for decoded_frame in packet.decode():
+                cur_frame = self.pts2frame(decoded_frame.pts)
+                if cur_frame >= frame_num:
+                    return True
+        return True
+
     def get_video_pos(self) -> int:
         while True:
             frame = self.container.demux(video=0).__next__().decode()
