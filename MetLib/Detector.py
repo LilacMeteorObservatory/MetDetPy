@@ -284,7 +284,8 @@ class ClassicDetector(LineDetector):
                                       minLineLength=self.hough_cfg.min_len,
                                       maxLineGap=self.hough_cfg.max_gap)
 
-        self.linesp_ext: Sequence[list[int]] = [] if self.linesp is None else self.linesp[:, 0, :]
+        self.linesp_ext: Sequence[
+            list[int]] = [] if self.linesp is None else self.linesp[:, 0, :]
         # TODO:
         # 1. Classic Detector的可视化接口尚未实现
         # 2. ClassicDetector的输出统一为METEOR判定。可能需要考虑逻辑是否会变更。
@@ -346,7 +347,7 @@ class M3Detector(LineDetector):
         if self.dynamic_cfg.dy_mask:
             dst = self.calculate_dy_mask(dst)
 
-        self.dst_sum = cast(float,np.sum(dst / 255.) / self.mask_area * 100)
+        self.dst_sum = cast(float, np.sum(dst / 255.) / self.mask_area * 100)
         gap = max(
             0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 
@@ -468,6 +469,8 @@ class DiffAreaGuidingDetecor(BaseDetector):
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
                  num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
+        self.logger = logger
+        self.logger.info(f"Momentum={(1 - 1 / (window_sec * fps))}")
         self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
         self.visu_param: list[BaseVisuAttrs] = [
             ImgVisuAttrs("mix_bg", weight=1),
@@ -475,7 +478,7 @@ class DiffAreaGuidingDetecor(BaseDetector):
             TextVisu("cur_emo_value", position="left-top", color="green")
         ]
 
-    def update(self, new_frame:U8Mat) -> None:
+    def update(self, new_frame: U8Mat) -> None:
         self.cur_frame = new_frame
 
     def post_update(self) -> None:
@@ -489,9 +492,9 @@ class DiffAreaGuidingDetecor(BaseDetector):
             self.bg_maintainer.update(self.cur_frame)
             self.diff_img = np.zeros_like(self.cur_frame)
             return [], []
-        neg_value_mask = self.cur_frame < self.bg_maintainer.cur_value + 5
-        self.diff_img = self.cur_frame - self.bg_maintainer.cur_value - 5
-        self.diff_img[neg_value_mask] = 0
+        neg_value_mask = self.cur_frame < self.bg_maintainer.cur_value
+        self.diff_img = self.cur_frame-5 > self.bg_maintainer.cur_value
+        #self.diff_img[neg_value_mask] = 0
         self.post_update()
         return [], []
 
@@ -530,13 +533,13 @@ class MLDetector(BaseDetector):
         self.model = init_model(cfg.model, logger=self.logger)
         self.visu_param = [DrawRectVisu("results", color="orange")]
 
-    def update(self, new_frame:U8Mat) -> None:
+    def update(self, new_frame: U8Mat) -> None:
         self.stack.update(new_frame)
 
     def detect(self):
         self.result_pos, self.result_cls = self.model.forward(self.stack.max)
         if len(self.result_pos) == 0:
-            return super().detect()
+            return [], []
         return self.result_pos, expand_cls_pred(self.result_cls)
 
     def visu(self):
