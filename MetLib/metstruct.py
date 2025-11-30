@@ -57,6 +57,7 @@ class Box(object):
         h = (self.y2 - self.y1) // 2
         return [[x, y], [w, h]]
 
+
 @dataclasses.dataclass
 class RuntimeParams(object):
     fps: float
@@ -67,22 +68,33 @@ class RuntimeParams(object):
     runtime_size: list[int]
     raw_size: list[int]
     positive_category_list: list[str]
-    
+
 
 ########### MDRF Defination ################
 
 
 @dataclasses.dataclass
 class DictAble(object):
+    """ 
+    Base class for dataclasses that can be converted to/from dict or json.
+    
+    NOTE: `exclude_attrs` is preserved for attributes that should not 
+    be included during `to_dict` or `to_json`.
+    """
 
-    def _key2value(self, attr_name: str) -> Any:
+    @classmethod
+    def get_exclude_attrs(cls) -> str:
+        return "exclude_attrs"
+
+    def _key2value(self, attr_name: str, full: bool = True) -> Any:
         value = self.__getattribute__(attr_name)
         if isinstance(value, DictAble):
-            return value.to_dict()
+            return value.to_dict(full)
         if isinstance(value, (list, tuple)):
             value = cast(list[Any], value)
             return [
-                v.to_dict() if isinstance(v, DictAble) else v for v in value
+                v.to_dict(full) if isinstance(v, DictAble) else v
+                for v in value
             ]
         if isinstance(value, np.float64):  # type: ignore
             return float(cast(float, value))
@@ -92,8 +104,10 @@ class DictAble(object):
 
     def to_dict(self, full: bool = True):
         return {
-            key: self._key2value(key)
+            key: self._key2value(key, full)
             for key in self.__annotations__.keys()
+            if key != self.get_exclude_attrs() and (
+                full or not key in getattr(self, self.get_exclude_attrs(), []))
         }
 
     def to_json(self, full: bool = True):
@@ -162,14 +176,6 @@ class MDTarget(DictAble):
 
     def to_simple_target(self):
         return SimpleTarget(pt1=self.pt1, pt2=self.pt2, preds=self.category)
-
-    def to_dict(self, full: bool = True):
-        return {
-            key: self._key2value(key)
-            for key in self.__annotations__.keys()
-            if key != "exclude_attrs" and (
-                full or not key in self.exclude_attrs)
-        }
 
 
 @dataclasses.dataclass
