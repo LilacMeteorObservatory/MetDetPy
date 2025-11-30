@@ -319,7 +319,7 @@ Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` se
 |Argument|Type|Explanation|Recommendation|
 |------|---|---|---|
 |name|str|The type of deep learning model, which will determine how the program processes input and output. Currently, only the YOLO format model `"YOLOModel"` has been implemented.|`"YOLOModel"`|
-|weight_path|str|The path to the model weights. It can be a path relative to MetDetPy or an absolute path. A trained YOLOv5s is provided in the project. The labels of the network output should refer to the [class_name file](../config/class_name.txt). Currently, the `.onnx` network weight format is supported.|`"./weights/yolov5s.onnx"`|
+|weight_path|str|The path to the model weights. It can be a path relative to MetDetPy or an absolute path. A trained YOLOv5s is provided in the project. The labels of the network output should refer to the [class_name file](../global/class_name.txt). Currently, the `.onnx` network weight format is supported.|`"./weights/yolov5s.onnx"`|
 |dtype|str|Describes the input data type (dtype) of the network. When using a quantized model, configure the specific dtype here to make sure the network work properly. Currently, full precision (`"float32"`) and half precision (`"float16"`) dtype are supported.|`"float32"`|
 |nms|bool|Desribes whether Non-Maximum Suppression (NMS) deduplication needs to be executed. If the network already includes NMS, select `false` to accelerate.|`true`|
 |warmup|bool|Desribes whether to warmup before execution. Set to `true` to accelerate the execution.|`true`|
