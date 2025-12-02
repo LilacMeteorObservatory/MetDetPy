@@ -9,15 +9,13 @@
 
 ## 简介
 
-MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测流星的检测器。其视频检测受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy具有以下优点：
+MetDetPy 可从直录视频或图像中检测流星。其视频检测受到[uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector)项目的启发。MetDetPy 具有以下优点：
 
-* **易于使用且可配置：** MetDetPy设计有易用的默认配置，多数情况下无需详细配置参数即可以进行高效的流星检测，并且也支持修改设置以获得更好的检测结果。
+* **易于使用且可配置：** MetDetPy 设计有易用的默认配置，多数情况下无需详细配置参数即可以进行高效的流星检测，并且也支持修改设置以获得更好的检测结果。
 
-* **适用于各种设备和曝光时间：** MetDetPy可以从各种设备拍摄的视频及图像中检测流星。借助一系列自适应算法与深度学习模型，MetDetPy对从流星监控到数码相机拍摄的数据都能较好工作。
+* **适用于各种设备和曝光时间：** MetDetPy 可以从各种设备拍摄的视频及图像中检测流星。借助一系列自适应算法与深度学习模型，MetDetPy对从流星监控到数码相机拍摄的数据都能较好工作。
 
-* **低 CPU 使用率：** MetDetPy 工作时对 CPU 和内存占用率较低，可支持在主流电脑或准系统上进行多摄像头输入的实时检测。
-
-* **可选的深度学习模型接入：** MetDetPy 已接入深度学习支持，可以在主检测或重校验阶段选择性使用深度学习模型，在不显著增加性能开销的情况下提升检测效果。模型也可用于图像中的流星检测。
+* **深度学习模型接入：** MetDetPy 可以在主检测或重校验阶段选择性使用深度学习模型，在不显著增加性能开销的情况下提升检测效果。模型也可用于图像中的流星检测。
 
 * **有效的过滤器：** 流星结果将根据其视觉特性与运动属性进行重校验以排除误报样本。每个预测都将被给出一个取值范围为 `[0,1]` 的置信度分数，表示其被认为是流星的可能性。
 
@@ -25,9 +23,9 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 
 ## 发行版
 
-你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS及Linux）。你也可以自行使用 `nuitka` 或 `pyinstaller` 构建独立的可执行文件（见 [打包Python代码为可执行程序](#打包Python代码为可执行程序))。
+你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS）。你也可以自行使用 `nuitka` 构建独立的可执行文件（见 [打包Python代码为可执行程序](./tool-usage-cn.md#打包Python代码为可执行程序))。
 
-此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在MetDetPy的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
+此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在 MetDetPy 的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
 
 ## 运行需求
 
@@ -41,11 +39,11 @@ MetDetPy 是一个基于 python 开发的，可从直录视频或图像中检测
 * numpy>=1.15.0
 * opencv_python>=4.9.0
 * tqdm>=4.0.0
-* easydict>=1.0
 * multiprocess>=0.70.0
 * onnxruntime>=1.16.0
 * av>=15.0.0
 * dacite>=1.9.0
+* pyexiv2>=2.12.0
 
 可以通过如下指令安装依赖：
 
@@ -78,7 +76,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
-               [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save SAVE]
+               [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save-path SAVE-PATH]
 ```
 
 #### 主要参数
@@ -95,7 +93,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * `--mode`：运行模式。从 `{backend, frontend}` 中选择。`frontend` 运行时会显示运行相关信息的进度条，backend 则具有随时刷新的输出流，适合作为后端时使用管道进行输出。默认情况下使用 `frontend`。
 
-* `--debug`: 调试模式。以调试模式启动 MetDetPy 时，会打印更详细的日志信息用于调试。
+* `--debug`: 调试模式。调试模式启动时会打印更详细的日志信息。
 
 * `--visu`: 可视模式。以可视模式启动时，会创建一个额外视频窗口，显示当前的检测情况。
 
@@ -126,6 +124,11 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 ```sh
 python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg" --visu --save-path .
 ```
+
+#### 输出
+
+`MetDetPy` 将检测结果输出于命令行，以便在运行中实时确认检测情况。如果希望使用检测结果生成其他内容，例如生成流星片段，流星截图，标注文件等，最佳实践是在运行时指定 `--save-path`参数，将检测结果保存到 `MDRF` 格式的文件中。保存的结果可以被`MetDetPy`项目中的[其他工具](#其他工具的使用)处理。输出的结果格式见[数据格式](./data-format-cn.md)页。
+
 
 #### 自定义配置文件
 
@@ -227,7 +230,7 @@ Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space
 
 ### 更新日志 / TODO列表
 
-见 [更新日志](update-log.md)。
+见 [更新日志](./update-log.md)。
 
 ### 统计数据
 

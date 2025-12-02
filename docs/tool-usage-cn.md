@@ -6,8 +6,8 @@ MetDetPy提供了一些用于支持相关功能的工具。
 
 ### Toolkit
 * [ClipToolkit - (批)图像堆栈或视频切片工具](#cliptoolkit)
-* [Evaluate - 性能评估，效果测试工具](#evaulate)
-* [make_package - 打包可执行程序工具](#make-package)
+* [Evaluate - 性能评估，效果测试工具](#evaluate)
+* [make_package - 打包可执行程序工具](#打包Python代码为可执行程序)
 
 ### Data Format
 * [流星检测记录格式 (MDRF)](#meteor-detection-recording-format-mdrf)
@@ -119,14 +119,14 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 
 ## 打包Python代码为可执行程序
 
-我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具支持使用 `pyinstaller` 或 `nuitka` 来打包/编译。
+我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具使用 `nuitka` 来打包/编译。
 
-当使用该脚本时，请确保至少安装了`pyinstaller` 或 `nuitka` 中的任意一个工具。此外，在使用 `nuitka` 作为编译工具时，请确保在您的设备上有至少一个C/C++编译器可用。
+当使用该脚本时，请确保安装了 `nuitka` ，并确保在您的设备上有至少一个C/C++编译器可用。
 
 该工具的用法如下：
 
 ```sh
-python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
+python make_package.py [--tool {nuitka}] [--mingw64]
      [--apply-upx] [--apply-zip] [--version VERSION]
 ```
 
@@ -144,34 +144,6 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 
 注意：
 
-1. 建议使用 `Python>=3.9`, 且安装 `pyinstaller>=5.0` 或 `nuitka>=1.3.0` 以避免兼容性问题。任一工具都可以用于创建可执行程序。
+1. 建议使用 `Python>=3.9`, 且安装 `nuitka>=2.0.0` 以避免兼容性问题。
 
-3. 由于Python的特性，上述两种工具均无法跨平台打包生成可执行文件。
-
-4. （原因不明）如果环境中有`matplotlib`或`scipy`，它们很可能会一起打包到最终目录中。 为避免这种情况，建议使用干净的环境进行打包。
-
-
-## Meteor Detection Recording Format (MDRF)
-
-从 v2.2.0 开始，MetDetPy正式引入流星检测记录格式(MDRF)作为MetDetPy工具的标准格式。MDRF文件是包含流星检测结果，表现和标注等必要键值对的JSON格式的文本文件。MDRF文件可以从检测工具生成或手动标注构建，并可以作为不同MetDetPy工具间的流转文件。
-
-### MDRF的必要键值对
-
-有效的MDRF文件需要具有下列必要键值对：
-
-```json
-{
-    "version":"VERSION",
-    "basic_info":{...},
-    "type":"prediction",
-    "anno_size":[int,int],
-    "results":list[result]
-}
-```
-
-其中：
-* `"version"` 值为当前的MetDetPy版本；
-* `"basic_info"` 为视频的基本信息，包含`"mask"`， `"start_time"`， `"end_time"`，`"runtime_resolution"` 等用于能够正确构建视频片段的字段；
-* `"type"`用于注明MDRF的性质（属于标注的基本事实`"ground-truth"`或MetDetpy的预测`"prediction"`）；
-* `"anno_size"` 表明标注或预测的分辨率；
-* `"results"` 是结果的list。
+2. 由于Python的特性，`nuitka` 均无法跨平台打包生成可执行文件。你只能打包当前平台的可执行程序。

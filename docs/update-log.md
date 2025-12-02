@@ -59,6 +59,8 @@ Note:
 * 修复部分情况下 `np.int32` 类型数据导致的序列化失败问题。
 * 延长了 `metlog` 组件允许的最长等待时间，优化可能的输出不完整问题。
 
+TODO: pyexiv2 pkging.
+
 ## Version 2.3.0
 
 ✅ New Feature(s)

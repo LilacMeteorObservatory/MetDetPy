@@ -1,7 +1,6 @@
 numpy>=1.15.0
-opencv_python>=4.9.0
+opencv-python>=4.9.0
 tqdm>=4.0.0
-easydict>=1.0
 multiprocess>=0.70.0
 onnxruntime>=1.16.0
 av>=15.0.0

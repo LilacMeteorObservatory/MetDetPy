@@ -2,13 +2,128 @@
 
 <center>语言: <a href="./config-doc.md">English</a> | 简体中文 </center>
 
-## 简介
+`MetDetPy` 及 `ClipToolkit` 从配置文件中加载运行参数。大多数情况下，预设的配置文件能够较好的工作，但有时也可以调整参数可以取得更好的效果。该文档解释了上述两个工具使用的各项参数的含义，用户可以根据需要修改自己的视频读取配置，流星检测的参数，过滤流星的边界条件，图像降噪等能力的参数。
 
-MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配置文件能够较好的工作，但有时也可以调整检测参数可以取得更好的检测效果。该文档解释了各项参数的含义，可以根据需要修改自己的视频读取和流星检测的参数，或调整过滤流星的边界条件。
+⚠️ 当修改配置文件时，确保格式符合规范，否则会在加载阶段提示错误。
 
-配置文件是`JSON`格式的文本，主要包含4个部分：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。作为参考，预设的配置文件储存在[config](../config)文件夹下。可以结合[默认使用的配置文件](../config/m3det_normal.json)阅读本文档以更清晰了解配置文件的格式。
+## 检测参数设置
 
-## 描述文本Description
+### 简介
+
+检测配置文件是`JSON`格式的文本，主要包含4个部分：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。作为参考，预设的配置文件储存在[config](../config)文件夹下。可以结合[默认使用的配置文件](../config/m3det_normal.json)阅读本文档以更清晰了解配置文件的格式。
+
+### 参数结构体
+
+检测配置文件各部分的参数配置以及互相关系如下：
+
+```mermaid
+classDiagram
+
+class LoaderCfg {
+    +name: str
+    +wrapper: str
+    +resize: Union[list[int], int, str]
+    +exp_time: Union[float, str]
+    +merge_func: str
+    +grayscale: bool
+    +upper_bound: Optional[float]
+    +continue_on_err: bool
+}
+
+class ModelCfg {
+    +name: str
+    +weight_path: str
+    +dtype: str
+    +nms: bool
+    +warmup: bool
+    +pos_thre: float
+    +nms_thre: float
+    +multiscale_pred: int
+    +multiscale_partition: int
+    +providers_key: Optional[str]
+}
+
+class BinaryCoreCfg {
+    +adaptive_bi_thre: bool
+    +init_value: int
+    +sensitivity: str
+    +area: float
+    +interval: int
+}
+
+class HoughLineCfg {
+    +threshold: int
+    +min_len: int
+    +max_gap: int
+}
+
+class DynamicCfg {
+    +dy_mask: bool
+    +window_sec: float
+}
+
+class BinaryCfg {
+    +binary: BinaryCoreCfg
+    +hough_line: HoughLineCfg
+    +dynamic: DynamicCfg
+}
+
+class DLCfg {
+    +model: ModelCfg
+}
+
+class DetectorCfg {
+    +name: str
+    +window_sec: float
+    +cfg: Union[BinaryCfg, DLCfg]
+}
+
+class MeteorCfg {
+    +min_len: float
+    +max_interval: float
+    +time_range: list[float]
+    +speed_range: list[float]
+    +drct_range: list[float]
+    +det_thre: float
+    +thre2: int
+}
+
+class RecheckCfg {
+    +switch: bool
+    +model: ModelCfg
+}
+
+class CollectorCfg {
+    +meteor_cfg: MeteorCfg
+    +recheck_cfg: RecheckCfg
+    +positive_cfg: dict[str, Any]
+}
+
+class MainDetectCfg {
+    +description: dict[str,str]
+    +loader: LoaderCfg
+    +detector: DetectorCfg
+    +collector: CollectorCfg
+}
+
+MainDetectCfg --> LoaderCfg : loader
+MainDetectCfg --> DetectorCfg : detector
+MainDetectCfg --> CollectorCfg : collector
+
+DetectorCfg --> BinaryCfg : cfg
+DetectorCfg --> DLCfg : cfg
+
+BinaryCfg --> BinaryCoreCfg : binary
+BinaryCfg --> HoughLineCfg : hough_line
+BinaryCfg --> DynamicCfg : dynamic
+
+DLCfg --> ModelCfg : model
+RecheckCfg --> ModelCfg : model
+CollectorCfg --> MeteorCfg : meteor_cfg
+CollectorCfg --> RecheckCfg : recheck_cfg
+```
+
+### 描述文本Description
 
 可用于描述配置文件的主要使用场景和说明。前端应用（如Meteor Master>=3.6.0）将可以展示这些信息。检测中不会实际使用该项。
 
@@ -32,7 +147,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 }
 ```
 
-## 视频加载器/Loader
+### 视频加载器/Loader
 
 `loader`主要管理与视频读入和预处理相关的参数。示例配置如下：
 
@@ -53,7 +168,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|--------|
 |name|str|所使用的`loader`的名称。目前可选`"VanillaVideoLoader"`,`"ThreadVideoLoader"`和`ProcessVideoLoader`。一般情况下，推荐使用稳定且运行速度较快的`"ThreadVideoLoader"`。|`"ThreadVideoLoader"`|
-|wrapper|str|底层加载视频使用的`wrapper`。目前仅支持基于OpenCV的`"OpenCVVideoWrapper"`。|`"OpenCVVideoWrapper"`|
+|wrapper|str|底层加载视频使用的`wrapper`。目前支持基于OpenCV的`"OpenCVVideoWrapper"` 及基于PyAV的 `"PyAVVideoWrapper"`。|`"OpenCVVideoWrapper"`|
 |resize|int, array, str|指定检测使用的分辨率。较低的分辨率下程序运行更快，较高的分辨率则有助于检测到更暗弱和短的流星。可以设置一个整数以仅指定长边长度（如`960`），程序会自适应不同长宽比的视频（推荐）；该设置也支持同时指定宽高（使用以`:`或者`x`分隔两个数字的字符串，如`"960:540"`，`"960x540"`；或直接使用列表，如`[960,540]`）|`960`|
 |exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)|指定单帧的曝光时间。使用传统检测器时，推荐使用`"auto"`，程序会根据片段估算实际曝光时间（会在启动前花费一小段时间）。如果确定视频帧率与曝光时间匹配，则可以使用`"real-time"`。如果希望指定具体数值，可以填入单位为s的浮点数（小数）。|`"auto"`（直线检测器）/`0.5`（深度学习检测器）|
 |upper_bound|float (可选)|指定使用自动估算曝光时间时的最长曝光时间。这是一个可选参数，当没有必要时可以不指定。|0.5|
@@ -65,7 +180,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 2. Q: 为什么要填写曝光时间？ A: 存在实际曝光时间与帧率不匹配的情况（例如，部分相机可以输出曝光时间为1/20s的4k60p的视频，视频每3帧变化一次，而非每帧间均有差异）。在这种情况下，使用实际的曝光时间可以改善运行速度和识别的准确率。
 
 
-## 检测器/Detector
+### 检测器/Detector
 
 `detector`中主要设置使用的检测器，检测窗时长及检测时使用的参数（如二值化阈值，直线检测的相关设置）。
 
@@ -213,7 +328,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
     </tr>
 </table>
 
-## 收集器/Collector
+### 收集器/Collector
 
 收集器中设置流星的过滤和收集条件，以及重校验相关的配置。
 
@@ -263,7 +378,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 
 其中主要包含三部分设置：流星的筛选配置`"meteor_cfg"`、重校验配置`"recheck_cfg"`和正样本配置`"positive_cfg"`。
 
-### 流星筛选配置/Meteor_cfg
+#### 流星筛选配置/Meteor_cfg
 
 流星筛选配置中，可以设置流星的速度，持续时间，允许间隔，直线程度，得分阈值等过滤条件。其各项参数说明如下：
 
@@ -280,7 +395,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 ⚠️ 目前流星筛选配置的过滤采取宽容性设计：当超出上述设置范围时，得分不会直接突变置零，而是逐渐衰减到0。
 
 
-### 重校验配置/Recheck_cfg
+#### 重校验配置/Recheck_cfg
 
 重校验是`v2.0.0`中新增的机制，允许在主程序给出时间范围和流星位置后再次校验图像中是否存在需要捕获的目标（如流星，红色精灵等）。其各项参数说明如下：
 
@@ -290,7 +405,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |model|-|参考[模型](#模型model)部分。|-|
 |save_path|str|保存重校验图像的路径。置空时，不保存重校验的图像。|`""`|
 
-### 正样本配置/positive_cfg
+#### 正样本配置/positive_cfg
 
 正样本是`v2.2.0`中新增的机制，支持配置预期输出的正负样本类型。其各项参数说明如下：
 
@@ -298,7 +413,7 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |------|---|---|---|
 |positive_cates|list|接受为正样本的类别集合。|`["METEOR","RED_SPRITE"]`|
 
-## 模型/Model
+### 模型/Model
 可以在检测器中和收集器的重校验部分配置深度学习模型。
 当尝试使用模型时，按照以下格式配置：
 
@@ -327,3 +442,152 @@ MetDetPy从配置文件中读取运行参数。大多数情况下，预设的配
 |nms_thre|float|去重时使用的阈值。|0.45|
 |multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
 |multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|
+
+## 剪切参数设置
+
+### 简介
+
+`ClipToolkit`（切片工具）支持定义截取和保存视频时的参数，其默认配置文件为[./global/clip_cfg.json](../global/clip_cfg.json)中。该配置文件的结构定义如下（或参考 [metstruct.py](../MetLib/metstruct.py#L485)）：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|loader|str|视频加载器|"ThreadVideoLoader"|
+|wrapper|str|底层加载视频使用的`wrapper`||
+|writer|str|视频写入器，可选 OpenCVVideoWriter 和 PyAVVideoWriter。|"PyAVVideoWriter"|
+|image_denoise|DenoiseOption|图像降噪配置||
+|export|ExportOption|导出配置|见`ExportOption`段|
+
+### 图像降噪配置
+支持在导出图像时对导出图像进行后处理，降低图像噪点，连接可能存在的断线等。具体配置如下：
+
+<table>
+    <tr>
+        <td><b>所属项</b></td> 
+        <td><b>参数名</b></td> 
+        <td><b>可选类型</b></td> 
+        <td><b>说明</b></td> 
+        <td><b>推荐设置</b></td> 
+   </tr>
+    <tr>
+        <td rowspan="1">switch</td>    
+        <td>-</td> 
+        <td>bool</td> 
+        <td>是否默认启用图像降噪。注意，即使配置为false, 仍可以通过在命令行的--denoise参数在单次任务中启用降噪。</td> 
+        <td>true</td> 
+    </tr>
+    <tr>
+        <td rowspan="1">highlight_preserve</td>    
+        <td>-</td> 
+        <td>float</td> 
+        <td>高光保护阈值，控制高光部分不受到降噪影响，保护流星周围图像的细节。设置过高可能导致高光同样被降噪算法影响，过低则可能导致降噪效果不明显。</td> 
+        <td>0.9</td> 
+    </tr>
+    <tr>
+        <td rowspan="1">algorithm</td>    
+        <td>-</td> 
+        <td>str</td> 
+        <td>默认使用的降噪算法。可选 "simple"（简单降噪算法） 以及 "mfnr-mix"（多帧混合降噪）。</td> 
+        <td>"simple"</td> 
+    </tr>
+    <tr>
+        <td rowspan="1">blur_ksize</td>    
+        <td>-</td> 
+        <td>int</td> 
+        <td>使用的高斯模糊核尺寸。该参数用于估算流星蒙版。</td> 
+        <td>31</td> 
+    </tr>
+    <tr>
+        <td rowspan="4">connect_lines</td>    
+        <td>switch</td> 
+        <td>bool</td> 
+        <td>是否在降噪过程中尝试连接断线。</td> 
+        <td>true</td> 
+    </tr>
+    <tr>
+        <td>ksize_multiplier</td> 
+        <td>float</td> 
+        <td>连接断线使用的高斯核尺寸系数。该系数与 "blur_ksize" 乘算以确定最终在降噪中使用的核尺寸。</td> 
+        <td>1.5</td> 
+    </tr>
+    <tr>
+        <td>gamma</td> 
+        <td>float</td> 
+        <td>断线蒙版gamma亮度变换时使用的gamma系数。</td> 
+        <td>1.0</td> 
+    </tr>
+    <tr>
+        <td>threshold</td> 
+        <td>int</td> 
+        <td>断线蒙版阈值。高于阈值的蒙版部分被视为需要连接的断线。</td> 
+        <td>30</td> 
+    </tr>
+    <tr>
+        <td rowspan="5"><p>simple_param</p>（简单降噪相关参数）</td>    
+        <td>ds_radius</td> 
+        <td>int</td> 
+        <td>蒙尘与划痕算法使用的中值滤波半径。</td> 
+        <td>10</td> 
+    </tr>
+    <tr>  
+        <td>ds_threshold</td> 
+        <td>int</td> 
+        <td>蒙尘与划痕算法使用的亮度差阈值。</td> 
+        <td>20</td> 
+    </tr>
+    <tr>  
+        <td>bi_d</td> 
+        <td>int</td> 
+        <td>双边滤波算法使用的像素邻域的直径。</td> 
+        <td>10</td> 
+    </tr>
+    <tr>  
+        <td>bi_sigma_color</td> 
+        <td>float</td> 
+        <td>颜色空间滤波器的sigma值。值越大，则半相等颜色区域更大。</td> 
+        <td>15</td> 
+    </tr>
+    <tr>  
+        <td>bi_sigma_space</td> 
+        <td>float</td> 
+        <td>坐标空间中滤波器的sigma值。值越大，更大的区域内相似的颜色会参与降噪计算。</td> 
+        <td>6</td> 
+    </tr>
+    <tr>
+        <td rowspan="4"><p>mfnr_param</p>（多帧降噪相关参数）</td>    
+        <td>bg_algorithm</td> 
+        <td>str</td> 
+        <td>多帧降噪时估算背景的算法。可选 "median" （中值）, "med-of-med" （中值中值，快速的中值估算方法）, "sigma-clipping"（sigma裁剪均值）, "mean"（简单均值）。</td> 
+        <td>"mean"</td> 
+    </tr>
+    <tr>  
+        <td>sigma_high</td> 
+        <td>float</td> 
+        <td>使用sigma裁剪均值时，sigma的拒绝上界比值。</td> 
+        <td>3.0</td> 
+    </tr>
+    <tr>  
+        <td>sigma_low</td> 
+        <td>float</td> 
+        <td>使用sigma裁剪均值时，sigma的拒绝上界比值。</td> 
+        <td>3.0</td> 
+    </tr>
+    <tr>  
+        <td>bg_fix_factor</td> 
+        <td>float</td> 
+        <td>背景估算时使用的修正系数。</td> 
+        <td>1.5</td> 
+    </tr>
+</table>
+
+### 导出配置
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|positive_category_list|list|需要导出的正样本类别|["METEOR","RED_SPRITE"]|
+|exclude_category_list|list|默认排除的负样本类别|[]|
+|with_bbox|bool|导出时是否默认需要带上标注框|false|
+|with_annotation|bool|导出时是否默认需要带上标注文件|false|
+|bbox_color|list|标注框颜色(BGR顺序)|[0,0,255]|
+|bbox_thickness|int|标注框粗细|2|
+|video_encoder|str|导出视频时的编码器（仅在启用 PyAVVideoWriter 时生效）|"libx264"|
+|video_fmt|str|导出视频时的编码格式（仅在启用 PyAVVideoWriter 时生效）|"yuv420p"|
