@@ -20,6 +20,7 @@ join_path = os.path.join
 
 
 def run_cmd(command: list[str]):
+    print("Running:", command)
     t_start = time.time()
     ret = subprocess.run(command)
     t_end = time.time()
@@ -27,7 +28,7 @@ def run_cmd(command: list[str]):
 
 
 def nuitka_compile(header: list[str], options: dict[str, Union[bool, str]],
-                   target: str):
+                   nuitka_pkgs: list[str], target: str):
     """使用nuitka编译打包的API
 
     Args:
@@ -40,7 +41,7 @@ def nuitka_compile(header: list[str], options: dict[str, Union[bool, str]],
         for key, value in options.items() if value
     ]
 
-    merged = header + options_list + [
+    merged = header + options_list + nuitka_pkgs + [
         target,
     ]
 
@@ -139,7 +140,13 @@ compile_tool = [sys.executable, "-m", "nuitka"]
 nuitka_base: dict[str, Union[bool, str]] = {
     "--no-pyi-file": True,
     "--remove-output": True,
+    "--lto": "yes"
 }
+
+exclude_pkgs = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "PIL"]
+
+nuitka_pkgs = [f"--nofollow-import-to={x}" for x in exclude_pkgs]
+
 if platform == "win" and args.mingw64:
     print("Apply mingw64 as compiler.")
     nuitka_base["--mingw64"] = True
@@ -185,6 +192,7 @@ met_cfg.update(nuitka_base)
 # 编译主要检测器MetDetPy.py
 nuitka_compile(compile_tool,
                met_cfg,
+               nuitka_pkgs,
                target=join_path(work_path, "MetDetPy.py"))
 
 # 编译视频叠加工具ClipToolkit.py
@@ -198,6 +206,7 @@ stack_cfg.update(nuitka_base)
 
 nuitka_compile(compile_tool,
                stack_cfg,
+               nuitka_pkgs,
                target=join_path(work_path, "ClipToolkit.py"))
 
 # 编译图像检测器MetDetPhoto.py
@@ -210,16 +219,19 @@ mep_cfg.update(nuitka_base)
 
 nuitka_compile(compile_tool,
                mep_cfg,
+               nuitka_pkgs,
                target=join_path(work_path, "MetDetPhoto.py"))
 
 # postprocessing
 # remove duplicate files of ClipToolkit
 print("Merging...", end="", flush=True)
 shutil.move(
-    join_path(compile_path, "ClipToolkit.dist", f"ClipToolkit{exec_suffix}"),
+    join_path(compile_path, "ClipToolkit.dist",
+                f"ClipToolkit{exec_suffix}"),
     join_path(compile_path, "MetDetPy.dist"))
 shutil.move(
-    join_path(compile_path, "MetDetPhoto.dist", f"MetDetPhoto{exec_suffix}"),
+    join_path(compile_path, "MetDetPhoto.dist",
+                f"MetDetPhoto{exec_suffix}"),
     join_path(compile_path, "MetDetPy.dist"))
 shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
 shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
