@@ -1,10 +1,15 @@
 # 参数设置文档
 
-<center>语言: <a href="./config-doc.md">English</a> | 简体中文 </center>
+<center>语言: <a href="./config-doc.md">English</a> | <b>简体中文</b> </center>
 
 `MetDetPy` 及 `ClipToolkit` 从配置文件中加载运行参数。大多数情况下，预设的配置文件能够较好的工作，但有时也可以调整参数可以取得更好的效果。该文档解释了上述两个工具使用的各项参数的含义，用户可以根据需要修改自己的视频读取配置，流星检测的参数，过滤流星的边界条件，图像降噪等能力的参数。
 
-⚠️ 当修改配置文件时，确保格式符合规范，否则会在加载阶段提示错误。
+⚠️ 当修改配置文件时，需要确保格式符合规范，否则会在参数加载阶段提示错误。
+
+## Menu
+
+[MetDetpy - 检测参数设置](#检测参数设置)
+[ClipToolkit - 剪切参数设置](#剪切参数设置)
 
 ## 检测参数设置
 
@@ -12,7 +17,7 @@
 
 检测配置文件是`JSON`格式的文本，主要包含4个部分：[描述文本(description)](#描述文本description)， [视频加载器(loader)](#视频加载器loader)， [检测器(detector)](#检测器detector) 和[收集器(Collector)](#收集器collector)。作为参考，预设的配置文件储存在[config](../config)文件夹下。可以结合[默认使用的配置文件](../config/m3det_normal.json)阅读本文档以更清晰了解配置文件的格式。
 
-### 参数结构体
+### 参数结构
 
 检测配置文件各部分的参数配置以及互相关系如下：
 
@@ -20,90 +25,90 @@
 classDiagram
 
 class LoaderCfg {
-    +name: str
-    +wrapper: str
-    +resize: Union[list[int], int, str]
-    +exp_time: Union[float, str]
-    +merge_func: str
-    +grayscale: bool
-    +upper_bound: Optional[float]
-    +continue_on_err: bool
+    name: str
+    wrapper: str
+    resize: Union[list[int], int, str]
+    exp_time: Union[float, str]
+    merge_func: str
+    grayscale: bool
+    upper_bound: Optional[float]
+    continue_on_err: bool
 }
 
 class ModelCfg {
-    +name: str
-    +weight_path: str
-    +dtype: str
-    +nms: bool
-    +warmup: bool
-    +pos_thre: float
-    +nms_thre: float
-    +multiscale_pred: int
-    +multiscale_partition: int
-    +providers_key: Optional[str]
+    name: str
+    weight_path: str
+    dtype: str
+    nms: bool
+    warmup: bool
+    pos_thre: float
+    nms_thre: float
+    multiscale_pred: int
+    multiscale_partition: int
+    providers_key: Optional[str]
 }
 
 class BinaryCoreCfg {
-    +adaptive_bi_thre: bool
-    +init_value: int
-    +sensitivity: str
-    +area: float
-    +interval: int
+    adaptive_bi_thre: bool
+    init_value: int
+    sensitivity: str
+    area: float
+    interval: int
 }
 
 class HoughLineCfg {
-    +threshold: int
-    +min_len: int
-    +max_gap: int
+    threshold: int
+    min_len: int
+    max_gap: int
 }
 
 class DynamicCfg {
-    +dy_mask: bool
-    +window_sec: float
+    dy_mask: bool
+    window_sec: float
 }
 
 class BinaryCfg {
-    +binary: BinaryCoreCfg
-    +hough_line: HoughLineCfg
-    +dynamic: DynamicCfg
+    binary: BinaryCoreCfg
+    hough_line: HoughLineCfg
+    dynamic: DynamicCfg
 }
 
 class DLCfg {
-    +model: ModelCfg
+    model: ModelCfg
 }
 
 class DetectorCfg {
-    +name: str
-    +window_sec: float
-    +cfg: Union[BinaryCfg, DLCfg]
+    name: str
+    window_sec: float
+    cfg: Union[BinaryCfg, DLCfg]
 }
 
 class MeteorCfg {
-    +min_len: float
-    +max_interval: float
-    +time_range: list[float]
-    +speed_range: list[float]
-    +drct_range: list[float]
-    +det_thre: float
-    +thre2: int
+    min_len: float
+    max_interval: float
+    time_range: list[float]
+    speed_range: list[float]
+    drct_range: list[float]
+    det_thre: float
+    thre2: int
 }
 
 class RecheckCfg {
-    +switch: bool
-    +model: ModelCfg
+    switch: bool
+    model: ModelCfg
 }
 
 class CollectorCfg {
-    +meteor_cfg: MeteorCfg
-    +recheck_cfg: RecheckCfg
-    +positive_cfg: dict[str, Any]
+    meteor_cfg: MeteorCfg
+    recheck_cfg: RecheckCfg
+    positive_cfg: dict[str, Any]
 }
 
 class MainDetectCfg {
-    +description: dict[str,str]
-    +loader: LoaderCfg
-    +detector: DetectorCfg
-    +collector: CollectorCfg
+    description: dict[str,str]
+    loader: LoaderCfg
+    detector: DetectorCfg
+    collector: CollectorCfg
 }
 
 MainDetectCfg --> LoaderCfg : loader
@@ -447,15 +452,81 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 
 ### 简介
 
-`ClipToolkit`（切片工具）支持定义截取和保存视频时的参数，其默认配置文件为[./global/clip_cfg.json](../global/clip_cfg.json)中。该配置文件的结构定义如下（或参考 [metstruct.py](../MetLib/metstruct.py#L485)）：
+`ClipToolkit`（切片工具）支持定义截取和保存视频时的视频读写参数，其默认配置文件为[./global/clip_cfg.json](../global/clip_cfg.json)中。该配置文件的结构定义如下（或参考 [metstruct.py](../MetLib/metstruct.py#L485)）：
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
 |loader|str|视频加载器|"ThreadVideoLoader"|
-|wrapper|str|底层加载视频使用的`wrapper`||
+|wrapper|str|加载视频使用的后端`wrapper`||
 |writer|str|视频写入器，可选 OpenCVVideoWriter 和 PyAVVideoWriter。|"PyAVVideoWriter"|
-|image_denoise|DenoiseOption|图像降噪配置||
-|export|ExportOption|导出配置|见`ExportOption`段|
+|image_denoise|DenoiseOption|图像降噪配置|见[图像降噪配置](#图像降噪配置)|
+|export|ExportOption|导出配置|见[导出配置](#导出配置)|
+
+剪切配置文件各部分的参数配置以及互相关系如下：
+
+```mermaid
+classDiagram
+
+class ExportOption {
+    positive_category_list: list[str]
+    exclude_category_list: list[str]
+    jpg_quality: int
+    png_compressing: int
+    with_bbox: bool
+    with_annotation: bool
+    bbox_color: list[int]
+    bbox_thickness: int
+    video_encoder: str
+    video_fmt: str
+}
+
+class ConnectParam {
+    switch: bool
+    ksize_multiplier: float
+    gamma: float
+    threshold: int
+}
+
+class SimpleDenoiseParam {
+    ds_radius: int
+    ds_threshold: int
+    bi_d: int
+    bi_sigma_color: int
+    bi_sigma_space: int
+}
+
+class MFNRDenoiseParam {
+    bg_algorithm: str
+    sigma_high: float
+    sigma_low: float
+    bg_fix_factor: float
+}
+
+class DenoiseOption {
+    switch: bool
+    highlight_preserve: float
+    algorithm: str
+    blur_ksize: int
+    connect_lines: ConnectParam
+    simple_param: SimpleDenoiseParam
+    mfnr_param: MFNRDenoiseParam
+}
+
+class ClipCfg {
+    loader: str
+    wrapper: str
+    writer: str
+    image_denoise: DenoiseOption
+    export: ExportOption
+}
+
+ClipCfg --> DenoiseOption : image_denoise
+ClipCfg --> ExportOption : export
+DenoiseOption --> ConnectParam : connect_lines
+DenoiseOption --> SimpleDenoiseParam : simple_param
+DenoiseOption --> MFNRDenoiseParam : mfnr_param
+```
+
 
 ### 图像降噪配置
 支持在导出图像时对导出图像进行后处理，降低图像噪点，连接可能存在的断线等。具体配置如下：
@@ -583,7 +654,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
-|positive_category_list|list|需要导出的正样本类别|["METEOR","RED_SPRITE"]|
+|positive_category_list|list|需要导出的正样本类别|`["METEOR","RED_SPRITE"]`|
 |exclude_category_list|list|默认排除的负样本类别|[]|
 |with_bbox|bool|导出时是否默认需要带上标注框|false|
 |with_annotation|bool|导出时是否默认需要带上标注文件|false|

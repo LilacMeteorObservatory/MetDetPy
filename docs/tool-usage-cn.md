@@ -4,13 +4,9 @@ MetDetPy提供了一些用于支持相关功能的工具。
 
 ## Menu
 
-### Toolkit
 * [ClipToolkit - (批)图像堆栈或视频切片工具](#cliptoolkit)
 * [Evaluate - 性能评估，效果测试工具](#evaluate)
 * [make_package - 打包可执行程序工具](#打包Python代码为可执行程序)
-
-### Data Format
-* [流星检测记录格式 (MDRF)](#meteor-detection-recording-format-mdrf)
 
 ## ClipToolkit
 
