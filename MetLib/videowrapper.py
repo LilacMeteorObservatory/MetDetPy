@@ -177,6 +177,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                                  options={'threads': str(os.cpu_count())})
         self.video = self.container.streams.video[0]
         self.video.thread_type = "FRAME"
+        self.video_frame_cache: list[av.VideoFrame] = []
 
     @property
     def num_frames_by_container(self):
@@ -205,10 +206,15 @@ class PyAVVideoWrapper(BaseVideoWrapper):
     def read(self):
         try:
             while True:
+                if len(self.video_frame_cache) > 0:
+                    return True, self.video_frame_cache.pop(0).to_ndarray(
+                        format='bgr24')
                 frame: list[av.VideoFrame] = self.container.demux(
                     video=0).__next__().decode()  # type: ignore
                 if len(frame) == 0:
                     continue
+                if len(frame) > 1:
+                    self.video_frame_cache.extend(frame[1:])
                 return True, frame[0].to_ndarray(format='bgr24')
         except av.error.EOFError:
             return False, None
