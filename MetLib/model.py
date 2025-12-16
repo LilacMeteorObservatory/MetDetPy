@@ -8,9 +8,9 @@ from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
 from .metstruct import ModelCfg
-from .utils import STR2DTYPE, U8Mat, xywh2xyxy
+from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, xywh2xyxy
 
-ort.set_default_logger_severity(3)
+ort.set_default_logger_severity(4)
 logger = get_default_logger()
 
 DEFAULT_STR = "default"
@@ -30,6 +30,12 @@ AVAILABLE_DEVICE_ALIAS = [
     if pvd_list[0] in ort.get_available_providers()
 ]
 
+WINDOWS_DLL_CHK_LIST = [
+        "vcruntime140_1.dll",
+        "vcruntime140.dll",
+        "msvcp140.dll",
+        "ucrtbase.dll"
+    ]
 
 class Backend(metaclass=ABCMeta):
 
@@ -89,6 +95,13 @@ class ONNXBackend(Backend):
         else:
             providers = DEVICE_MAPPING.get(providers_key,
                                            DEVICE_MAPPING[DEFAULT_STR])
+        
+        if is_lfs_pointer(self.weight_path):
+            raise RuntimeError(
+                f"Model weight file {self.weight_path} is a Git LFS pointer file. "
+                "Please pull the actual model file using Git LFS."
+            )
+            
         self.model_session = ort.InferenceSession(self.weight_path,
                                                   providers=providers)
         self.shapes: list[list[int]] = [
@@ -271,12 +284,7 @@ class YOLOModel(object):
         # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
         # TODO: 通过优化模型取缔这个tricky的设置。
         result_cls: NDArray[np.float64] = np.sqrt(
-            np.einsum(
-                "ab,a->ab",
-                results[:, 5:],
-                results[
-                    :,  # type: ignore
-                    4]))
+            np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
         return result_pos, result_cls
 
     def forward(self, x: U8Mat):
@@ -361,6 +369,9 @@ class YOLOModel(object):
             logger.error(
                 f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
                 f"Results of this frame could be lost...")
+            if len(result_pos) == 0 or len(result_cls) == 0:
+                return np.zeros((0, 4), dtype=np.int_), np.zeros(
+                    (0, NUM_CLASS), dtype=np.float64)
             return np.concatenate(result_pos,
                                   axis=0), np.concatenate(result_cls, axis=0)
         concat_result_pos = np.concatenate(result_pos, axis=0)
@@ -381,7 +392,7 @@ class YOLOModel(object):
 
         return concat_result_pos, concat_result_cls
 
-
+check_windows_dll(WINDOWS_DLL_CHK_LIST)
 available_models = {cls.__name__: cls for cls in [YOLOModel]}
 SUFFIX2BACKEND = {"onnx": ONNXBackend}
 

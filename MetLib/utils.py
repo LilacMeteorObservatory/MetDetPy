@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import datetime
 import os.path as path
+import sys
 import warnings
 from typing import Any, Callable, Optional, Sequence, TypeVar, Union
 
@@ -14,12 +16,13 @@ from .metlog import get_default_logger
 from .metstruct import Box
 
 PROJECT_NAME = "MetDetPy"
-VERSION = "V2.3.1"
+VERSION = "V2.3.2"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
+LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
 # WORK_PATH 指向 MetDetPy 项目根目录位置。
 WORK_PATH = path.split(path.dirname(path.abspath(__file__)))[0]
 CLIP_CONFIG_PATH = path.join(WORK_PATH, "global", "clip_cfg.json")
@@ -1027,6 +1030,36 @@ def estimate_snr_smooth_residual(image: U8Mat, kernel_size: int = 5) -> float:
 
     snr = 10 * np.log10(var_signal / var_noise)
     return snr
+
+
+def check_windows_dll(dll_list: list[str]):
+    """ Check whether required Windows DLLs are present.
+    """
+    if sys.platform != "win32":
+        return
+    missing_dlls: list[str] = []
+    for dll in dll_list:
+        try:
+            ctypes.WinDLL(dll)
+        except OSError:
+            missing_dlls.append(dll)
+
+    if missing_dlls:
+        logger.error(
+            f"The following required DLLs are missing: {', '.join(missing_dlls)}. "
+            "Please ensure that the Visual C++ Redistributable is installed.")
+
+
+def is_lfs_pointer(file_path: str, max_read: int = 4096):
+    """
+    检查一个文件是否为 Git LFS 指针文件。
+    """
+    if not path.isfile(file_path):
+        return False
+    with open(file_path, "rb") as f:
+        data = f.read(max_read)
+    return data.lstrip().startswith(LFS_HEADER) or data.startswith(
+        b'\xef\xbb\xbf' + LFS_HEADER)
 
 
 ID2NAME: dict[int, str] = {}
