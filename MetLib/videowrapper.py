@@ -15,6 +15,9 @@ import cv2
 from cv2.typing import MatLike
 
 from .utils import frame2time, time2frame
+from .metlog import get_default_logger
+
+logger = get_default_logger()
 
 
 class BaseVideoWrapper(metaclass=ABCMeta):
@@ -216,7 +219,11 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                 if len(frame) > 1:
                     self.video_frame_cache.extend(frame[1:])
                 return True, frame[0].to_ndarray(format='bgr24')
-        except av.error.EOFError:
+        except Exception as e:
+            logger.error(
+                f"{e.__repr__()} encountered when reading"
+                f"video frame with {self.__class__.__name__}."
+            )
             return False, None
 
     def release(self):
