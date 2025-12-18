@@ -1,5 +1,7 @@
 # 工具用法
 
+<center> 语言：<a href="./tool-usage.md">English</a> | <b>简体中文</b> </center>
+
 MetDetPy提供了一些用于支持相关功能的工具。
 
 ## Menu
@@ -126,15 +128,15 @@ python make_package.py [--tool {nuitka}] [--mingw64]
      [--apply-upx] [--apply-zip] [--version VERSION]
 ```
 
-* --tool: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
+* `--tool`: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
 
-* --mingw64: 使用MinGW64作为编译器。该选项仅在Windows上使用 `nuitka` 进行编译时生效。
+* `--mingw64`: 使用MinGW64作为编译器。该选项仅在Windows上使用 `nuitka` 进行编译时生效。
 
-* --apply-upx: 启用UPX以压缩可执行程序的大小。仅当使用 `nuitka` 进行编译时生效。
+* `--apply-upx`: 启用UPX以压缩可执行程序的大小。仅当使用 `nuitka` 进行编译时生效。
 
-* --apply-zip: 打包完成时同时生成Zip压缩包。
+* `--apply-zip`: 打包完成时同时生成Zip压缩包。
 
-* --version: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
+* `--version`: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
 
 目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
 

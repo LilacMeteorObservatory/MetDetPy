@@ -1,5 +1,7 @@
 # Tools Usage
 
+<center>Language: English | <a href="./tool-usage-cn.md">简体中文</a>  </center>
+
 Several tools are provided with MetDetPy to support related functions.
 
 ## Menu
@@ -141,29 +143,3 @@ The target executable file and its zip package version (if applied) will be gene
 1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. You can prepare either tool to package the program.
 2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
 3. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment when packaging.
-
-## Meteor Detection Recording Format (MDRF)
-
-Starting with Version 2.2.0, MetDetPy formally introduces the Meteor Detection Recording Format (MDRF) as the standard format for the MetDetPy toolkit. MDRF files are JSON-format text files containing specific key-value pairs that store essential information about meteor detection results, performances or annotations. These files can be generated either through detection or manual annotation as ground truth, and can serve as both input and output across most MetDetPy toolkit components.
-
-### Essential key-values of MDRF
-
-A valid MDRF file requires the following keys with values:
-
-```json
-{
-    "version":"VERSION",
-    "basic_info":{...},
-    "type":"prediction",
-    "anno_size":[int,int],
-    "results":list[results]
-}
-```
-
-in which:
-Among them:
-* `"version"`: The value represents the current version of MetDetPy.
-* `"basic_info"`: Contains the basic information of the video, including fields such as `"mask"`, `"start_time"`, `"end_time"`, and `"runtime_resolution"`, which are used to correctly construct video segments.
-* `"type"`: Indicates the nature of the MDRF (whether it belongs to the ground truth `"ground-truth"` or is a prediction by MetDetPy `"prediction"`).
-* `"anno_size"`: Indicates the resolution of the annotation or prediction.
-* `"results"`: A list of results.
