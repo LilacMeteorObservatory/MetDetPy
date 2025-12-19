@@ -424,7 +424,7 @@ class MDRF(DictAble):
         object (_type_): _description_
     """
     version: str
-    basic_info: Union[BasicInfo, MockVideoObject, None]
+    basic_info: Union[BasicInfo, MockVideoObject]
     config: Optional[MainDetectCfg]
     type: str
     anno_size: Optional[list[int]]

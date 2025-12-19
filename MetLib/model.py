@@ -4,6 +4,7 @@ from typing import Optional, Union
 import cv2
 import numpy as np
 import onnxruntime as ort
+import threading
 from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
@@ -16,6 +17,7 @@ logger = get_default_logger()
 DEFAULT_STR = "default"
 PARTITION_MIN_OVERLAP = 0.2
 MULTISCALE_NMS_OVERLAP_THRE = 0.1
+LOCK_TIMEOUT = 5.0
 
 DEVICE_MAPPING: dict[str, list[str]] = {
     "cpu": ["CPUExecutionProvider"],
@@ -68,7 +70,7 @@ class Backend(metaclass=ABCMeta):
 
 
 class ONNXBackend(Backend):
-
+    _global_lock = threading.Lock()
     def __init__(self,
                  weight_path: str,
                  dtype: DTypeLike,
@@ -150,13 +152,17 @@ class ONNXBackend(Backend):
             list: raw output.
         """
         assert len(self.input_name) > 0, "invalid input name cnt."
-        if self.single_input:
-            return self.model_session.run(None, {self.input_name[0]: x})
+        self._global_lock.acquire(timeout=LOCK_TIMEOUT)
+        try:
+            if self.single_input:
+                return self.model_session.run(None, {self.input_name[0]: x})
 
-        return self.model_session.run(None, {
-            name: tensor
-            for name, tensor in zip(self.input_name, x)
-        })
+            return self.model_session.run(None, {
+                name: tensor
+                for name, tensor in zip(self.input_name, x)
+            })
+        finally:
+            self._global_lock.release()
 
 
 class YOLOModel(object):

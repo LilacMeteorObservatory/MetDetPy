@@ -4,9 +4,9 @@
 
 ## Introduction
 
-MetDetPy utilizes configuration files to read arguments. Generally, preset configuration files suffice for most scenarios. However, there might be instances where adjusting detection arguments can yield improved detection results. This document aims to elucidate the meanings of these arguments, enabling users to adjust them as per their requirements.
+MetDetPy utilizes configuration files to read arguments. Generally, preset configuration files suffice for most scenarios. However, adjusting detection arguments can sometimes yield improved results. This document explains these arguments so users can modify them to suit their needs.
 
-A configuration file is a `JSON` formatted text comprising four sections: [description](#description), [loader](#loader), [detector](#detector), and [Collector](#collector). For reference, predefined settings are stored in theFor reference, predefined settings are stored in theFor reference, predefined settings are stored in the [config](../config) directory. While going through this guide, it's advisable to use [the default configuration file](../config/m3det_normal.json) as a reference to better comprehend the configuration file format.
+A configuration file is a `JSON` formatted text comprising four sections: [description](#description), [loader](#loader), [detector](#detector), and [collector](#collector). Predefined configuration files are stored in the [config](../config) directory. While reading this guide, it is recommended to refer to the default configuration file [../config/m3det_normal.json](../config/m3det_normal.json).
 
 ## Description
 
@@ -120,7 +120,7 @@ These arguments are explained as follows:
 |Argument|Type|Explanation|Recommendation|
 |------|---|---|---|
 |name|str|Specifies the detector's name. Options include `"ClassicDetector"`, `"M3Detector"`, and `"MLDetector"`. `"ClassicDetector"` and `"M3Detector"` are traditional detectors based on line detection, while `"MLDetector"` is a deep learning-based detector. Traditional detectors are typically faster and more sensitive, which may lead to more false-positive samples (this can be improved by configuring [recheck](#recheck_cfg)); on the other hand, deep learning-based detectors are more robust but have a higher computing cost. These two types of detectors also differ in their arguments. |`"M3Detector"`(traditional detector)/ `"MLDetector"` (deep learning detector)|
-|windows_sec|int,float| Defines the time length of the sliding window. Meteors are detected within the sliding window during operation. Generally, it is recommended to set this around `1` second. |`1`|
+|window_sec|int,float| Defines the time length of the sliding window. Meteors are detected within the sliding window during operation. Generally, it is recommended to set this around `1` second. |`1`|
 |cfg|-|Describes the specific arguments of the detector. |(See below)|
 
 When using traditional detectors, it's necessary to configure `"binary"`(binary threshold arguments), `"hough_line"`(line detection arguments) and `"dynamic"`(dynamic mechanism arguments) under the `cfg` of the `detector`. When using deep learning-based detectors, `"model"` needs to be configured under the `cfg` of the `detector`. The specific requirements of these arguments are as follows:
@@ -155,7 +155,7 @@ When using traditional detectors, it's necessary to configure `"binary"`(binary 
     <tr>
         <td>area</td>  
         <td>float</td> 
-        <td>Indicates the sampling area size of the adaptive binary threshold algorithm. The range is [0,1], representing the area ratio of the whole image. Setting an appropriate value will expedite estimation while obtaining an approximate value. It is recommended to set it between 0.05 to 2. Illegal value (>1 or <0) setting will lead to using the whole area for estimation.  </td> 
+        <td>Indicates the sampling area size of the adaptive binary threshold algorithm. The range is [0,1], representing the area ratio of the whole image. Setting an appropriate value will expedite estimation while obtaining an approximate value. It is recommended to set it between 0.05 and 0.2. Illegal values (&gt;1 or &lt;0) will cause the entire image to be used for estimation.</td> 
         <td>0.1</td>  
     </tr>
     <tr>
@@ -273,8 +273,8 @@ The `meteor_cfg` allows setting filters for the speed, duration, allowable inter
 |max_interval|int|The longest time interval between meteors. (if there is no other responses after this time interval, this meteor (group) is considered to be ended). Unit: s.|5|
 |time_range|array|Describes the duration range of the meteor. Responses that exceed or do not reach the threshold will be excluded. Unit: s.|[0,8]|
 |speed_range|array|The permissible speed range for describing a meteor. Responses that exceed or do not reach the threshold will be excluded. The value is calculated as: \(( \text{{distance moved by the meteor (px)}} / \text{{time taken by the meteor (s)}} ) / \text{{length of the long side of the video (px)}} \times 100\). This value can be understood as the percentage of the distance the meteor moves on the screen per second, e.g., [3,12] represents the expected capture of targets moving 3%-12% of the screen distance per second. Unit: \(s^{-1}\).|[3,12]|
-|drct_range|array|Describes the linearity range of the meteor. The closer to 0, the closer the meteor is to a perfect straight line.|[0,0.5]|
-|det_thre|float|Describes the threshold for a positive sample meteor. Responses that exceed this score are considered positive sample meteors.|[0,0.6]|
+|drct_range|array|Describes the linearity range of the meteor. The closer to 0, the closer the meteor is to a perfect straight line.|[0,0.6]|
+|det_thre|float|Describes the threshold for a positive sample meteor. Responses that exceed this score are considered positive sample meteors. Typical default in presets is `0.5`.|0.5|
 |thre2|int|Describes the maximum allowable square distance between several responses. If there are multiple responses for one trajectory in the detection results, consider increasing this value. ⚠️ This threshold is still based on the runtime resolution. When using a resolution that differs from the default one, these parameters may produce inaccurate results.|2048|
 
 ⚠️ The current filtering adopts a tolerant design: when values of response exceed the above ranges, the score will not immediately drop to zero, but with a gradually decay.
@@ -286,7 +286,7 @@ The `meteor_cfg` allows setting filters for the speed, duration, allowable inter
 
 |Argument|Type|Explanation|Recommendation|
 |------|---|---|---|
-|switch|str|Whether re-verification is enabled.|true|
+|switch|bool|Whether re-verification is enabled.|true|
 |model|-|Refer to the [Model](#Model) section.|-|
 |save_path|str|The path to save the re-verified images. If left blank, no image will be saved.|`""`|
 
@@ -321,9 +321,9 @@ Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` se
 |name|str|The type of deep learning model, which will determine how the program processes input and output. Currently, only the YOLO format model `"YOLOModel"` has been implemented.|`"YOLOModel"`|
 |weight_path|str|The path to the model weights. It can be a path relative to MetDetPy or an absolute path. A trained YOLOv5s is provided in the project. The labels of the network output should refer to the [class_name file](../global/class_name.txt). Currently, the `.onnx` network weight format is supported.|`"./weights/yolov5s.onnx"`|
 |dtype|str|Describes the input data type (dtype) of the network. When using a quantized model, configure the specific dtype here to make sure the network work properly. Currently, full precision (`"float32"`) and half precision (`"float16"`) dtype are supported.|`"float32"`|
-|nms|bool|Desribes whether Non-Maximum Suppression (NMS) deduplication needs to be executed. If the network already includes NMS, select `false` to accelerate.|`true`|
-|warmup|bool|Desribes whether to warmup before execution. Set to `true` to accelerate the execution.|`true`|
-|pos_thre|float|Desribes the positive sample threshold. Scores exceeding the threshold will be considered as positive samples. Range: [0,1].|0.25|
+|nms|bool|Describes whether Non-Maximum Suppression (NMS) deduplication needs to be executed. If the network already includes NMS, select `false` to accelerate.|`true`|
+|warmup|bool|Describes whether to perform a warmup run before inference. Set to `true` to reduce first-run overhead.|`true`|
+|pos_thre|float|Describes the positive sample threshold. Scores exceeding the threshold will be considered as positive samples. Range: [0,1].|0.25|
 |nms_thre|float|The threshold used for NMS deduplication.|0.45|
-|multiscale_pred|int|multiscale pyramid depth. When set to 0, there will be no extra preprocessing; when setting to N>0, detection will be executed in N depth(s) with necessary rotation operation. Notice: `multiscale_pred` with large value will greatly increase computing power and false positive samples, It is advised to set to 1 or 2.|1 (low resolution)/2 (high resolution)|
-|multiscale_partition|int|The depth of the multi-scale pyramid. When set to 0, no extra preprocessing will be performed; when set to \(N > 0\), detection will be executed at \(N\) depths with necessary rotation operations. Note: Setting `multiscale_pred` to a large value will significantly increase the computational power required and may lead to more false positive samples. It is recommended to set this value to 1 or 2.|2|
+|multiscale_pred|int|Multiscale detection depth. When set to 0, no extra preprocessing is applied; when set to N&gt;0, detection runs at N scales with necessary rotations. Large values increase compute cost and false positives; typical values are 1 or 2.|1 (low resolution)/2 (high resolution)|
+|multiscale_partition|int|Number of partitions per dimension for multi-scale detection. Typical value is 2. Larger values significantly increase computation and may increase false positives.|2|

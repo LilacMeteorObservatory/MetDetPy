@@ -9,44 +9,41 @@
 
 ## Introduction
 
-MetDetPy is a Python-based meteor detector project that detects meteors from videos and images. Its video detection is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy is powerful and reliable, with the following features:
+MetDetPy is a Python-based meteor detector project that detects meteors from videos and images. Its video detection is inspired by [uzanka/MeteorDetector](https://github.com/uzanka/MeteorDetector). MetDetPy has the following features:
 
-* **Easy-to-use and Configurable:** MetDetPy is designed with easy-to-use default settings, so it can be used directly without detailed configuration under most circumstances. Settings are also supported to be changed to get better detection results.
+- **Easy-to-use and Configurable:** MetDetPy provides sensible default configurations so it works out-of-the-box in most situations, while also allowing configuration tweaks to improve detection results when needed.
 
-* **Applicable for Various Devices and Exposure Time:** MetDetPy can detect meteors from video files captured by various types of devices. With adaptive algorithms and deep learning models, MetDetPy works fine for videos and images from full-frame cameras and monitor cameras.
+- **Applicable for Various Devices and Exposure Times:** MetDetPy can detect meteors from videos and images captured by a wide range of devices. With adaptive algorithms and optional deep learning models, it works well for both meteor-monitoring cameras and conventional digital cameras.
 
-* **Low CPU Usage:** MetDetPy works with relatively low CPU usage and supports multi-camera real-time detection on mainstream computers or barebones.
+- **Optional Deep Learning Integration:** Deep learning models can be optionally used in the main detection or recheck stage to improve results without significantly increasing runtime overhead. Models are also available for image-based meteor detection.
 
-* **Optional Deep Learning Model:** MetDetPy has optional deep learning support. It can be selectively used in the main detection or recheck phase to improve detection results without significantly increasing performance overhead. The model can also be used for meteor detection in images.
+- **Effective Filters:** Detections are rechecked based on visual appearance and motion properties to reduce false positives. Each prediction is assigned a confidence score in [0,1], representing its likelihood to be a true meteor.
 
-* **Effective Filter:** Meteors will be rechecked according to visual appearance and motion properties to exclude false positive samples. Every prediction is given a confidence score ranging [0,1] which indicates the possibility of being considered a meteor.
-
-* **Support Tools:** Several tools are provided with MetDetPy to support analyzation and export functions, including an evaluation tool, a video clip / image stacking toolkit, and a packaging script.
+- **Support Tools:** MetDetPy ships several helper tools for evaluation and export, including an evaluation tool, a clip/stack toolkit, and packaging utilities.
 
 ## Release Version
 
-You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release version is already packed and can run on common platforms (including Windows, macOS, and Linux) respectively. Also, you can build it yourself with `nuitka` or `pyinstaller` (see [Package python codes to executables](./docs/tool-usage.md#package-python-codes-to-executables)).
+You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release artifacts are packaged for common platforms (Windows, macOS). You can also build standalone executables yourself using `nuitka` (see [Package python codes to executables](./docs/tool-usage.md#package-python-codes-to-executables)).
 
 Besides, MetDetPy has worked as the backend of the Meteor Master since version 1.2.0. Meteor Master (AI) is a meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function, automatic running, etc. You can get more information at [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster), or get its latest version from the Microsoft Store / App Store. Its earlier version can get from [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 
 ## Requirements
 
-### Enviroments
+**Environment**
 
-* 64bit OS
-* Python>=3.7 (3.9+ is recommended)
+- 64bit OS
+- Python>=3.7 (3.9+ is recommended)
 
-### Python Requirements
+**Python Requirements**
 
-* numpy>=1.15.0
-* opencv_python>=4.9.0
-* tqdm>=4.0.0
-* easydict>=1.0
-* multiprocess>=0.70.0
-* onnxruntime>=1.16.0
-* av>=15.0.0
-* dacite>=1.9.0
-* pyexiv2>=2.12.0
+- numpy>=1.15.0
+- opencv_python>=4.9.0
+- tqdm>=4.0.0
+- multiprocess>=0.70.0
+- onnxruntime>=1.16.0
+- av>=15.0.0
+- dacite>=1.9.0
+- pyexiv2>=2.12.0
 
 You can install these requirements using:
 
@@ -56,17 +53,17 @@ pip install -r requirements.txt
 
 ### GPU Support
 
-The above packages enable MetDetPy to run properly, but the deep learning models are only supported on CPU devices for Windows and Linux users. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
+The above packages enable MetDetPy to run properly, but deep learning models in the default runtime are CPU-only on typical installations. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
 
-* **Recommended:** it is recommended to additionally install `onnxruntime-directml`. This library utilizes DirectX for model inference acceleration and is suitable for most GPUs (Nvidia, AMD, Intel, etc.).
+- **Windows / Linux (recommended):** install `onnxruntime-directml` to get DirectML-based acceleration on many GPUs (Nvidia, AMD, Intel). The package name on PyPI is `onnxruntime-directml`.
 
-* **Nvidia GPU Users (Advanced):** If you are using Nvidia GPUs and have CUDA installed, you can install the matched version of `onnxruntime-gpu` instead of `onnxruntime`. This enables CUDA acceleration, which brings higher performance.
+- **Nvidia GPU users (advanced):** if you have CUDA installed, install a CUDA-matched `onnxruntime-gpu` build instead of `onnxruntime` to enable CUDA acceleration.
 
 #### ⚠️ Notice
 
-* For macOS users, since CoreML model inference acceleration is integrated into the latest version of `onnxruntime`, there is nothing to do to enable GPU support.
+- For macOS users, CoreML inference acceleration is already integrated into recent `onnxruntime` builds, so no extra step is normally required to enable GPU support on macOS.
 
-* In the current release version, it is `onnxruntime_directml` for Windows packages. Default CUDA support will be added when it is ready.
+- In the current packaged Windows release we use a DirectML-enabled runtime. Default CUDA wheels will be adopted when fully tested.
 
 ## Usage
 
@@ -79,7 +76,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
-               [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save SAVE]
+               [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
 ```
 
 #### Main Arguments
@@ -127,6 +124,12 @@ The following arguments have default values in config files. If they are configu
 ```sh
 python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg" --visu --save-path .
 ```
+
+#### Output
+
+`MetDetPy` outputs the detection results to the command line for real-time verification during runtime. Specifying the `--save-path` parameter at runtime will also save the detection results to a specified file in `MDRF` format. The detection result file can be processed by the `MetDetPy` project's [Other Tools](#Usage-of-Other-Tools) to further generate content such as meteor fragments, meteor screenshots, and annotation files.
+
+For instructions on using these tools, please refer to the [Tool Documentation](./docs/tool-usage.md); for information on the meaning of the output fields, please refer to the [Data Format](./docs/data-format.md).
 
 #### Customize Configuration
 
@@ -182,7 +185,7 @@ Several tools are provided with MetDetPy to support related functions, including
 
 2. We test MetDetPy with videos captured from various devices (from modified monitoring cameras to digital cameras), and MetDetPy achieves over 80% precision and over 80% recall on average.
 
-3. MetDetPy now is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affect factors, its precision and recall can be to be improved. If you find that MetDetPy performs not well enough on your video, it is welcome to contact us or submit issues (if possible and applicable, provide full or clipped video).
+3. MetDetPy is fast and efficient at detecting most meteor videos. However, when facing complicated weather or other affecting factors, its precision and recall can be improved. If you find that MetDetPy does not perform well enough on your videos, you are welcome to contact us or submit an issue (please attach full or clipped videos when applicable).
 
 ## License
 

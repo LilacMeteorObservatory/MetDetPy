@@ -8,7 +8,7 @@ Several tools are provided with MetDetPy to support related functions.
 
 ### Toolkit
 * [ClipToolkit - (Batch) image stacking and video clipping](#cliptoolkit)
-* [Evaluate - Performance evaluation and regression testing](#evaulate)
+* [Evaluate - Performance evaluation and regression testing](#evaluate)
 * [make_package - Packaging script to executable files](#make-package)
 
 ### Data Format
@@ -24,9 +24,10 @@ Its usage is as follows:
 python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TIME]
                       [--mode {image,video}] [--suffix SUFFIX]
                       [--save-path SAVE_PATH] [--resize RESIZE]
-                      [--png-compressing PNG_COMPRESSING]
+                      [--png-compressing PNG_COMPRESSING] [--jpg-quality JPG_QUALITY]
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
-                      [--jpg-quality JPG_QUALITY] [--debug]
+                      [--with-annotation] [--with-bbox]
+                      [--debug]
 
 ```
 
@@ -51,7 +52,7 @@ python ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image 
     The simplified mode is enabled by passing only a video file as a positional argument, used to generate a single image stack or video clip. The start and end times, format, and other parameters for the generated file need to be specified through optional parameters, defaulting to a single JPG format image stack of the entire video. In this mode, there is no need to construct a JSON file or escape strings, making it easier to use. Its usage is as follows:
 
 ```sh
-python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name 。/test/generated_img.jpg
+python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name ./test/generated_img.jpg
 ```
 
 3. Sample Generating Mode
@@ -81,19 +82,23 @@ Supported optional parameters in ClipToolkit are as follows：
 
 * `--jpg-quality`: the quality of generated jpg image. It should be int ranged $Z \in [0,100]$; By default, it is 95.
 
+* `--with-annotation`: also output `labelme` style annotation JSON files (only supported in Ordinary and Sample Generating modes when annotations are available).
+
+* `--with-bbox`: draw bounding boxes on exported images (only supported in Ordinary and Sample Generating modes when annotations are available).
+
 * `--debug`: run in debug mode to print more detailed information.
 
 Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
 
 
-## Evaulate
+## Evaluate
 
-Evaluate is an integrated performance evaluation and effect testing tool. It can be used to generate result reports, evaluate the utilization of device resources, and compare differences between results.
+Evaluate is an integrated performance evaluation and regression testing tool. It can be used to generate result reports, evaluate the utilization of device resources, and compare differences between results.
 
 To evaluate how MetDetPy performs on your video, you can simply run `evaluate.py` :
 
 ```sh
-python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug] video_json
+python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug]
 ```
 
 ### Arguments
@@ -115,9 +120,9 @@ python evaluate.py target [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [-
 
 ## Package python codes to executables
 
-We provide [make_package.py](make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports to use `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
+We provide [make_package.py](../make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
 
-When using it, make sure that either `pyinstaller` or `nuitka` is installed. Besides, when using `nuitka` as the packaging tool, make sure that at least one C/C++ compiler is available on your computer.
+When using it, make sure that either `pyinstaller` or `nuitka` is installed. When using `nuitka`, ensure at least one C/C++ compiler is available on your computer.
 
 Its usage is as follows:
 
@@ -140,6 +145,6 @@ The target executable file and its zip package version (if applied) will be gene
 
 **Notice:**
 
-1. It is suggested to use `Python>=3.9`, `pyinstaller>=5.0`, and `nuitka>=1.3.0` to avoid compatibility issues. You can prepare either tool to package the program.
-2. Due to the feature of Python, neither tools above can generate cross-platform executable files.
-3. If `matplotlib` or `scipy` is in the environment, they are likely to be packaged into the final directory together. To avoid this, it is suggested to use a clean environment when packaging.
+1. It is suggested to use `Python>=3.9` and `nuitka>=2.0.0` to avoid compatibility issues when using the `nuitka` path. `pyinstaller` can also be used (ensure `pyinstaller>=5.0` if you choose it).
+2. Due to the nature of Python packaging, these tools cannot generate cross-platform executables; build the executable on the target platform.
+3. If `matplotlib` or `scipy` exists in the environment, they may be included in the packaged output. To reduce package size, prepare a clean environment or avoid installing heavy optional dependencies.

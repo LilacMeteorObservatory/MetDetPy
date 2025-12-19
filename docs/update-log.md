@@ -6,8 +6,21 @@
 P0:
 * 天区解析
 * 结合ffmpeg导出mp4
+* 导出视频时候带框
+* 导出图像
+* 支持raw导入加载，支持raw自动拉伸，直出，支持jpeg检测导出raw
 * 可视化和视频标注框错位问题
 * '亮度'指标，或者配合长度等信息的组合结果指标
+* PyAV loader行为diff
+* 精灵上色重训练
+* 视频拼接错误排查
+* 飞机分类算法问题
+1.最后出来的片段没有声音 
+2.ClipToolkit 样本生成模式mode选视频的话视频中看不到标记框,选图片可以正常生成 
+3.MetDetPy分析竖屏视频的时候预览框会错位
+Empty类型错误
+配置错误提示优化
+TODO: pyexiv2 pkging.
 
 P1:
 * 相机直录表现差
@@ -57,6 +70,24 @@ Note:
 3. 改善报错信息（尤其是配置文件）
 
 
+## Version 2.3.2
+
+## ✅ Improvement
+* 为 `VideoLoader` 添加 `continue_on_err` 选项，设置为 `true` 时会在帧数据解析失败时继续尝试向后解析[1]。可能会增加解码开销。默认为`false`。
+*  `ClipToolkit` 生成截图失败时，现在会在 `stderr` 抛出 fatal error，便于定位问题。
+* 冗余代码优化。
+
+⚠️1：该设置可能不能改善缺失关键帧索引造成的连续读取失败。如果您的视频频繁出现大量失败，请优先尝试重新封装视频：
+```ffmpeg -i input.mp4 -c copy -map 0 fixed.mp4```。
+
+## ✅ BugFix
+* 修复部分情况下 `np.int32` 类型数据导致的序列化失败问题。
+* 延长了 `metlog` 组件允许的最长等待时间，优化可能的输出不完整问题。
+* 修复了部分默认配置参数名错误或者缺省返回值错误导致的无法正常启动问题。
+
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.3.0...v2.3.1-1
+
+
 ## Version 2.3.1
 
 ✅ Improvement
@@ -72,7 +103,6 @@ Note:
 * 修复部分情况下 `np.int32` 类型数据导致的序列化失败问题。
 * 延长了 `metlog` 组件允许的最长等待时间，优化可能的输出不完整问题。
 
-TODO: pyexiv2 pkging.
 
 ## Version 2.3.0
 
