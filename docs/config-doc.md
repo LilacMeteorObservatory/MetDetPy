@@ -8,8 +8,8 @@
 
 ## Menu
 
-- [Detection configuration (MetDetPy)](#detection-config)
-- [Clip configuration (ClipToolkit)](#clip-config)
+- [Detection configuration (MetDetPy)](#detection-configuration)
+- [Clip configuration (ClipToolkit)](#clip-configuration)
 
 ## Detection configuration
 
@@ -436,7 +436,7 @@ Example:
 |`multiscale_pred`|int|Run multi-scale detection when >0. Larger values increase compute and false positives; typically 1 or 2.|1 / 2|
 |`multiscale_partition`|int|Partition number per dimension for multi-scale detection. Typical value: 2.|2|
 
-## Clip (Cutting) configuration
+## Clip configuration
 
 `ClipToolkit` controls how clips and images are exported; default config is at `../global/clip_cfg.json`. The structure is also described in `MetLib/metstruct.py`.
 
