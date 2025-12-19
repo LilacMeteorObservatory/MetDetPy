@@ -1,27 +1,145 @@
 # Configuration Document
 
-<center>Language: English | <a href="./config-doc-cn.md">简体中文</a>  </center>
+<center>Language: English | <a href="./config-doc-cn.md">简体中文</a> </center>
 
-## Introduction
+`MetDetPy` and `ClipToolkit` load runtime parameters from JSON configuration files. Preset configs usually work well, but tuning parameters can improve results for specific videos or setups. This document explains the configuration fields used by both tools so you can adapt loader settings, detection parameters, collector filters, and export/denoise options.
 
-MetDetPy utilizes configuration files to read arguments. Generally, preset configuration files suffice for most scenarios. However, adjusting detection arguments can sometimes yield improved results. This document explains these arguments so users can modify them to suit their needs.
+⚠️ When editing configuration files, ensure the JSON format is valid; otherwise the program will raise errors when loading the config.
 
-A configuration file is a `JSON` formatted text comprising four sections: [description](#description), [loader](#loader), [detector](#detector), and [collector](#collector). Predefined configuration files are stored in the [config](../config) directory. While reading this guide, it is recommended to refer to the default configuration file [../config/m3det_normal.json](../config/m3det_normal.json).
+## Menu
 
-## Description
+- [Detection configuration (MetDetPy)](#detection-config)
+- [Clip configuration (ClipToolkit)](#clip-config)
 
-The `description` section provides the name of the configuration and a brief introduction. This section is primarily designed for frontend applications, as MetDetPy often operates as the backend. However, it's not critical for the detection process.
+## Detection configuration
 
-Here is an example of the `description` section:
+### Overview
+
+A detection config is a JSON file consisting of four main sections: a descriptive text (`description`), the video loader (`loader`), the detector (`detector`) and the collector (`collector`). Example presets are stored in the `../config` folder. It is recommended to open `../config/m3det_normal.json` while reading this document.
+
+The structure (high level) is:
+
+```mermaid
+classDiagram
+
+class LoaderCfg {
+    name: str
+    wrapper: str
+    resize: Union[list[int], int, str]
+    exp_time: Union[float, str]
+    merge_func: str
+    grayscale: bool
+    upper_bound: Optional[float]
+    continue_on_err: bool
+}
+
+class ModelCfg {
+    name: str
+    weight_path: str
+    dtype: str
+    nms: bool
+    warmup: bool
+    pos_thre: float
+    nms_thre: float
+    multiscale_pred: int
+    multiscale_partition: int
+    providers_key: Optional[str]
+}
+
+class BinaryCoreCfg {
+    adaptive_bi_thre: bool
+    init_value: int
+    sensitivity: str
+    area: float
+    interval: int
+}
+
+class HoughLineCfg {
+    threshold: int
+    min_len: int
+    max_gap: int
+}
+
+class DynamicCfg {
+    dy_mask: bool
+    window_sec: float
+}
+
+class BinaryCfg {
+    binary: BinaryCoreCfg
+    hough_line: HoughLineCfg
+    dynamic: DynamicCfg
+}
+
+class DLCfg {
+    model: ModelCfg
+}
+
+class DetectorCfg {
+    name: str
+    window_sec: float
+    cfg: Union[BinaryCfg, DLCfg]
+}
+
+class MeteorCfg {
+    min_len: float
+    max_interval: float
+    time_range: list[float]
+    speed_range: list[float]
+    drct_range: list[float]
+    det_thre: float
+    thre2: int
+}
+
+class RecheckCfg {
+    switch: bool
+    model: ModelCfg
+}
+
+class CollectorCfg {
+    meteor_cfg: MeteorCfg
+    recheck_cfg: RecheckCfg
+    positive_cfg: dict[str, Any]
+}
+
+class MainDetectCfg {
+    description: dict[str,str]
+    loader: LoaderCfg
+    detector: DetectorCfg
+    collector: CollectorCfg
+}
+
+MainDetectCfg --> LoaderCfg : loader
+MainDetectCfg --> DetectorCfg : detector
+MainDetectCfg --> CollectorCfg : collector
+
+DetectorCfg --> BinaryCfg : cfg
+DetectorCfg --> DLCfg : cfg
+
+BinaryCfg --> BinaryCoreCfg : binary
+BinaryCfg --> HoughLineCfg : hough_line
+BinaryCfg --> DynamicCfg : dynamic
+
+DLCfg --> ModelCfg : model
+RecheckCfg --> ModelCfg : model
+CollectorCfg --> MeteorCfg : meteor_cfg
+CollectorCfg --> RecheckCfg : recheck_cfg
+```
+
+### Description
+
+This section is used to describe the preset name and a short introduction. Frontend applications (for example Meteor Master >= 3.6.0) can display these fields. The detection logic itself does not use this section.
+
+Example:
 
 ```json
 "description": {
-    "preset_name": "configuration_name",
-    "intro": "a_brief_introduction",
+    "preset_name": "Configuration name",
+    "intro": "A short description",
 }
 ```
 
-Furthermore, if you desire different content under varying language settings, you can format the `description` as follows:
+If you want different Chinese/English displays, you can provide language-specific keys:
 
 ```json
 "description": {
@@ -32,9 +150,9 @@ Furthermore, if you desire different content under varying language settings, yo
 }
 ```
 
-## Loader
+### Loader
 
-The `loader` section primarily handles arguments related to video loading and frame preprocessing. Here's an example:
+The `loader` section controls video input and pre-processing. Example:
 
 ```json
 "loader": {
@@ -48,27 +166,27 @@ The `loader` section primarily handles arguments related to video loading and fr
 }
 ```
 
-The loader `section` arguments are explained as follows:
+Fields:
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|--------|
-|name|str|Specifies the `loader` name. Options include `"VanillaVideoLoader"`,`"ThreadVideoLoader"`, and `ProcessVideoLoader`. `"ThreadVideoLoader"` is recommended due to its stability and speed.|`"ThreadVideoLoader"`|
-|wrapper|str| Names the `wrapper` used for video loading. Currently, only `"OpenCVVideoWrapper"` based on OpenCV is supported. |`"OpenCVVideoWrapper"`|
-|resize|int, array, str| Determines the resolution used during detection. Lower resolution speeds up detection, while higher resolution aids in detecting shorter meteors. Input an integer to specify the length of the long side, allowing the program to scale the video automatically(Recommended). Specifying both height and width simultaneously is also supported (input a string of two numbers separated by `:` or `x`, like `"960:540"` or `"960x540"`; a list format like `[960,540]` is also acceptable).  |`960`|
-|exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)| Defines the exposure time of a single frame. For traditional detectors, setting `"auto"` is recommended as MetDetPy will estimate the real exposure time based on the video. If the exposure time in the metadata matches the real one, set `"real-time"`. To specify a value, input a float in seconds. |`"auto"` (LineDetector)/ `0.5` (MLDetector)|
-|upper_bound|float (optional)|Specifies the upper bound of the exposure time when using "auto" exp_time. This is an optional argument, and it can be left blank if not necessary.|0.5|
-|merge_func|str| Indicates how multiple frames are merged, choosing from `"max"`,`"m3func"`, or `"mix_max_median_stacker"`. Due to the visual characteristic of meteors, `"max"` is recommended.|`"max"`|
-|grayscale|bool| Determines whether to load the video in grayscale. For LineDetector, `grayscale` must be set to `true`; for deep learning-based detector, it should be `false`. |`true`(LineDetector)/ `false`(MLDetector)|
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`name`|str|Loader implementation. Options: `"VanillaVideoLoader"`, `"ThreadVideoLoader"`, `"ProcessVideoLoader"`. `"ThreadVideoLoader"` is generally recommended for stability and performance.|`"ThreadVideoLoader"`|
+|`wrapper`|str|Underlying video wrapper/backend. Currently supports `"OpenCVVideoWrapper"` and `"PyAVVideoWrapper"`.|`"OpenCVVideoWrapper"`|
+|`resize`|int, array, str|Target resolution for detection. An integer sets the long side length (e.g. `960`) and preserves aspect ratio; a string like `"960:540"` or `"960x540"` or a list `[960,540]` is also accepted.|`960`|
+|`exp_time`|float or str (`"auto"`,`"slow"`,`"real-time"`)|Exposure time per frame in seconds. For classic detectors, `"auto"` lets the program estimate exposure from the clip. Use `"real-time"` when exposures match frame spacing. You may also provide a float value in seconds.|`"auto"` (line detectors) / `0.5` (MLDetector)|
+|`upper_bound`|float (optional)|Upper bound used by `"auto"` exposure estimation. Optional.|`0.5`|
+|`merge_func`|str|How to merge multiple source frames when actual exposure spans multiple frames. Options: `"max"`, `"m3func"`, `"mix_max_median_stacker"`. `"max"` is recommended for meteors.|`"max"`|
+|`grayscale`|bool|Whether to convert frames to grayscale on load. Must be `true` for line-based detectors; for deep-learning detectors use `false`.|`true` (line) / `false` (ML)|
 
-⚠️ 
-1.  `"name": "ProcessVideoLoader"` is still in the experimental stage and has not been fully tested. It is not compatible with MacOS and is not recommended for use in a production environment.
-2. Q: Why is the exposure time needed? A: There are instances where the real exposure time and frames per second (FPS) do not align. For example, some cameras encode 4k60p videos with an exposure time of 1/20s. In these videos, frames change every 3 ticks instead of 1. Utilizing the real exposure time can enhance both accuracy and efficiency.
+Notes:
+1. `"ProcessVideoLoader"` is experimental, not fully tested, and is not compatible with macOS — avoid in production.
+2. Why specify exposure time? Some camera outputs have exposure durations that do not match FPS (e.g. 4k60p with 1/20s exposure, frames only change every 3 samples). Supplying the real exposure improves both speed and detection accuracy.
 
-## Detector
+### Detector
 
-The `detector` section manages the name of the detector, the length of the detection sliding-window, and other detector-related arguments (like binary threshold and line detection settings).
+The `detector` section sets which detector to use, the sliding window length, and detector-specific parameters (binary thresholds, Hough parameters, etc.).
 
-Here is an example for a line detector:
+Example (line detector):
 
 ```json
 "detector": {
@@ -96,14 +214,15 @@ Here is an example for a line detector:
 }
 ```
 
-Here is an example for deep learning-based detector:
+Example (deep-learning detector):
+
 ```json
- "detector": {
+"detector": {
     "name": "MLDetector",
     "window_sec": 1,
     "cfg": {
         "model": {
-            "name":"YOLOModel",
+            "name": "YOLOModel",
             "weight_path": "./weights/yolov5s.onnx",
             "dtype": "float32",
             "nms": true,
@@ -115,192 +234,181 @@ Here is an example for deep learning-based detector:
 }
 ```
 
-These arguments are explained as follows:
+Explanation of detector fields:
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|---|
-|name|str|Specifies the detector's name. Options include `"ClassicDetector"`, `"M3Detector"`, and `"MLDetector"`. `"ClassicDetector"` and `"M3Detector"` are traditional detectors based on line detection, while `"MLDetector"` is a deep learning-based detector. Traditional detectors are typically faster and more sensitive, which may lead to more false-positive samples (this can be improved by configuring [recheck](#recheck_cfg)); on the other hand, deep learning-based detectors are more robust but have a higher computing cost. These two types of detectors also differ in their arguments. |`"M3Detector"`(traditional detector)/ `"MLDetector"` (deep learning detector)|
-|window_sec|int,float| Defines the time length of the sliding window. Meteors are detected within the sliding window during operation. Generally, it is recommended to set this around `1` second. |`1`|
-|cfg|-|Describes the specific arguments of the detector. |(See below)|
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`name`|str|Detector name: `"ClassicDetector"`, `"M3Detector"` (line-based), or `"MLDetector"` (deep-learning). Line detectors are sensitive and fast but produce more false positives; ML detectors are more robust but computationally heavier.|`"M3Detector"` / `"MLDetector"`|
+|`window_sec`|int,float|Sliding window length (seconds). Typically around `1` second.|`1`|
+|`cfg`|-|Detector-specific configuration (see below).|(see below)|
 
-When using traditional detectors, it's necessary to configure `"binary"`(binary threshold arguments), `"hough_line"`(line detection arguments) and `"dynamic"`(dynamic mechanism arguments) under the `cfg` of the `detector`. When using deep learning-based detectors, `"model"` needs to be configured under the `cfg` of the `detector`. The specific requirements of these arguments are as follows:
+For line detectors, `cfg` contains `binary`, `hough_line`, and `dynamic` entries. For ML detectors, `cfg` contains `model`.
+
+Summary table (key parameters):
 
 <table>
     <tr>
-        <td><b>Belonging</b></td> 
-        <td><b>Name</b></td> 
-        <td><b>Type</b></td> 
-        <td><b>Explanation</b></td> 
-        <td><b>Recommendation</b></td> 
-   </tr>
-    <tr>
-        <td rowspan="5"><p>binary</p>(binary threshold arguments)</td>    
-        <td>adaptive_bi_thre</td> 
-        <td>bool</td> 
-        <td>Indicates whether to apply the adaptive binary threshold algorithm. This algorithm estimates the optimal binary threshold based on the signal noise rate (SNR) of the sampling area. This is crucial for line detect-based detectors.</td> 
-        <td>true</td> 
+        <td><b>Section</b></td>
+        <td><b>Parameter</b></td>
+        <td><b>Type</b></td>
+        <td><b>Description</b></td>
+        <td><b>Recommended</b></td>
     </tr>
     <tr>
-        <td>init_value</td>  
-        <td>int</td> 
-        <td>Specifies the initial binary threshold. If the adaptive binary threshold is not applied, this value will be used as the constant binary threshold.</td> 
-        <td>5</td>  
+        <td rowspan="5">binary</td>
+        <td>adaptive_bi_thre</td>
+        <td>bool</td>
+        <td>Enable adaptive binary threshold estimation based on sampled SNR.</td>
+        <td>true</td>
     </tr>
     <tr>
-        <td>sensitivity</td>  
-        <td>str</td> 
-        <td>Defines the sensitivity of the adaptive binary threshold algorithm. Different sensitivity functions will map the SNR value to the corresponding threshold. If the adaptive binary threshold is not applied, sensitivity will not be used. </td> 
-        <td>normal</td>  
+        <td>init_value</td>
+        <td>int</td>
+        <td>Initial binary threshold used when adaptive is off.</td>
+        <td>5</td>
     </tr>
     <tr>
-        <td>area</td>  
-        <td>float</td> 
-        <td>Indicates the sampling area size of the adaptive binary threshold algorithm. The range is [0,1], representing the area ratio of the whole image. Setting an appropriate value will expedite estimation while obtaining an approximate value. It is recommended to set it between 0.05 and 0.2. Illegal values (&gt;1 or &lt;0) will cause the entire image to be used for estimation.</td> 
-        <td>0.1</td>  
+        <td>sensitivity</td>
+        <td>str</td>
+        <td>Sensitivity mapping used by the adaptive threshold estimator.</td>
+        <td>normal</td>
     </tr>
     <tr>
-        <td>interval</td>  
-        <td>int</td> 
-        <td>Sets the threshold estimation interval. Excessive threshold estimation can increase the computational load and reduce the performance of the program. Conversely, a too low computation frequency may not be able to promptly adjust according to the changes in the signal-to-noise ratio.</td> 
-        <td>2</td>  
+        <td>area</td>
+        <td>float</td>
+        <td>Sampling area ratio for adaptive estimation. Range [0,1]. Recommended 0.05–0.2; invalid values fall back to full-image sampling.</td>
+        <td>0.1</td>
     </tr>
     <tr>
-        <td rowspan="3"><p>hough_line</p>(Hough line detection related arguments. For specific meanings of the parameters, refer to the <a href="https://docs.opencv.org/3.4/d9/db0/tutorial_hough_lines.html">OpenCV official documentation</a>)</td>  
-        <td>hough_threshold</td> 
-        <td>int</td>  
-        <td>The threshold for Hough line detection.</td>
-        <td>10</td>  
+        <td>interval</td>
+        <td>int</td>
+        <td>Estimation interval (frames). Too frequent estimation increases cost; too infrequent may lag behind SNR changes.</td>
+        <td>2</td>
     </tr>
     <tr>
-        <td>min_len</td>  
-        <td>int</td> 
-        <td>Describes the minimum length of the line.</td> 
-        <td>10</td>  
+        <td rowspan="3">hough_line</td>
+        <td>hough_threshold</td>
+        <td>int</td>
+        <td>Threshold used for Hough line detection (see OpenCV docs).</td>
+        <td>10</td>
     </tr>
     <tr>
-        <td>max_gap</td>  
-        <td>int</td> 
-        <td>Describes the maximum allowable gap between lines.</td> 
-        <td>10</td>  
+        <td>min_len</td>
+        <td>int</td>
+        <td>Minimum line length.</td>
+        <td>10</td>
     </tr>
     <tr>
-        <td rowspan="3"><p>dynamic</p>(dynamic mechanism related arguments)</td>  
-        <td>dy_mask</td> 
-        <td>bool</td>  
-        <td>Indicates whether to enable the dynamic mask mechanism. The dynamic mask applies a mask to areas that continuously generate responses, reducing false positive samples in areas near bright stars.</td>
-        <td>true</td>  
+        <td>max_gap</td>
+        <td>int</td>
+        <td>Maximum allowed gap between line segments.</td>
+        <td>10</td>
     </tr>
     <tr>
-        <td>dy_gap</td>  
-        <td>float</td> 
-        <td>Dynamic gap parameter. This parameter reduces the "max_gap" in the Hough parameters when there are too many responses，reducing false positives. This value indicates that as the potential meteor area increases to a given value, the "max_gap" decays to 0. If set to 0.05, the "max_gap" decays to 0 when the potential meteor area is greater than 0.05%. </td> 
-        <td>0.05</td>  
+        <td rowspan="3">dynamic</td>
+        <td>dy_mask</td>
+        <td>bool</td>
+        <td>Enable dynamic masking to suppress persistent bright-region responses (reduces FP near stars).</td>
+        <td>true</td>
     </tr>
     <tr>
-        <td>fill_thre</td>  
-        <td>float</td> 
-        <td>Describes the maximum allowable hollow ratio to form a line, used to reduce false alarms from discontinuous lines. Set to 0 to disable this.
-        ⚠️ This option is deprecated now.
-        </td> 
-        <td>0.6</td>  
+        <td>dy_gap</td>
+        <td>float</td>
+        <td>Dynamic gap factor: reduces `max_gap` when many responses exist. For example, `0.05` decays `max_gap` to 0 when potential meteor area > 0.05.</td>
+        <td>0.05</td>
     </tr>
     <tr>
-        <td><p>model</p>(model related arguments)</td>  
-        <td>-</td>  
-        <td>-</td> 
-        <td>See <a href=#model>model</a> section.</td> 
-        <td>0.6</td>  
+        <td>fill_thre</td>
+        <td>float</td>
+        <td>Maximum hollow ratio allowed when forming a line. Set to 0 to disable. ⚠️ Deprecated.</td>
+        <td>0.6</td>
+    </tr>
+    <tr>
+        <td>model</td>
+        <td>-</td>
+        <td>-</td>
+        <td>See the <a href="#model">Model</a> section.</td>
+        <td>-</td>
     </tr>
 </table>
 
-## Collector
+### Collector
 
-The `collector` section manages the the filtering and collection conditions for meteors, and configuration about re-verification. Here's an example:
+The `collector` controls filtering/collection rules and recheck (re-verification) options. Example:
 
 ```json
 "collector": {
     "meteor_cfg": {
         "min_len": 20,
         "max_interval": 5,
-        "time_range": [
-            0,
-            8
-        ],
-        "speed_range": [
-            3,
-            12
-        ],
-        "drct_range": [
-            0,
-            0.6
-        ],
+        "time_range": [0, 8],
+        "speed_range": [3, 12],
+        "drct_range": [0, 0.6],
         "det_thre": 0.5,
         "thre2": 2048
     },
     "recheck_cfg": {
         "switch": true,
         "model": {
-            "name":"YOLOModel",
+            "name": "YOLOModel",
             "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
             "nms": true,
             "warmup": true,
             "pos_thre": 0.25,
             "nms_thre": 0.45,
-            "multiscale_pred":2,
-            "multiscale_partition":2
+            "multiscale_pred": 2,
+            "multiscale_partition": 2
         },
-        "save_path":""
+        "save_path": ""
     },
     "positive_cfg": {
-        "positive_cates": [
-            "METEOR",
-            "RED_SPRITE"
-        ]
+        "positive_cates": ["METEOR", "RED_SPRITE"]
     }
 }
 ```
 
-This mainly includes two settings: the filter configuration for meteors `"meteor_cfg"`, the re-verification configuration `"recheck_cfg"`, and positive configuration `"positive_cfg"`.
+This includes three parts: `meteor_cfg` (filters), `recheck_cfg` (re-verification), and `positive_cfg` (positive categories).
 
-### Meteor_cfg
+#### Meteor filters (`meteor_cfg`)
 
-The `meteor_cfg` allows setting filters for the speed, duration, allowable interval, linearity, and score threshold of the meteors. The explanations of each parameter are as follows:
+Set filters for length, interval, duration, speed, linearity and score thresholds.
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|---|
-|min_len|int|The minimum length (px) required to start recording a meteor.|20|
-|max_interval|int|The longest time interval between meteors. (if there is no other responses after this time interval, this meteor (group) is considered to be ended). Unit: s.|5|
-|time_range|array|Describes the duration range of the meteor. Responses that exceed or do not reach the threshold will be excluded. Unit: s.|[0,8]|
-|speed_range|array|The permissible speed range for describing a meteor. Responses that exceed or do not reach the threshold will be excluded. The value is calculated as: \(( \text{{distance moved by the meteor (px)}} / \text{{time taken by the meteor (s)}} ) / \text{{length of the long side of the video (px)}} \times 100\). This value can be understood as the percentage of the distance the meteor moves on the screen per second, e.g., [3,12] represents the expected capture of targets moving 3%-12% of the screen distance per second. Unit: \(s^{-1}\).|[3,12]|
-|drct_range|array|Describes the linearity range of the meteor. The closer to 0, the closer the meteor is to a perfect straight line.|[0,0.6]|
-|det_thre|float|Describes the threshold for a positive sample meteor. Responses that exceed this score are considered positive sample meteors. Typical default in presets is `0.5`.|0.5|
-|thre2|int|Describes the maximum allowable square distance between several responses. If there are multiple responses for one trajectory in the detection results, consider increasing this value. ⚠️ This threshold is still based on the runtime resolution. When using a resolution that differs from the default one, these parameters may produce inaccurate results.|2048|
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`min_len`|int|Minimum length (px) to start recording a meteor.|20|
+|`max_interval`|int|Maximum allowed interval (s) between responses before a meteor/group is considered finished.|5|
+|`time_range`|array|Allowed duration range (s).|[0,8]|
+|`speed_range`|array|Allowed speed range. Calculated as: (distance(px)/time(s)) / (long_side(px)) * 100 — i.e. percentage of long-side per second. Example `[3,12]` means 3%–12% per second.|[3,12]|
+|`drct_range`|array|Allowed linearity variance. Closer to 0 means more straight.|[0,0.6]|
+|`det_thre`|float|Score threshold to consider a meteor as positive (0–1).|0.5|
+|`thre2`|int|Max allowed squared distance between responses for grouping. Increase if trajectory has multiple discrete responses. ⚠️ This uses runtime resolution as reference; large changes in resolution can affect results.|2048|
 
-⚠️ The current filtering adopts a tolerant design: when values of response exceed the above ranges, the score will not immediately drop to zero, but with a gradually decay.
+⚠️ Filters are designed to be tolerant: scores decay gradually outside bounds rather than abruptly becoming zero.
 
+#### Recheck (`recheck_cfg`)
 
-### Recheck_cfg
+Recheck (introduced in v2.0.0) runs an additional verification step using the time range and location proposed by the main detector. Fields:
 
-`Recheck_cfg` is a mechanism introduced in `v2.0.0` that executes additional re-verification for proposed target objects (such as meteors, red sprites, etc.) from the main detector. The explanations of itsparameters are as follows:
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`switch`|bool|Enable recheck.|true|
+|`model`|-|See the Model section.|-|
+|`save_path`|str|Path to save recheck images. Empty means do not save.|`""`|
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|---|
-|switch|bool|Whether re-verification is enabled.|true|
-|model|-|Refer to the [Model](#Model) section.|-|
-|save_path|str|The path to save the re-verified images. If left blank, no image will be saved.|`""`|
+#### Positive configuration (`positive_cfg`)
 
-### Positive Sample Configuration/positive_cfg
+Introduced in v2.2.0, allows specifying categories considered as positive samples.
 
-Positive samples are a new mechanism introduced in `v2.2.0`, supporting the configuration of expected positive and negative sample types. The parameters are explained as follows:
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`positive_cates`|list|List of categories accepted as positive.|[`"METEOR"`,`"RED_SPRITE"`]| 
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|---|
-|positive_cates|list|The set of categories accepted as positive samples.|`["METEOR","RED_SPRITE"]`|
+### Model
 
-## Model
+Deep learning models can be configured under a detector's `cfg.model` and under `collector.recheck_cfg.model`.
 
-Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` section of the `collector`. Here's an example of configuring a `model`:
+Example:
 
 ```json
 "model": {
@@ -316,14 +424,147 @@ Models can be configured in the `cfg` of the `detector` and the `recheck_cfg` se
 }
 ```
 
-|Argument|Type|Explanation|Recommendation|
-|------|---|---|---|
-|name|str|The type of deep learning model, which will determine how the program processes input and output. Currently, only the YOLO format model `"YOLOModel"` has been implemented.|`"YOLOModel"`|
-|weight_path|str|The path to the model weights. It can be a path relative to MetDetPy or an absolute path. A trained YOLOv5s is provided in the project. The labels of the network output should refer to the [class_name file](../global/class_name.txt). Currently, the `.onnx` network weight format is supported.|`"./weights/yolov5s.onnx"`|
-|dtype|str|Describes the input data type (dtype) of the network. When using a quantized model, configure the specific dtype here to make sure the network work properly. Currently, full precision (`"float32"`) and half precision (`"float16"`) dtype are supported.|`"float32"`|
-|nms|bool|Describes whether Non-Maximum Suppression (NMS) deduplication needs to be executed. If the network already includes NMS, select `false` to accelerate.|`true`|
-|warmup|bool|Describes whether to perform a warmup run before inference. Set to `true` to reduce first-run overhead.|`true`|
-|pos_thre|float|Describes the positive sample threshold. Scores exceeding the threshold will be considered as positive samples. Range: [0,1].|0.25|
-|nms_thre|float|The threshold used for NMS deduplication.|0.45|
-|multiscale_pred|int|Multiscale detection depth. When set to 0, no extra preprocessing is applied; when set to N&gt;0, detection runs at N scales with necessary rotations. Large values increase compute cost and false positives; typical values are 1 or 2.|1 (low resolution)/2 (high resolution)|
-|multiscale_partition|int|Number of partitions per dimension for multi-scale detection. Typical value is 2. Larger values significantly increase computation and may increase false positives.|2|
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`name`|str|Model type; currently only YOLO format (`"YOLOModel"`) is implemented.|`"YOLOModel"`|
+|`weight_path`|str|Path to model weights (relative to project or absolute). A YOLOv5s `.onnx` is included. The label file is `../global/class_name.txt`.|`"./weights/yolov5s.onnx"`|
+|`dtype`|str|Input dtype. Use correct dtype for quantized models. Supported: `"float32"`, `"float16"`.|`"float32"`|
+|`nms`|bool|Whether to run NMS. Set `false` if the model already includes NMS to speed up inference.|`true`|
+|`warmup`|bool|Whether to run a warmup pass before real inference.|`true`|
+|`pos_thre`|float|Positive sample score threshold (0–1).|0.25|
+|`nms_thre`|float|NMS IoU threshold.|0.45|
+|`multiscale_pred`|int|Run multi-scale detection when >0. Larger values increase compute and false positives; typically 1 or 2.|1 / 2|
+|`multiscale_partition`|int|Partition number per dimension for multi-scale detection. Typical value: 2.|2|
+
+## Clip (Cutting) configuration
+
+`ClipToolkit` controls how clips and images are exported; default config is at `../global/clip_cfg.json`. The structure is also described in `MetLib/metstruct.py`.
+
+Key fields:
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`loader`|str|Loader implementation|`"ThreadVideoLoader"`|
+|`wrapper`|str|Video backend wrapper|See above|
+|`writer`|str|Video writer backend, e.g. `OpenCVVideoWriter`, `PyAVVideoWriter`.|`"PyAVVideoWriter"`|
+|`image_denoise`|DenoiseOption|Image denoise options|See below|
+|`export`|ExportOption|Export options|See below|
+
+Class diagram (excerpt):
+
+```mermaid
+classDiagram
+
+class ExportOption {
+    positive_category_list: list[str]
+    exclude_category_list: list[str]
+    jpg_quality: int
+    png_compressing: int
+    with_bbox: bool
+    with_annotation: bool
+    bbox_color: list[int]
+    bbox_thickness: int
+    video_encoder: str
+    video_fmt: str
+}
+
+class ConnectParam {
+    switch: bool
+    ksize_multiplier: float
+    gamma: float
+    threshold: int
+}
+
+class SimpleDenoiseParam {
+    ds_radius: int
+    ds_threshold: int
+    bi_d: int
+    bi_sigma_color: int
+    bi_sigma_space: int
+}
+
+class MFNRDenoiseParam {
+    bg_algorithm: str
+    sigma_high: float
+    sigma_low: float
+    bg_fix_factor: float
+}
+
+class DenoiseOption {
+    switch: bool
+    highlight_preserve: float
+    algorithm: str
+    blur_ksize: int
+    connect_lines: ConnectParam
+    simple_param: SimpleDenoiseParam
+    mfnr_param: MFNRDenoiseParam
+}
+
+class ClipCfg {
+    loader: str
+    wrapper: str
+    writer: str
+    image_denoise: DenoiseOption
+    export: ExportOption
+}
+
+ClipCfg --> DenoiseOption : image_denoise
+ClipCfg --> ExportOption : export
+DenoiseOption --> ConnectParam : connect_lines
+DenoiseOption --> SimpleDenoiseParam : simple_param
+DenoiseOption --> MFNRDenoiseParam : mfnr_param
+```
+
+### Image denoise options
+
+Controls post-processing (denoising, connecting broken traces) when exporting images.
+
+Key fields and recommended defaults are documented in `../global/clip_cfg.json`. Important items:
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`switch`|bool|Enable image denoise by default. Even if `false`, you can enable denoise per-run with the `--denoise` CLI flag.|true|
+|`highlight_preserve`|float|High-light preservation threshold to protect meteor highlights from over-denoising.|0.9|
+|`algorithm`|str|Denoise algorithm: `"simple"` or `"mfnr-mix"` (multi-frame mixing).|`"simple"`|
+|`blur_ksize`|int|Gaussian kernel size used for mask estimation.|31|
+
+`connect_lines` (connect broken traces):
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`switch`|bool|Attempt to connect broken traces during denoise.|true|
+|`ksize_multiplier`|float|Multiplier for `blur_ksize` to determine kernel used for connecting.|1.5|
+|`gamma`|float|Gamma used when transforming the connection mask.|1.0|
+|`threshold`|int|Threshold for the connection mask.|30|
+
+`simple_param` (single-frame denoise):
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`ds_radius`|int|Median filter radius for dust-and-scratch removal.|10|
+|`ds_threshold`|int|Brightness difference threshold for dust removal.|20|
+|`bi_d`|int|Diameter for bilateral filter neighborhood.|10|
+|`bi_sigma_color`|float|Color sigma for bilateral filter.|15|
+|`bi_sigma_space`|float|Spatial sigma for bilateral filter.|6|
+
+`mfnr_param` (multi-frame denoise):
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`bg_algorithm`|str|Background estimator for multi-frame denoise: `"median"`, `"med-of-med"`, `"sigma-clipping"`, `"mean"`.|`"mean"`|
+|`sigma_high`|float|Sigma parameter for sigma-clipping upper bound.|3.0|
+|`sigma_low`|float|Sigma parameter for sigma-clipping lower bound.|3.0|
+|`bg_fix_factor`|float|Correction factor for background estimation.|1.5|
+
+### Export options
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`positive_category_list`|list|Categories to export as positives.|[`"METEOR"`,`"RED_SPRITE"`]| 
+|`exclude_category_list`|list|Categories to exclude by default.|[]|
+|`with_bbox`|bool|Include bounding boxes in exports.|false|
+|`with_annotation`|bool|Include annotation files in exports.|false|
+|`bbox_color`|list|BBox color in BGR order.|[0,0,255]|
+|`bbox_thickness`|int|BBox thickness.|2|
+|`video_encoder`|str|Encoder for PyAV writer (when using `PyAVVideoWriter`).|`"libx264"`|
+|`video_fmt`|str|Pixel format for exported video (PyAV writer).|`"yuv420p"`|
