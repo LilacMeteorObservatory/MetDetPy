@@ -437,8 +437,10 @@ class MDRF(DictAble):
 
 @dataclasses.dataclass
 class ExportOption(object):
+    ffmpeg_path: Optional[str] = None
     positive_category_list: list[str] = dataclasses.field(
         default_factory=lambda: ["METEOR", "RED_SPRITE"])
+    bbox_color_mapping: Optional[dict[str, list[int]]] = None
     exclude_category_list: list[str] = dataclasses.field(
         default_factory=lambda: [])
     jpg_quality: int = 95

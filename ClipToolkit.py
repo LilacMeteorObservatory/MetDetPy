@@ -32,7 +32,7 @@ from MetLib import *
 from MetLib.fileio import (change_file_path, is_ext_with, load_8bit_image,
                            replace_path_ext, save_img)
 from MetLib.metlog import BaseMetLog, get_default_logger, set_default_logger
-from MetLib.metstruct import (MDRF, ClipCfg, ClipRequest, ExportOption,
+from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest, ExportOption,
                               ImageFrameData, SimpleTarget, VideoFrameData)
 from MetLib.stacker import (max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
@@ -130,6 +130,7 @@ def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
                 ]
                 return None, frame_data_list
             else:
+                assert isinstance(mdrf_data.basic_info, BasicInfo), "Invalid MDRF basic_info type."
                 video_data_list = [
                     single_record.to_video_data(fps=mdrf_data.basic_info.fps,
                                                 video_size=mdrf_data.anno_size)

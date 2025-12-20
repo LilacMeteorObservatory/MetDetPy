@@ -49,7 +49,6 @@ CATE2COLOR_MAPPING: dict[str, ColorTuple] = {
 
 # 可视化参数组
 visu_param: list[BaseVisuAttrs] = [
-    TextVisu("timestamp", position="left-bottom", color="white"),
     DrawRectVisu(
         name="activate_meteors",
         color="as-input",
@@ -90,7 +89,9 @@ def construct_visu_info(boxes: NDArray[np.int_],
         score_text.append(
             TextColorPair(text, position=pt_offset((x1, y1), (0, -2))))
     visu_info: list[BaseVisuAttrs] = [
-        TextVisu("timestamp", text_list=[TextColorPair(watermark_text)]),
+        TextVisu("timestamp",
+                 text_list=[TextColorPair(watermark_text)],
+                 position_flag=True),
         DrawRectVisu("activate_meteors", pair_list=active_meteors),
         DrawRectVisu("score_bg", pair_list=score_bg),
         TextVisu("score_text", text_list=score_text)
@@ -228,7 +229,6 @@ try:
                     ],
                     img_filename=input_path)
             ]
-            print(boxes, preds)
             #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
                 visu_info = construct_visu_info(boxes,

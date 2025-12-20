@@ -244,6 +244,7 @@ class TextVisu(BaseVisuAttrs):
     font_face: Optional[int] = None
     font_scale: Optional[float] = None
     font_thickness: Optional[int] = None
+    position_flag: bool = False
     sync_attributes: list[str] = dataclasses.field(
         default_factory=lambda:
         ["position", "color", "font_face", "font_scale", "font_thickness"])
@@ -258,7 +259,10 @@ class TextVisu(BaseVisuAttrs):
                     tdata.position, str) or tdata.color is None:
                 raise self.not_ready_error_raiser()
             tdata.color = parse_color(tdata.color)
-            put_pos = scale_pt(tdata.position, scaler)
+            if not self.position_flag:
+                put_pos = scale_pt(tdata.position, scaler)
+            else:
+                put_pos = tdata.position
             src_img = cv2.putText(src_img,
                                   tdata.text,
                                   org=put_pos,
@@ -429,8 +433,8 @@ class OpenCVMetVisu(object):
         scaler = (1, 1)
         if self.resolution[0] != base_img.shape[1] or self.resolution[
                 1] != base_img.shape[0]:
-            scaler = (base_img.shape[0] / self.resolution[1],
-                      base_img.shape[1] / self.resolution[0])
+            scaler = (base_img.shape[1] / self.resolution[0],
+                      base_img.shape[0] / self.resolution[1])
             base_img = cv2.resize(base_img, self.resolution)
         # 渲染顺序：优先所有img，然后绘图，最后是text
         # img: 仅支持在背景上继续叠加。
