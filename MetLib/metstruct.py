@@ -175,7 +175,10 @@ class MDTarget(DictAble):
         default_factory=lambda: ["center_point_list"])
 
     def to_simple_target(self):
-        return SimpleTarget(pt1=self.pt1, pt2=self.pt2, preds=self.category)
+        return SimpleTarget(pt1=self.pt1,
+                            pt2=self.pt2,
+                            preds=self.category,
+                            prob=str(round(self.score,2)))
 
 
 @dataclasses.dataclass
@@ -251,8 +254,8 @@ class SingleImgRecord(DictAble):
 
     def build_target_list(self):
         return [
-            SimpleTarget(pt1=box[:2], pt2=box[2:], preds=pred)
-            for (box, pred) in zip(self.boxes, self.preds)
+            SimpleTarget(pt1=box[:2], pt2=box[2:], preds=pred, prob=prob)
+            for (box, pred, prob) in zip(self.boxes, self.preds, self.prob)
         ]
 
     def frame2ts(self, frame: int, fps: float) -> str:
@@ -434,6 +437,12 @@ class MDRF(DictAble):
 
 ########### ClipToolkit Dataclasses ################
 
+@dataclasses.dataclass
+class FilterRules(object):
+    threshold: float = 0.0
+    min_length_ratio: float = 0.0
+    exclude_category_list: list[str] = dataclasses.field(
+        default_factory=lambda: [])
 
 @dataclasses.dataclass
 class ExportOption(object):
@@ -441,8 +450,8 @@ class ExportOption(object):
     positive_category_list: list[str] = dataclasses.field(
         default_factory=lambda: ["METEOR", "RED_SPRITE"])
     bbox_color_mapping: Optional[dict[str, list[int]]] = None
-    exclude_category_list: list[str] = dataclasses.field(
-        default_factory=lambda: [])
+    filter_rules: FilterRules = dataclasses.field(
+        default_factory=lambda: FilterRules())
     jpg_quality: int = 95
     png_compressing: int = 3
     with_bbox: bool = False
@@ -529,6 +538,7 @@ class SimpleTarget(object):
     pt1: list[int]
     pt2: list[int]
     preds: Optional[str] = None
+    prob: Optional[str] = None
 
     def to_json(self) -> dict[str, Any]:
         bbox = Box.from_pts(self.pt1, self.pt2)

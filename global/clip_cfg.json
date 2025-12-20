@@ -32,7 +32,51 @@
             "METEOR",
             "RED_SPRITE"
         ],
-        "exclude_category_list": [],
+        "bbox_color_mapping": {
+            "METEOR": [
+                0,
+                255,
+                0
+            ],
+            "PLANE/SATELLITE": [
+                64,
+                64,
+                64
+            ],
+            "RED_SPRITE": [
+                0,
+                0,
+                255
+            ],
+            "LIGHTNING": [
+                128,
+                128,
+                128
+            ],
+            "JET": [
+                0,
+                0,
+                255
+            ],
+            "RARE_SPRITE": [
+                0,
+                0,
+                255
+            ],
+            "SPACECRAFT": [
+                255,
+                0,
+                255
+            ]
+        },
+        "filter_rules": {
+            "threshold": 0.6,
+            "min_length_ratio": 0.02,
+            "exclude_category_list": [
+                "PLANE/SATELLITE",
+                "BUGS"
+            ]
+        },
         "with_bbox": false,
         "with_annotation": false,
         "bbox_color": [

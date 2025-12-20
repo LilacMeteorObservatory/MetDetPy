@@ -32,11 +32,12 @@ from MetLib import *
 from MetLib.fileio import (change_file_path, is_ext_with, load_8bit_image,
                            replace_path_ext, save_img)
 from MetLib.metlog import BaseMetLog, get_default_logger, set_default_logger
-from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest, ExportOption,
-                              ImageFrameData, SimpleTarget, VideoFrameData)
+from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest,
+                              ExportOption, ImageFrameData, SimpleTarget,
+                              VideoFrameData)
 from MetLib.stacker import (max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
-from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, ts2frame
+from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, pt_len, ts2frame
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI"]
@@ -50,6 +51,15 @@ AVAILABLE_STACKER_MAPPING = {
     MFNR: mfnr_mix_stacker,
     SDS: simple_denoise_stacker
 }
+
+
+def adaptive_font_param(img: U8Mat) -> dict[str, int]:
+    short_length = min(img.shape[0], img.shape[1])
+    return {
+        "font_offset": round(short_length / 2000) + 4,
+        "font_scale": round(short_length / 2000),
+        "font_thickness": int(max(1, short_length // 750))
+    }
 
 
 def update_cfg_from_args(base_cfg: ClipCfg, args: argparse.Namespace):
@@ -72,11 +82,44 @@ def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
     if target_list is None:
         return img
     for target in target_list:
+        color = cfg.bbox_color
+        if cfg.bbox_color_mapping and target.preds in cfg.bbox_color_mapping:
+            color = cfg.bbox_color_mapping[target.preds]
         img = cv2.rectangle(img,
                             target.pt1,
                             target.pt2,
-                            color=cfg.bbox_color,
+                            color=color,
                             thickness=cfg.bbox_thickness)
+        # 在bbox上方绘制类别文字和概率，使用 getTextSize 精确测量并处理越界
+        font_param = adaptive_font_param(img)
+        text = f"{target.preds}: {target.prob}"
+        fontFace = cv2.FONT_HERSHEY_SIMPLEX
+        fs = font_param["font_scale"]
+        th = font_param["font_thickness"]
+        offset = font_param["font_offset"]
+
+        # 测量文本的像素尺寸（宽，高）
+        (_, text_h), _ = cv2.getTextSize(text, fontFace, fs, th)
+
+        # 先尝试放在 bbox 上方：baseline 放在 bbox.top - offset
+        proposed_baseline = int(target.pt1[1] - offset)
+        if proposed_baseline - text_h < 0:
+            # 放在 bbox 下方，baseline 放在 bbox.bottom + offset + text_h
+            baseline_pos = int(target.pt2[1] + offset + text_h)
+        else:
+            baseline_pos = proposed_baseline
+
+        # 确保 baseline 不会超过图像底部
+        max_baseline = img.shape[0] - 1
+        if baseline_pos > max_baseline:
+            baseline_pos = max(max_baseline, text_h)
+
+        img = cv2.putText(img,
+                          text, (int(target.pt1[0]), int(baseline_pos)),
+                          fontFace=fontFace,
+                          fontScale=fs,
+                          color=color,
+                          thickness=th)
     return img
 
 
@@ -130,7 +173,8 @@ def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
                 ]
                 return None, frame_data_list
             else:
-                assert isinstance(mdrf_data.basic_info, BasicInfo), "Invalid MDRF basic_info type."
+                assert isinstance(mdrf_data.basic_info,
+                                  BasicInfo), "Invalid MDRF basic_info type."
                 video_data_list = [
                     single_record.to_video_data(fps=mdrf_data.basic_info.fps,
                                                 video_size=mdrf_data.anno_size)
@@ -168,11 +212,21 @@ def image_clip_process(data: list[ImageFrameData], export_cfg: ExportOption,
     """
     try:
         logger.start()
+        filter_rules = export_cfg.filter_rules
         for frame_data in data:
             image_data = load_8bit_image(frame_data.img_filename)
             if image_data is None:
                 logger.warning(
                     f"Failed to load {frame_data.img_filename}, skip...")
+                continue
+
+            # 如果不在包含允许导出类别，则跳过
+            if not any([(not x.preds in filter_rules.exclude_category_list
+                         and x.prob is not None and float(x.prob)
+                         > filter_rules.threshold and pt_len(x.pt1, x.pt2) /
+                         pt_len([0, 0], list(image_data.shape[:2]))
+                         > filter_rules.min_length_ratio)
+                        for x in frame_data.target_list]):
                 continue
             # 填充video_size: 转换image标注为对应格式
             frame_data.img_size = image_data.shape[:2][1::-1]
@@ -438,6 +492,7 @@ def main():
             else:
                 status_code = VideoWriterCls.save_video_by_stream(
                     video_loader,
+                    clip_cfg.export,
                     video_loader.fps,
                     video_frame.saved_filename,
                     logger=logger)
