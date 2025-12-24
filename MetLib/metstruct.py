@@ -178,7 +178,7 @@ class MDTarget(DictAble):
         return SimpleTarget(pt1=self.pt1,
                             pt2=self.pt2,
                             preds=self.category,
-                            prob=str(round(self.score,2)))
+                            prob=str(round(self.score, 2)))
 
 
 @dataclasses.dataclass
@@ -305,7 +305,8 @@ class SingleImgRecord(DictAble):
         if self.img_filename is None:
             raise ValueError("convert failed because img_filename is None.")
         return ImageFrameData(img_filename=self.img_filename,
-                              target_list=self.build_target_list())
+                              target_list=self.build_target_list(),
+                              saved_filename=self.img_filename)
 
 
 ########### Config Dataclasses ################
@@ -437,12 +438,14 @@ class MDRF(DictAble):
 
 ########### ClipToolkit Dataclasses ################
 
+
 @dataclasses.dataclass
 class FilterRules(object):
     threshold: float = 0.0
     min_length_ratio: float = 0.0
     exclude_category_list: list[str] = dataclasses.field(
         default_factory=lambda: [])
+
 
 @dataclasses.dataclass
 class ExportOption(object):

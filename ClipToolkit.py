@@ -246,7 +246,7 @@ def image_clip_process(data: list[ImageFrameData], export_cfg: ExportOption,
             if export_cfg.with_annotation:
                 res_dict = frame_data.to_labelme()
                 if res_dict:
-                    anno_path = replace_path_ext(full_path, ".json")
+                    anno_path = replace_path_ext(full_path, "json")
                     with open(anno_path, mode="w", encoding="utf-8") as f:
                         json.dump(res_dict, f, ensure_ascii=False, indent=4)
                     logger.info(f"Saved: {anno_path}")

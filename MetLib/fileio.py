@@ -67,6 +67,8 @@ def save_path_handler(save_path: str, filename: str, ext: str = "json") -> str:
     Returns:
         str: 完整路径
     """
+    if filename.endswith("/") or filename.endswith("\\"):
+        filename = filename[:-1]
     # 若路径为文件夹，则在文件夹下保存文件
     if os.path.isdir(save_path):
         return change_file_path(replace_path_ext(filename, ext), save_path)
