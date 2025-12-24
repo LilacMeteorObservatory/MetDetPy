@@ -27,10 +27,11 @@ from multiprocess import Queue as MQueue  # type: ignore
 from multiprocess import RawArray, freeze_support  # type: ignore
 
 from .fileio import load_mask
+from .imgproc import Transform
 from .metlog import get_default_logger
 from .metstruct import BasicInfo
-from .utils import (MergeFunction, Transform, U8Mat, frame2time,
-                    parse_resize_param, sigma_clip, time2frame, timestr2int)
+from .utils import (MergeFunction, U8Mat, frame2time, parse_resize_param,
+                    sigma_clip, time2frame, timestr2int)
 from .videowrapper import BaseVideoWrapper
 
 UP_EXPOSURE_BOUND = 0.5

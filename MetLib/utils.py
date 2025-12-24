@@ -133,84 +133,10 @@ def keep1ret_value(func: Callable[..., tuple[Any, Any]], select_pos: int):
         res = func(args, **kwargs)
         assert len(res) > select_pos >= -len(
             res), f"selected ret at pos {select_pos},"
-        " got only {len(res)} ret value."
+        f" got only {len(res)} ret value."
         return res[select_pos]
 
     return selector_core
-
-
-class Transform(object):
-    """图像变换方法的集合类，及一个用于执行集成变换的方法。
-    """
-    MASK_FLAG = "MASK"
-    PATTERN_MAPPING = {
-        "BGGR": cv2.COLOR_BAYER_BGGR2BGR,
-        "RGGB": cv2.COLOR_BAYER_RGGB2BGR
-    }
-
-    def __init__(self) -> None:
-        self.transform: list[tuple[Callable[..., MatLike], dict[str,
-                                                                Any]]] = []
-
-    def opencv_resize(self, dsize: list[int], **kwargs: Any):
-        interpolation = kwargs.get("resize_interpolation", cv2.INTER_LINEAR)
-        self.transform.append(
-            (cv2.resize, dict(dsize=dsize, interpolation=interpolation)))
-
-    def opencv_BGR2GRAY(self):
-        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)))
-
-    def opencv_RGB2GRAY(self):
-        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_RGB2GRAY)))
-
-    def opencv_GRAY2BGR(self):
-        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_GRAY2BGR)))
-
-    def mask_with(self, mask: MatLike):
-
-        def _mask_with(img: MatLike, mask: MatLike):
-            return img * mask
-
-        self.transform.append((_mask_with, dict(mask=mask)))
-
-    def expand_3rd_channel(self, num: int):
-        """将单通道灰度图像通过Repeat方式映射到多通道图像。
-        """
-        assert isinstance(
-            num, int
-        ) and num > 0, f"num invalid! expect int>0, got {num} with dtype={type(num)}."
-        self.transform.append((np.expand_dims, dict(axis=-1)))
-        if num > 1:
-            self.transform.append((np.repeat, dict(repeats=num, axis=-1)))
-
-    def opencv_binary(self,
-                      threshold: Union[float, int],
-                      maxval: int = 255,
-                      inv: bool = False):
-        self.transform.append(
-            (keep1ret_value(cv2.threshold, select_pos=-1),
-             dict(thresh=threshold,
-                  maxval=maxval,
-                  type=cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY)))
-
-    def opencv_debayer(self, pattern: str = "BGGR"):
-        assert pattern in self.PATTERN_MAPPING, f"unsupport debayer pattern! choice from {self.PATTERN_MAPPING}"
-        self.transform.append((cv2.cvtColor, dict(code=cv2.COLOR_BGR2GRAY)))
-        self.transform.append(
-            (cv2.cvtColor, dict(code=self.PATTERN_MAPPING[pattern], dstCn=3)))
-
-    def exec_transform(self, img: MatLike) -> MatLike:
-        """按顺序对给定的输入执行给定的图像变换。
-
-        Args:
-            img (MatLike): 输入图像
-
-        Returns:
-            MatLike: 变换后图像
-        """
-        for [transform, kwargs] in self.transform:
-            img = transform(img, **kwargs)
-        return img
 
 
 class MergeFunction(object):

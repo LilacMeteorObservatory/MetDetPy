@@ -12,8 +12,9 @@ from typing import Literal, Optional, Union
 import cv2
 import numpy as np
 
+from .imgproc import Transform
 from .metlog import get_default_logger
-from .utils import COLOR_MAP, Transform, U8Mat, pt_offset
+from .utils import COLOR_MAP, U8Mat, pt_offset
 
 DEFAULT_VISUAL_DELAY = 200
 DEFAULT_INTERRUPT_KEY = "q"

@@ -4,21 +4,33 @@
 import os
 from os.path import join as path_join
 from os.path import split as path_split
-from typing import Optional
+from typing import Optional, Union
 
 import cv2
 import numpy as np
+import rawpy
+from numpy.typing import NDArray
 
-from .utils import Transform, U8Mat, transpose_wh, WORK_PATH
+from .imgproc import Transform, contrast_stretch_uint16, contrast_stretch_uint8, scale2tgt_mean
 from .metlog import BaseMetLog, get_useable_logger
+from .utils import WORK_PATH, U8Mat, transpose_wh
 
 COLOR_PATH_MAPPING = {"sRGB": os.path.join(WORK_PATH, "resource", "sRGB.icc")}
+SUPPORT_COMMON_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
+SUPPORT_RAW_FORMAT = ["cr2", "cr3", "nef", "arw", "rw2", "raf", "dng"]
+SUPPORT_ALL_IMG_FORMAT = SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT
 
 
 def is_ext_with(path: str, ext: str):
     """判断给定路径/文件是否以指定后缀名结尾。大小写不敏感。
     """
     return path.lower().endswith(ext.lower())
+
+
+def is_ext_within(path: str, ext_list: list[str]):
+    """判断给定路径/文件是否以指定后缀名列表中的某个后缀名结尾。大小写不敏感。
+    """
+    return path.split(".")[-1].lower() in [e.lower() for e in ext_list]
 
 
 def replace_path_ext(src_path: str, ext: str):
@@ -120,6 +132,69 @@ def load_8bit_image(filename: str):
                        cv2.IMREAD_UNCHANGED)
     if img is None:
         raise Exception(f"Failed to load image: {filename}.")
+    return img
+
+
+def load_raw_image(filename: str,
+                   auto_gamma: bool = False,
+                   auto_wb: bool = False) -> NDArray[np.uint16]:
+    """load cammon raw camera file with rawpy, returning an Uint16 numpy array.
+
+    Args:
+        filename (str): path to the input file.
+        auto_gamma (bool, optional): whether to apply gamma transformation. Defaults to False.
+
+    Raises:
+        Exception: path not found.
+
+    Returns:
+        NDArray[np.uint16]: loaded image in uint16 format.
+    """
+    if not os.path.isfile(filename):
+        raise Exception(f"Raw file not found: {filename}.")
+    with rawpy.imread(filename) as raw:
+        if auto_gamma:
+            img = raw.postprocess(output_bps=16,
+                                  use_camera_wb=not auto_wb,
+                                  use_auto_wb=auto_wb,
+                                  no_auto_bright=True,
+                                  output_color=rawpy.rawpy.ColorSpace(4))
+        else:
+            # produce linear 16-bit RGB then run existing scale->nonlinear mapping
+            img = raw.postprocess(output_bps=16,
+                                  gamma=(1.0, 0.0),
+                                  use_camera_wb=not auto_wb,
+                                  use_auto_wb=auto_wb,
+                                  no_auto_bright=True)
+    return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+
+def load_raw_with_preprocess(
+        filename: str,
+        power: float = 2.222,
+        target_nl_mean: float = 0.3,
+        contrast_alpha: float = 1.2,
+        output_bps: int = 16) -> Union[U8Mat, NDArray[np.uint16]]:
+    """Load raw image and preprocess it to a non-linear image.
+
+    Args:
+        filename (str): path to the input file.
+        power (float, optional): _description_. Defaults to 2.222.
+        target_nl_mean (float, optional): _description_. Defaults to 0.3.
+        output_bps (int, optional): _description_. Defaults to 16.
+
+    Returns:
+        NDArray[np.uint16]: _description_
+    """
+    img_linear = load_raw_image(filename, auto_gamma=False, auto_wb=True)
+    img = scale2tgt_mean(img_linear,
+                         power=power,
+                         target_nl_mean=target_nl_mean)
+    if output_bps == 8:
+        img = (img // 257).astype(np.uint8)
+        img = contrast_stretch_uint8(img, alpha=contrast_alpha)
+    elif output_bps == 16:
+        img = contrast_stretch_uint16(img, alpha=contrast_alpha)
     return img
 
 

@@ -21,7 +21,10 @@ import numpy as np
 import tqdm
 from numpy.typing import NDArray
 
-from MetLib.fileio import load_8bit_image, load_mask, save_path_handler
+from MetLib.fileio import (SUPPORT_ALL_IMG_FORMAT, SUPPORT_COMMON_FORMAT,
+                           is_ext_within, load_8bit_image, load_mask,
+                           load_raw_with_preprocess, save_path_handler)
+from MetLib.imgloader import MultiThreadImgLoader
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import MDRF, MockVideoObject, SingleImgRecord
 from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
@@ -32,7 +35,6 @@ from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
 
-SUPPORT_IMG_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_VIDEO_FORMAT = ["avi", "mp4", "mkv", "mpeg"]
 EXCLUDE_LIST = ["PLANE/SATELLITE", "BUGS"]
 DEFAULT_COLOR = (64, 64, 64)
@@ -163,52 +165,64 @@ try:
         img_list = [
             os.path.join(input_path, x)
             for x in cast(list[str], os.listdir(input_path))
-            if x.split(".")[-1].lower() in SUPPORT_IMG_FORMAT
+            if is_ext_within(x, SUPPORT_ALL_IMG_FORMAT)
         ]
         visual_manager = OpenCVMetVisu(exp_time=1,
                                        resolution=visu_resolution,
                                        flag=args.visu,
                                        visu_param_list=visu_param)
-
+        img_loader = MultiThreadImgLoader(img_list, logger=logger)
         # temp fix: mock video object
         video = MockVideoObject(image_folder=input_path)
-        for img_path in tqdm.tqdm(img_list):
-            img = load_8bit_image(img_path)
-            if img is None:
-                logger.error(f"Failed to load image file from {input_path}.")
-                continue
-            mask = load_mask(args.mask, list(img.shape[1::-1]))
-            img = img * mask
-            boxes, preds = model.forward(img)
-            if args.visu:
-                visu_info = construct_visu_info(boxes,
-                                                preds,
-                                                watermark_text=img_path)
-                visual_manager.display_a_frame(img, visu_info)
-                if visual_manager.manual_stop:
-                    logger.info('Manual interrupt signal detected.')
+        try:
+            img_loader.start()
+            iterator = range(len(img_list))
+            for i in tqdm.tqdm(iterator, total=len(img_list), ncols=100):
+                img_path, img = img_loader.pop()
+                if img_path is None or img is None:
                     break
-            if len(boxes) > 0:
-                results.append(
-                    SingleImgRecord(boxes=[list(map(int, x)) for x in boxes],
-                                    preds=[
-                                        ID2NAME[int(np.argmax(pred))]
-                                        for pred in preds
-                                    ],
-                                    prob=[
-                                        f"{pred[int(np.argmax(pred))]:.2f}"
-                                        for pred in preds
-                                    ],
-                                    img_filename=img_path))
+                # TODO: Cached resized mask
+                if args.mask:
+                    mask = load_mask(args.mask, list(img.shape[1::-1]))
+                    img = img * mask
+                boxes, preds = model.forward(img)
+                if args.visu:
+                    visu_info = construct_visu_info(boxes,
+                                                    preds,
+                                                    watermark_text=img_path)
+                    visual_manager.display_a_frame(img, visu_info)
+                    if visual_manager.manual_stop:
+                        logger.info('Manual interrupt signal detected.')
+                        break
+                if len(boxes) > 0:
+                    results.append(
+                        SingleImgRecord(
+                            boxes=[list(map(int, x)) for x in boxes],
+                            preds=[
+                                ID2NAME[int(np.argmax(pred))] for pred in preds
+                            ],
+                            prob=[
+                                f"{pred[int(np.argmax(pred))]:.2f}"
+                                for pred in preds
+                            ],
+                            img_filename=img_path))
+        except (Exception, KeyboardInterrupt) as e:
+            logger.error(f"detection terminates caused by: {e.__repr__()}")
+        finally:
+            if not img_loader.stopped:
+                img_loader.stop()
 
     elif os.path.isfile(input_path):
         suffix = input_path.split(".")[-1].lower()
 
-        if suffix in SUPPORT_IMG_FORMAT:
+        if suffix in SUPPORT_ALL_IMG_FORMAT:
             # img mode
             # temp fix: mock video object
             video = MockVideoObject(image_folder=input_path)
-            img = load_8bit_image(input_path)
+            if is_ext_within(input_path, SUPPORT_COMMON_FORMAT):
+                img = load_8bit_image(input_path)
+            else:
+                img = load_raw_with_preprocess(input_path, output_bps=8)
             if img is None:
                 raise ValueError(
                     f"Failed to load image file from {input_path}.")
@@ -284,7 +298,7 @@ try:
                             num_frame=i))
         else:
             raise NotImplementedError(
-                f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_IMG_FORMAT}."
+                f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_ALL_IMG_FORMAT}."
             )
     else:
         raise FileNotFoundError(f"File {input_path} does not exist!")
