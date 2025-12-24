@@ -73,7 +73,7 @@ MetDetPy is the launcher of the video meteor detector, its usage is as follows:
 
 ```sh
 python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME]
-               [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug]
+               [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug] [--visual]
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
                [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
@@ -95,7 +95,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 
 * `--debug`: indicates whether to print debug information.
 
-* `--visu`: showing a debug window displaying videos and detected meteors.
+* `--visual`: showing a debug window displaying videos and detected meteors.
 
 * `--live-mode`: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
 
