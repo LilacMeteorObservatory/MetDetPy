@@ -179,8 +179,10 @@ try:
             iterator = range(len(img_list))
             for i in tqdm.tqdm(iterator, total=len(img_list), ncols=100):
                 img_path, img = img_loader.pop()
-                if img_path is None or img is None:
-                    break
+                # exits when encounter empty results
+                if img is None:
+                    if img_path is None: break
+                    continue
                 # TODO: Cached resized mask
                 if args.mask:
                     mask = load_mask(args.mask, list(img.shape[1::-1]))
@@ -303,21 +305,23 @@ try:
     else:
         raise FileNotFoundError(f"File {input_path} does not exist!")
     valid_flag = True
+
+    # 保存结果
+    if valid_flag and args.save_path and video is not None:
+        fin_result = MDRF(
+            version=VERSION,
+            basic_info=video.summary(),
+            config=None,
+            type="image-prediction"
+            if isinstance(video, MockVideoObject) else "timelapse-prediction",
+            anno_size=video.summary().resolution,
+            results=results)
+        save_path = save_path_handler(args.save_path, input_path, ext="json")
+        logger.info(f"Result saved to: {save_path}")
+        with open(save_path, mode="w", encoding="utf-8") as f:
+            json.dump(fin_result.to_dict(), f, ensure_ascii=False, indent=4)
+
 except Exception as e:
     logger.error(e.__repr__())
 finally:
     logger.stop()
-
-# 保存结果
-if valid_flag and args.save_path and video is not None:
-    fin_result = MDRF(version=VERSION,
-                      basic_info=video.summary(),
-                      config=None,
-                      type="image-prediction" if isinstance(
-                          video, MockVideoObject) else "timelapse-prediction",
-                      anno_size=video.summary().resolution,
-                      results=results)
-    with open(save_path_handler(args.save_path, input_path, ext="json"),
-              mode="w",
-              encoding="utf-8") as f:
-        json.dump(fin_result.to_dict(), f, ensure_ascii=False, indent=4)

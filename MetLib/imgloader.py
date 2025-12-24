@@ -22,6 +22,7 @@ ImgPair = tuple[Union[str, None], Union[U8Mat, None]]
 
 # processing RAW could be really long...
 IMG_GET_TIMEOUT = 10
+MT_HEART_TIME = 1
 DEFAULT_WORKER_NUM = mp.cpu_count() // 2
 
 
@@ -71,35 +72,30 @@ class VanillaImgLoader(BaseImgLoader):
 
     def _pop(self):
         img_fname, img = None, None
-        while True:
-            self.current_idx += 1
-            if self.current_idx >= self.num_images:
-                break
-            img_fname = self.img_fn_list[self.current_idx]
-            try:
-                if is_ext_within(img_fname, SUPPORT_RAW_FORMAT):
-                    img = load_raw_with_preprocess(
-                        img_fname,
-                        power=self.raw_power,
-                        target_nl_mean=self.target_nl_mean,
-                        contrast_alpha=self.contrast_alpha,
-                        output_bps=8 if self.output_bps == 8 else 16)
-
-                elif is_ext_within(img_fname, SUPPORT_COMMON_FORMAT):
-                    img = load_8bit_image(img_fname)
-                else:
-                    self.logger.error(
-                        f"Unsupported image format: {img_fname}. Only support"
-                        f"{SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT}.")
-                    continue
-            except (Exception, KeyboardInterrupt) as e:
-                self.logger.error(
-                    f"Failed to load image: {img_fname} with error: {e.__repr__()}."
-                )
-                continue
-            break
-        if img is None:
+        self.current_idx += 1
+        if self.current_idx >= self.num_images:
             return (None, None)
+        img_fname = self.img_fn_list[self.current_idx]
+        try:
+            if is_ext_within(img_fname, SUPPORT_RAW_FORMAT):
+                img = load_raw_with_preprocess(
+                    img_fname,
+                    power=self.raw_power,
+                    target_nl_mean=self.target_nl_mean,
+                    contrast_alpha=self.contrast_alpha,
+                    output_bps=8 if self.output_bps == 8 else 16)
+
+            elif is_ext_within(img_fname, SUPPORT_COMMON_FORMAT):
+                img = load_8bit_image(img_fname)
+            else:
+                self.logger.error(
+                    f"Unsupported image format: {img_fname}. Only support"
+                    f"{SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT}.")
+                return (img_fname, None)
+        except (Exception, KeyboardInterrupt) as e:
+            self.logger.error(
+                f"Failed to load image: {img_fname} with error: {e.__repr__()}."
+            )
         return (img_fname, img)
 
 
@@ -228,19 +224,19 @@ class MultiThreadImgLoader(VanillaImgLoader):
                 self.logger.error(
                     f"Unsupported image format: {img_fname}. Only support"
                     f"{SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT}.")
-                return (None, None)
+                return (img_fname, None)
         except (Exception, KeyboardInterrupt) as e:
             self.logger.error(
                 f"Failed to load image: {img_fname} with error: {e.__repr__()}."
             )
-            return (None, None)
+            return (img_fname, None)
         return (img_fname, img)
 
-    def _worker(self):
+    def _worker(self, id: int):
         try:
             while not self.stopped:
                 # acquire space for one in-flight image; timeout so we can exit on stop
-                acquired = self._space_sem.acquire(timeout=1)
+                acquired = self._space_sem.acquire(timeout=MT_HEART_TIME)
                 if not acquired:
                     if self.stopped:
                         break
@@ -263,11 +259,12 @@ class MultiThreadImgLoader(VanillaImgLoader):
                     self.results_cond.notify_all()
         except Exception as e:
             self.logger.error(
-                f"{self.__class__.__name__} worker terminated due to {e.__repr__()}"
+                f"{self.__class__.__name__} worker#{id} terminated due to {e.__repr__()}"
             )
         finally:
             with self.results_cond:
                 self._workers_alive -= 1
+                self.logger.info(f"worker#{id} task finished.")
                 self.results_cond.notify_all()
 
     def start(self):
@@ -283,8 +280,8 @@ class MultiThreadImgLoader(VanillaImgLoader):
         # start workers
         self.workers = []
         self._workers_alive = self.num_workers
-        for _ in range(self.num_workers):
-            t = threading.Thread(target=self._worker)
+        for i in range(self.num_workers):
+            t = threading.Thread(target=self._worker,kwargs={'id': i})
             t.setDaemon(True)
             t.start()
             self.workers.append(t)
@@ -297,19 +294,20 @@ class MultiThreadImgLoader(VanillaImgLoader):
                 if self.next_pop_idx in self.results:
                     fname, img = self.results.pop(self.next_pop_idx)
                     self.next_pop_idx += 1
-                    if fname is None or img is None:
-                        continue
                     # free one slot so workers can load another image
                     try:
                         self._space_sem.release()
                     except Exception:
                         pass
+                    # avoid returning empty result
+                    if fname is None and img is None:
+                        continue
                     return (fname, img)
                 # if no workers alive and no pending tasks, return end
                 if self._workers_alive <= 0 and self._next_assign_idx >= self.num_images and not self.results:
                     return (None, None)
                 # wait for a notification or timeout
-                self.results_cond.wait(timeout=IMG_GET_TIMEOUT)
+                self.results_cond.wait(timeout=MT_HEART_TIME)
                 # loop and re-check
 
     def stop(self):
