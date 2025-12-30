@@ -1,7 +1,13 @@
 {
     "loader": "ThreadVideoLoader",
     "wrapper": "PyAVVideoWrapper",
-    "writer": "PyAVVideoWriter",
+    "writer": "FFMpegVideoWriter",
+    "raw_img_load_config": {
+        "power": 2.222,
+        "target_nl_mean": 0.3,
+        "contrast_alpha": 1.2,
+        "output_bps": 8
+    },
     "image_denoise": {
         "switch": false,
         "highlight_preserve": 0.9,
@@ -70,10 +76,10 @@
             ]
         },
         "filter_rules": {
+            "switch": false,
             "threshold": 0.6,
             "min_length_ratio": 0.02,
             "exclude_category_list": [
-                "PLANE/SATELLITE",
                 "BUGS"
             ]
         },
@@ -85,7 +91,12 @@
             255
         ],
         "bbox_thickness": 2,
-        "video_encoder": "libx264",
-        "video_fmt": "yuv420p"
+        "ffmpeg_config":{
+            "path": null,
+            "preset": "slow",
+            "crf": 18,
+            "video_encoder": "libx264",
+            "pix_fmt": "yuv420p"
+        }
     }
 }

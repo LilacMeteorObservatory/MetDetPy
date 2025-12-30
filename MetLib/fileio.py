@@ -11,6 +11,8 @@ import numpy as np
 import rawpy
 from numpy.typing import NDArray
 
+from MetLib.metstruct import RawImgLoadCfg
+
 from .imgproc import Transform, contrast_stretch_uint16, contrast_stretch_uint8, scale2tgt_mean
 from .metlog import BaseMetLog, get_useable_logger
 from .utils import WORK_PATH, U8Mat, transpose_wh
@@ -198,6 +200,51 @@ def load_raw_with_preprocess(
     elif output_bps == 16:
         img = contrast_stretch_uint16(img, alpha=contrast_alpha)
     return img
+
+
+def load_image_file(filename: str,
+                    cfg: Optional[RawImgLoadCfg] = None,
+                    logger: Optional[BaseMetLog] = None):
+    """Unified image loader function,
+    Support both common format and raw format.
+    
+    Return `None` if any exception occured.
+
+    Args:
+        filename (str): path to the image file.
+        cfg (RawImgLoadCfg): raw image loading config.
+        logger (Optional[BaseMetLog], optional): logger handler. Defaults to None.
+
+    Returns:
+        U8Mat|NDArray[np.uint16]|None : loaded image
+    """
+    logger = get_useable_logger(logger)
+    try:
+        if is_ext_within(filename, SUPPORT_RAW_FORMAT):
+            if cfg is None:
+                logger.warning(
+                    "No RawImgLoadCfg when trying to load a raw file."
+                    "load raw image with auto-gamma only (16bit result).")
+                return load_raw_image(filename, auto_gamma=True)
+            return load_raw_with_preprocess(
+                filename,
+                power=cfg.power,
+                target_nl_mean=cfg.target_nl_mean,
+                contrast_alpha=cfg.contrast_alpha,
+                output_bps=8 if cfg.output_bps == 8 else 16)
+
+        elif is_ext_within(filename, SUPPORT_COMMON_FORMAT):
+            return load_8bit_image(filename)
+        else:
+            logger.error(
+                f"Unsupported image format: {filename.split('.')[-1]}. Only support"
+                f"{SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT}.")
+            return None
+    except (Exception, KeyboardInterrupt) as e:
+        logger.error(
+            f"Failed to load image: {filename} with error: {e.__repr__()}.")
+        if isinstance(e, KeyboardInterrupt):
+            raise e
 
 
 def load_mask(mask_fname: Optional[str] = None,

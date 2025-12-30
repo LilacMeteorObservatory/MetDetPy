@@ -21,6 +21,7 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
 import argparse
 import json
 import os
+import shutil
 import time
 from os.path import join as path_join
 from os.path import split as path_split
@@ -29,18 +30,19 @@ from typing import Any, Optional, cast
 import cv2
 
 from MetLib import *
-from MetLib.fileio import (change_file_path, is_ext_with, load_8bit_image,
-                           replace_path_ext, save_img)
+from MetLib.fileio import (SUPPORT_RAW_FORMAT, change_file_path, is_ext_with,
+                           is_ext_within, load_image_file, replace_path_ext,
+                           save_img)
 from MetLib.metlog import BaseMetLog, get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest,
-                              ExportOption, ImageFrameData, SimpleTarget,
-                              VideoFrameData)
-from MetLib.stacker import (max_stacker, mfnr_mix_stacker,
+                              ExportOption, FilterRules, ImageFrameData,
+                              SimpleTarget, VideoFrameData)
+from MetLib.stacker import (all_stacker, max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
 from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, pt_len, ts2frame
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
-support_video_suffix = ["AVI"]
+support_video_suffix = ["AVI", "MP4"]
 IMAGE_MODE = "image"
 VIDEO_MODE = "video"
 DEFAULT_SUFFIX_MAPPING = {IMAGE_MODE: "jpg", VIDEO_MODE: "avi"}
@@ -78,7 +80,17 @@ def update_cfg_from_args(base_cfg: ClipCfg, args: argparse.Namespace):
 
 
 def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
-                cfg: ExportOption):
+                cfg: ExportOption) -> U8Mat:
+    """draw positive target on the image.
+
+    Args:
+        img (U8Mat): base image
+        target_list (Optional[list[SimpleTarget]]): target list
+        cfg (ExportOption): Export Option
+
+    Returns:
+        U8Mat: image with annotations
+    """
     if target_list is None:
         return img
     for target in target_list:
@@ -124,6 +136,14 @@ def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
 
 
 def jsonsf2request(json_str: str):
+    """convert json_str in argument to be a list.
+    
+    Args:
+        json_str (str): source json string, could be a json string or a path to a json file.
+
+    Returns:
+        list[VideoFrameData]: parsed json list.
+    """
     data: Optional[list[dict[str, Any]]] = None
     if os.path.isfile(json_str):
         with open(json_str, mode='r', encoding='utf-8') as f:
@@ -200,7 +220,31 @@ def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
         return target_name, request_list
 
 
-def image_clip_process(data: list[ImageFrameData], export_cfg: ExportOption,
+def any_valid_target(target_list: list[SimpleTarget],
+                     filter_rules: FilterRules, diag_length: int):
+    """check if there is any target in the target_list should not be filtered by rules.
+
+    Args:
+        target_list (list[SimpleTarget]): list of simple targets
+        filter_rules (FilterRules): _description_
+        diag_length (int): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    for target in target_list:
+        if target.preds in filter_rules.exclude_category_list:
+            continue
+        if target.prob is None or float(target.prob) < filter_rules.threshold:
+            continue
+        if pt_len(target.pt1,
+                  target.pt2) / diag_length < filter_rules.min_length_ratio:
+            continue
+        return True
+    return False
+
+
+def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
                        save_path: str, logger: BaseMetLog):
     """ 图像序列->筛选图像序列的保存接口。
 
@@ -212,36 +256,59 @@ def image_clip_process(data: list[ImageFrameData], export_cfg: ExportOption,
     """
     try:
         logger.start()
+        export_cfg, raw_cfg = clip_cfg.export, clip_cfg.raw_img_load_config
         filter_rules = export_cfg.filter_rules
         for frame_data in data:
-            image_data = load_8bit_image(frame_data.img_filename)
-            if image_data is None:
-                logger.warning(
-                    f"Failed to load {frame_data.img_filename}, skip...")
+            image_data = None
+            diag_length = 0
+            # NOTE: 兼容旧输出格式的设计（缺少img_size字段）
+            # 新MDRF 会携带 img_size 字段，无需加载图像; 旧版本则需要预先加载图像。
+            # v3.0.0后放弃对旧输出格式的兼容。
+            if frame_data.img_size is not None:
+                diag_length = pt_len([0, 0], list(frame_data.img_size))
+            else:
+                image_data = load_image_file(frame_data.img_filename, raw_cfg,
+                                             logger)
+                if image_data is None:
+                    continue
+                diag_length = pt_len([0, 0], list(image_data.shape[:2]))
+                frame_data.img_size = image_data.shape[:2][1::-1]
+
+            # 如果所有target都被过滤规则过滤，则跳过
+            if filter_rules.switch and not any_valid_target(
+                    frame_data.target_list, filter_rules, diag_length):
+                logger.info(
+                    f"Skip {frame_data.img_filename} because no valid target in this image."
+                )
                 continue
 
-            # 如果不在包含允许导出类别，则跳过
-            if not any([(not x.preds in filter_rules.exclude_category_list
-                         and x.prob is not None and float(x.prob)
-                         > filter_rules.threshold and pt_len(x.pt1, x.pt2) /
-                         pt_len([0, 0], list(image_data.shape[:2]))
-                         > filter_rules.min_length_ratio)
-                        for x in frame_data.target_list]):
-                continue
-            # 填充video_size: 转换image标注为对应格式
-            frame_data.img_size = image_data.shape[:2][1::-1]
+            full_path = change_file_path(frame_data.img_filename, save_path)
             if export_cfg.with_bbox:
+                # 仅在需要导出 bbox 时，输入图像被载入。
+                if image_data is None:
+                    image_data = load_image_file(frame_data.img_filename,
+                                                 raw_cfg, logger)
+                    if image_data is None:
+                        continue
                 image_data = draw_target(image_data, frame_data.target_list,
                                          export_cfg)
-            # 保存图像到目标路径下
-            full_path = change_file_path(frame_data.img_filename, save_path)
-            save_img(image_data,
-                     full_path,
-                     export_cfg.jpg_quality,
-                     export_cfg.png_compressing,
-                     color_space='sRGB',
-                     logger=logger)
-            logger.info(f"Saved: {full_path}")
+                # 保存图像到目标路径下
+                if is_ext_within(full_path, SUPPORT_RAW_FORMAT):
+                    logger.warning(
+                        f"Cannot draw targets on .{frame_data.img_filename} format image"
+                        ", save .jpg instead.")
+                    full_path = replace_path_ext(full_path, 'jpg')
+                save_img(image_data,
+                         full_path,
+                         export_cfg.jpg_quality,
+                         export_cfg.png_compressing,
+                         color_space='sRGB',
+                         logger=logger)
+                logger.info(f"Saved: {full_path}")
+            else:
+                # 不绘制bbox，则直接copy原始文件。
+                shutil.copy(frame_data.img_filename, full_path)
+                logger.info(f"Copied: {full_path}")
             # 在有target的情况下，同时生成labelme风格的标注
             if export_cfg.with_annotation:
                 res_dict = frame_data.to_labelme()
@@ -390,7 +457,7 @@ def main():
         # Image Folder Mode, early return
         request_list = cast(list[ImageFrameData], request_list)
         image_clip_process(request_list,
-                           clip_cfg.export,
+                           clip_cfg,
                            save_path=save_path,
                            logger=logger)
         logger.stop()
@@ -490,12 +557,29 @@ def main():
                         json.dump(res_dict, f, ensure_ascii=False, indent=4)
                     logger.info(f"Saved: {anno_path}")
             else:
-                status_code = VideoWriterCls.save_video_by_stream(
-                    video_loader,
-                    clip_cfg.export,
-                    video_loader.fps,
-                    video_frame.saved_filename,
-                    logger=logger)
+                if export_cfg.with_bbox:
+                    img_series = all_stacker(video_loader, logger=logger)
+                    if img_series is not None:
+                        post_img_series = [
+                            draw_target(img, video_frame.target_list,
+                                        clip_cfg.export) for img in img_series
+                        ]
+                        status_code = VideoWriterCls.save_video_with_audio(
+                            post_img_series,
+                            video_loader,
+                            clip_cfg.export,
+                            video_frame.saved_filename,
+                            start_frame=video_loader.start_frame,
+                            end_frame=video_loader.end_frame,
+                            logger=logger)
+                    else:
+                        status_code = -1
+                else:
+                    status_code = VideoWriterCls.save_video_by_stream(
+                        video_loader,
+                        clip_cfg.export,
+                        video_frame.saved_filename,
+                        logger=logger)
                 if status_code == 0:
                     logger.info(f"Saved: {video_frame.saved_filename}")
                 else:

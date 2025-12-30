@@ -250,6 +250,7 @@ class SingleImgRecord(DictAble):
     preds: list[str]
     prob: list[str]
     img_filename: Optional[str] = None
+    img_size: Optional[list[int]] = None
     num_frame: Optional[int] = None
 
     def build_target_list(self):
@@ -306,6 +307,7 @@ class SingleImgRecord(DictAble):
             raise ValueError("convert failed because img_filename is None.")
         return ImageFrameData(img_filename=self.img_filename,
                               target_list=self.build_target_list(),
+                              img_size=self.img_size,
                               saved_filename=self.img_filename)
 
 
@@ -441,6 +443,7 @@ class MDRF(DictAble):
 
 @dataclasses.dataclass
 class FilterRules(object):
+    switch: bool = True
     threshold: float = 0.0
     min_length_ratio: float = 0.0
     exclude_category_list: list[str] = dataclasses.field(
@@ -448,8 +451,18 @@ class FilterRules(object):
 
 
 @dataclasses.dataclass
-class ExportOption(object):
+class FFMpegConfig(object):
+    path: Optional[str]
+    preset: str = "slow"
+    crf: int = 18
+    video_encoder: str = "libx264"
+    pix_fmt: str = "yuv420p"
     ffmpeg_path: Optional[str] = None
+    ffprobe_path: Optional[str] = None
+
+
+@dataclasses.dataclass
+class ExportOption(object):
     positive_category_list: list[str] = dataclasses.field(
         default_factory=lambda: ["METEOR", "RED_SPRITE"])
     bbox_color_mapping: Optional[dict[str, list[int]]] = None
@@ -462,8 +475,8 @@ class ExportOption(object):
     bbox_color: list[int] = dataclasses.field(
         default_factory=lambda: [255, 0, 0])
     bbox_thickness: int = 2
-    video_encoder: str = "libx264"
-    video_fmt: str = "yuv420p"
+    ffmpeg_config: FFMpegConfig = dataclasses.field(
+        default_factory=lambda: FFMpegConfig(path=None))
 
 
 @dataclasses.dataclass
@@ -503,12 +516,21 @@ class DenoiseOption(object):
 
 
 @dataclasses.dataclass
+class RawImgLoadCfg(object):
+    power: float
+    target_nl_mean: float
+    contrast_alpha: float
+    output_bps: int
+
+
+@dataclasses.dataclass
 class ClipCfg(DictAble):
     loader: str
     wrapper: str
     writer: str
     image_denoise: DenoiseOption
     export: ExportOption
+    raw_img_load_config: Optional[RawImgLoadCfg]
 
 
 @dataclasses.dataclass

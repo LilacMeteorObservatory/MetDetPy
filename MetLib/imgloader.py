@@ -289,6 +289,7 @@ class MultiThreadImgLoader(VanillaImgLoader):
     def pop(self):
         # return next image in order; block until available or finished
         with self.results_cond:
+            # loop and re-check
             while True:
                 # if next result ready, return it
                 if self.next_pop_idx in self.results:
@@ -308,7 +309,7 @@ class MultiThreadImgLoader(VanillaImgLoader):
                     return (None, None)
                 # wait for a notification or timeout
                 self.results_cond.wait(timeout=MT_HEART_TIME)
-                # loop and re-check
+                
 
     def stop(self):
         # signal stop and join workers

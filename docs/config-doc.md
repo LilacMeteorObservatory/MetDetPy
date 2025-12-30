@@ -465,7 +465,7 @@ class ExportOption {
     bbox_color: list[int]
     bbox_thickness: int
     video_encoder: str
-    video_fmt: str
+    pix_fmt: str
 }
 
 class ConnectParam {
@@ -567,4 +567,4 @@ Key fields and recommended defaults are documented in `../global/clip_cfg.json`.
 |`bbox_color`|list|BBox color in BGR order.|[0,0,255]|
 |`bbox_thickness`|int|BBox thickness.|2|
 |`video_encoder`|str|Encoder for PyAV writer (when using `PyAVVideoWriter`).|`"libx264"`|
-|`video_fmt`|str|Pixel format for exported video (PyAV writer).|`"yuv420p"`|
+|`pix_fmt`|str|Pixel format for exported video (PyAV writer).|`"yuv420p"`|

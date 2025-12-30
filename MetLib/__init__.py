@@ -6,7 +6,7 @@ from .videoloader import (ProcessVideoLoader, ThreadVideoLoader,
                           VanillaVideoLoader)
 from .videowrapper import BaseVideoWrapper, OpenCVVideoWrapper, PyAVVideoWrapper
 
-from .videowriter import BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter
+from .videowriter import BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter, FFMpegVideoWriter
 
 from .model import YOLOModel
 
@@ -36,7 +36,7 @@ available_detectors: list[type[BaseDetector]] = [
 ]
 
 available_writers: list[type[BaseVideoWriter]] = [
-    BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter
+    BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter, FFMpegVideoWriter
 ]
 
 available_models_list = [YOLOModel]
