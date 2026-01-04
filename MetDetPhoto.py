@@ -207,8 +207,12 @@ try:
                                 f"{pred[int(np.argmax(pred))]:.2f}"
                                 for pred in preds
                             ],
-                            img_size = list(img.shape)[1:-1],
+                            img_size=list(img.shape)[1:-1],
                             img_filename=img_path))
+                    logger.meteor(str(results[-1]))
+                else:
+                    logger.debug(
+                        f"Image {img_path} detection finished with no result.")
         except (Exception, KeyboardInterrupt) as e:
             logger.error(f"detection terminates caused by: {e.__repr__()}")
         finally:
@@ -299,6 +303,7 @@ try:
                                 for pred in probs
                             ],
                             num_frame=i))
+                    logger.meteor(str(results[-1]))
         else:
             raise NotImplementedError(
                 f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_ALL_IMG_FORMAT}."
