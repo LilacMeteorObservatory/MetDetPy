@@ -2,13 +2,13 @@ from typing import Callable, TypeVar
 
 from .Detector import (BaseDetector, ClassicDetector, DiffAreaGuidingDetecor,
                        M3Detector, MLDetector)
+from .model import YOLOModel
 from .videoloader import (ProcessVideoLoader, ThreadVideoLoader,
                           VanillaVideoLoader)
-from .videowrapper import BaseVideoWrapper, OpenCVVideoWrapper, PyAVVideoWrapper
-
-from .videowriter import BaseVideoWriter, OpenCVVideoWriter, PyAVVideoWriter, FFMpegVideoWriter
-
-from .model import YOLOModel
+from .videowrapper import (BaseVideoWrapper, OpenCVVideoWrapper,
+                           PyAVVideoWrapper)
+from .videowriter import (BaseVideoWriter, FFMpegVideoWriter,
+                          OpenCVVideoWriter, PyAVVideoWriter)
 
 T = TypeVar("T", type[VanillaVideoLoader], type[BaseVideoWrapper],
             type[BaseDetector], type[BaseVideoWriter], type[YOLOModel])
