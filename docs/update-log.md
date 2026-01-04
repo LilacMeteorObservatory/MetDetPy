@@ -69,23 +69,51 @@ Note:
 2. 飞行器/大面积时间不容易被后验检测器检出。
 3. 改善报错信息（尤其是配置文件）
 
+## Version 2.4.0
+
+✅ New Feature(s)
+* `MetDetPy`
+    * 正样本结果增加 `relative_brightness` 特征，无量纲，用于表示该样本相对背景的亮度。
+    * 正样本结果增加 `aesthetic_score` 特征，无量纲，用于表征样本的观赏性。结合样本的长度，亮度和置信度计算。
+* `MetDetPhoto`
+    * 支持直接读取主流数码相机的 RAW 格式文件（如 `.NEF`, `.CR2`, `.ARW`, `.DNG` 等）。读入后，图像将被应用自动的亮度拉伸和白平衡以进行检测。
+    * 文件夹检测模式下，支持多线程读取图像，优化了图像加载和检测速度。
+    * 序列检测模式下，检测结果将流式输出。
+* `ClipToolkit`
+    * 在处理 `MDRF` 格式输入时，增加了过滤器：可以限制输出类别、得分和长度约束，从而快速筛选正样本（默认关闭，自行在配置中开启）。
+    * 支持了包含 RAW 格式的 `MDRF` 文件的导出功能。
+    * 新增 `FFMpegVideoWriter`，在自行配置本地 FFMpeg 和 FFProbe 路径后可以支持导出常见编码的常见视频格式（如h264编码的mp4）。
+    * 支持截取视频模式下的 `--with-bbox` 选项，将在流星位置绘制一个包围框。
+
+✅ Improvement
+* `MetDetPy`
+    * `DLDet` 的单帧检测结果增加了方向信息，优化了方向计算结果。
+
+* `ClipToolkit`
+    * 增强导出标注框（启用 `--with-bbox` 时）的视觉效果，标注框增加标签和概率得分，并可以为各个类别设置颜色。
+    
+
+✅ BugFix
+* 修复了 `MetDetPhoto` 在可视化模式下标注框错位问题。
+* 修复了 `MetDetPhoto` 保存 `MDRF` 格式输出时文件名可能受到输入路径格式影响导致空文件名的问题。
+* 修复了 `ClipToolkit` 执行保存带 labelme 标注时缺少导出文件名导致失败的问题。
 
 ## Version 2.3.2
 
-## ✅ Improvement
-* 为 `VideoLoader` 添加 `continue_on_err` 选项，设置为 `true` 时会在帧数据解析失败时继续尝试向后解析[1]。可能会增加解码开销。默认为`false`。
-*  `ClipToolkit` 生成截图失败时，现在会在 `stderr` 抛出 fatal error，便于定位问题。
-* 冗余代码优化。
+✅ Improvement
+* 增加了 Git-LFS 托管的网络权重格式检查。
 
-⚠️1：该设置可能不能改善缺失关键帧索引造成的连续读取失败。如果您的视频频繁出现大量失败，请优先尝试重新封装视频：
-```ffmpeg -i input.mp4 -c copy -map 0 fixed.mp4```。
+✅ Bug fixes
+* 为 `PyAVVideoWrapper` 增加了帧缓存机制，优化了一次解码多帧时的帧丢弃情况。
+* 完善了 `PyAVVideoWrapper` 的错误捕获机制，减少偶发错误导致的强行终止问题。
+* 修复了 `YOLOModel` 推理错误时的兜底格式化错误。
+* 为 `YOLOModel` 增加了线程锁以优化稳定性。
 
-## ✅ BugFix
-* 修复部分情况下 `np.int32` 类型数据导致的序列化失败问题。
-* 延长了 `metlog` 组件允许的最长等待时间，优化可能的输出不完整问题。
-* 修复了部分默认配置参数名错误或者缺省返回值错误导致的无法正常启动问题。
+✅ Documents
+* 更新了[数据格式](./data-format.md)和[工具](./tool-usage.md)的文档。
+* 在[配置文档](./config-doc.md)补充了[裁剪工具](../ClipToolkit.py)的配置说明。
 
-**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.3.0...v2.3.1-1
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.3.1...v2.3.2
 
 
 ## Version 2.3.1
@@ -302,12 +330,12 @@ Note:
 
 ✅ Improved non-ASCII filename support for packaging version /改善对非ASCII文字路径的支持: by packaging with Python 3.7 and later, the new `pyinstaller` (>=5) can support non-ASCII paths and filenames.
 
-## Version 1.1
+## Version 1.1.0
 
 ✅ Add "Backend" mode to support MeteorMaster. / 增加了后端模式
 
 ✅ Update output stream format. / 调整输出流格式
 
-## Version 1.0
+## Version 1.0.0
 
 Initial Version / 初始版本

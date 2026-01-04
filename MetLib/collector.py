@@ -813,7 +813,7 @@ class MetExporter(object):
                 sure_meteor.recheck_score = round(score.astype(np.float64),
                                                   ndigits=3)
                 # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
-                # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.4.0预计引入前置的机器学习分类器。
+                # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
                 # TODO: 前置预测输出多类别分数。
                 if label == Name2Label.METEOR:
                     mge_score = (sure_meteor.recheck_score +
