@@ -171,6 +171,8 @@ class MDTarget(DictAble):
         default_factory=lambda: [])
     raw_score: Optional[float] = None
     recheck_score: Optional[float] = None
+    relative_brightness: Optional[float] = None
+    aesthetic_score: Optional[float] = None
     exclude_attrs: list[str] = dataclasses.field(
         default_factory=lambda: ["center_point_list"])
 

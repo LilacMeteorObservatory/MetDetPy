@@ -211,6 +211,8 @@ class SlidingWindow(object):
         self.sliding_window: NDArray[np.uint8] = np.zeros(shape=(n, ) +
                                                           tuple(size),
                                                           dtype=self.dtype)
+        self.stack_max_cache: NDArray[np.uint8] = np.zeros(shape=tuple(size),
+                                                           dtype=self.dtype)
 
     def update(self, new_frame: U8Mat):
         self.timer += 1
@@ -228,6 +230,8 @@ class SlidingWindow(object):
         if self.calc_std:
             self.square_sum += np.square(self.sliding_window[self.cur_index],
                                          dtype=np.uint32)
+        # 更新最大值堆栈缓存
+        self.refresh_max()
 
     @property
     def mean(self) -> Union[NDArray[np.uint32], NDArray[np.float64]]:
@@ -241,7 +245,14 @@ class SlidingWindow(object):
 
     @property
     def max(self) -> U8Mat:
-        return np.max(self.sliding_window, axis=0)
+        return self.stack_max_cache
+
+    def refresh_max(self) -> U8Mat:
+        """refresh and return max stack result.
+        Should only be used when the stack is updated manually.
+        """
+        self.stack_max_cache = np.max(self.sliding_window, axis=0)
+        return self.max
 
     @property
     def std(self):

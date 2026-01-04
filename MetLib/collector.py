@@ -4,8 +4,10 @@ from typing import Literal, Optional, Union, cast
 
 import numpy as np
 
+from MetLib.feature import calc_brightness_with_roi
+
 from .metlog import BaseMetLog
-from .metstruct import (CollectorCfg, MDTarget, RecheckCfg, RuntimeParams,
+from .metstruct import (Box, CollectorCfg, MDTarget, RecheckCfg, RuntimeParams,
                         SingleMDRecord)
 from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
                       DrawRectVisu, SquareColorPair, TextColorPair, TextVisu)
@@ -808,8 +810,8 @@ class MetExporter(object):
                 sure_meteor.category = ID2NAME.get(label,
                                                    ID2NAME[Name2Label.OTHERS])
                 sure_meteor.raw_score = sure_meteor.score
-                sure_meteor.recheck_score = cast(float,
-                                                 score.astype(np.float64))
+                sure_meteor.recheck_score = round(score.astype(np.float64),
+                                                  ndigits=3)
                 # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
                 # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.4.0预计引入前置的机器学习分类器。
                 # TODO: 前置预测输出多类别分数。
@@ -824,6 +826,16 @@ class MetExporter(object):
                         and label in self.positive_cate_ids) or (
                             label == Name2Label.METEOR
                             and sure_meteor.score >= self.det_thre):
+                    # 计算相对亮度值
+                    sure_box = Box.from_pts(sure_meteor.pt1, sure_meteor.pt2)
+                    r_brightness = calc_brightness_with_roi(
+                        stacked_img, sure_box)
+                    sure_meteor.relative_brightness = round(r_brightness,
+                                                            ndigits=3)
+                    sure_meteor.aesthetic_score = round(
+                        sure_meteor.score * sure_meteor.fix_dist *
+                        sure_meteor.relative_brightness,
+                        ndigits=3)
                     fixed_output.append(sure_meteor)
                 else:
                     # 流星类被丢弃时需要重新标记为 DROPPED

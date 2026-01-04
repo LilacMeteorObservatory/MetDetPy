@@ -18,8 +18,9 @@ from typing import Any, Callable, Optional, Sequence, Union, cast
 import cv2
 import numpy as np
 
+from .feature import calc_roi_gradient, crop_with_box
 from .metlog import BaseMetLog
-from .metstruct import BinaryCfg, DLCfg
+from .metstruct import BinaryCfg, Box, DLCfg
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model
@@ -493,7 +494,7 @@ class DiffAreaGuidingDetecor(BaseDetector):
             self.diff_img = np.zeros_like(self.cur_frame)
             return [], []
         neg_value_mask = self.cur_frame < self.bg_maintainer.cur_value
-        self.diff_img = self.cur_frame-5 > self.bg_maintainer.cur_value
+        self.diff_img = self.cur_frame - 5 > self.bg_maintainer.cur_value
         #self.diff_img[neg_value_mask] = 0
         self.post_update()
         return [], []
@@ -540,6 +541,12 @@ class MLDetector(BaseDetector):
         self.result_pos, self.result_cls = self.model.forward(self.stack.max)
         if len(self.result_pos) == 0:
             return [], []
+        # 调整反斜向流星xy坐标顺序
+        for i, result_list in enumerate(self.result_pos):
+            roi_img = crop_with_box(self.stack.max, Box.from_list(result_list))
+            gradient_drct = calc_roi_gradient(roi_img)
+            if (int(gradient_drct // (np.pi / 2)) % 2 == 1):
+                self.result_pos[i, [1, 3]] = self.result_pos[i, [3, 1]]
         return self.result_pos, expand_cls_pred(self.result_cls)
 
     def visu(self):
