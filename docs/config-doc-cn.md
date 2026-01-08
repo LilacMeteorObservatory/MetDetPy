@@ -209,8 +209,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
         },
         "dynamic": {
             "dy_mask": true,
-            "dy_gap": 0.05,
-            "fill_thre": 0.6
+            "window_sec": 5
         }
     }
 }
@@ -286,7 +285,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     </tr>
     <tr>
         <td rowspan="3"><p>hough_line</p>(Hough直线检测相关参数。参数具体含义参考<a href="https://docs.opencv.org/3.4/d9/db0/tutorial_hough_lines.html">OpenCV官方文档</a>)</td>  
-        <td>hough_threshold</td> 
+        <td>threshold</td> 
         <td>int</td>  
         <td>hough直线检测的阈值。</td>
         <td>10</td>  
@@ -304,25 +303,17 @@ CollectorCfg --> RecheckCfg : recheck_cfg
         <td>10</td>  
     </tr>
     <tr>
-        <td rowspan="3"><p>dynamic</p>(动态机制相关参数)</td>  
+        <td rowspan="2"><p>dynamic</p>(动态机制相关参数)</td>  
         <td>dy_mask</td> 
         <td>bool</td>  
         <td>是否启用动态掩模机制。动态掩模对持续产生响应的区域施加掩模，能够降低在亮星点和持续干扰附近区域的响应。</td>
         <td>true</td>  
     </tr>
     <tr>
-        <td>dy_gap</td>  
+        <td>window_sec</td>  
         <td>float</td> 
-        <td>动态间隔参数。该项使hough参数中的"max_gap"在响应过多时减少，提高对直线的要求，减少二值化计算偏差时的误报。该值表示随着潜在流星区域面积增大到给定值时，"max_gap"衰减到0。如配置0.05，则潜在流星区域面积在大于0.05%时"max_gap"衰减到0。</td> 
-        <td>0.05</td>  
-    </tr>
-    <tr>
-        <td>fill_thre</td>  
-        <td>float</td> 
-        <td>描述构成直线允许的最大中空比例，用于降低非连续直线的误报。设置为0时表示不生效。<br>
-        ⚠️ 该选项目前已经不实际生效，计划在未来废弃。
-        </td> 
-        <td>0.6</td>  
+        <td>动态掩模的时间窗口长度（单位：秒）。用于控制动态掩模的持续时间。</td> 
+        <td>5</td>  
     </tr>
     <tr>
         <td><p>model</p>(模型相关参数)</td>  
@@ -458,9 +449,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |------|---|---|---|
 |loader|str|视频加载器|"ThreadVideoLoader"|
 |wrapper|str|加载视频使用的后端`wrapper`||
-|writer|str|视频写入器，可选 OpenCVVideoWriter 和 PyAVVideoWriter。|"PyAVVideoWriter"|
+|writer|str|视频写入器，可选 OpenCVVideoWriter、PyAVVideoWriter 和 FFMpegVideoWriter。|"FFMpegVideoWriter"|
 |image_denoise|DenoiseOption|图像降噪配置|见[图像降噪配置](#图像降噪配置)|
 |export|ExportOption|导出配置|见[导出配置](#导出配置)|
+|raw_img_load_config|Optional[RawImgLoadCfg]|原始图像加载配置（可选）|见[原始图像加载配置](#原始图像加载配置)|
 
 剪切配置文件各部分的参数配置以及互相关系如下：
 
@@ -469,15 +461,15 @@ classDiagram
 
 class ExportOption {
     positive_category_list: list[str]
-    exclude_category_list: list[str]
+    bbox_color_mapping: Optional[dict[str, list[int]]]
+    filter_rules: FilterRules
     jpg_quality: int
     png_compressing: int
     with_bbox: bool
     with_annotation: bool
     bbox_color: list[int]
     bbox_thickness: int
-    video_encoder: str
-    video_fmt: str
+    ffmpeg_config: FFMpegConfig
 }
 
 class ConnectParam {
@@ -518,6 +510,7 @@ class ClipCfg {
     writer: str
     image_denoise: DenoiseOption
     export: ExportOption
+    raw_img_load_config: Optional[RawImgLoadCfg]
 }
 
 ClipCfg --> DenoiseOption : image_denoise
@@ -655,10 +648,53 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
 |positive_category_list|list|需要导出的正样本类别|`["METEOR","RED_SPRITE"]`|
-|exclude_category_list|list|默认排除的负样本类别|[]|
+|bbox_color_mapping|Optional[dict[str, list[int]]]|按类别映射的标注框颜色（BGR顺序）。如果指定，将覆盖 `bbox_color` 设置。|None|
+|filter_rules|FilterRules|过滤规则配置|见[过滤规则配置](#过滤规则配置)|
+|jpg_quality|int|导出JPEG图像时的质量（1-100）|95|
+|png_compressing|int|导出PNG图像时的压缩级别（0-9）|3|
 |with_bbox|bool|导出时是否默认需要带上标注框|false|
 |with_annotation|bool|导出时是否默认需要带上标注文件|false|
-|bbox_color|list|标注框颜色(BGR顺序)|[0,0,255]|
+|bbox_color|list|默认标注框颜色(BGR顺序)|[255,0,0]|
 |bbox_thickness|int|标注框粗细|2|
-|video_encoder|str|导出视频时的编码器（仅在启用 PyAVVideoWriter 时生效）|"libx264"|
-|video_fmt|str|导出视频时的编码格式（仅在启用 PyAVVideoWriter 时生效）|"yuv420p"|
+|ffmpeg_config|FFMpegConfig|FFMpeg视频编码配置（仅在启用 FFMpegVideoWriter 时生效）|见[FFMpeg配置](#ffmpeg配置)|
+
+#### 过滤规则配置/FilterRules
+
+过滤规则用于在导出时过滤检测结果。其各项参数说明如下：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|switch|bool|是否启用过滤规则|true|
+|threshold|float|置信度阈值，低于该值的检测结果将被过滤|0.0|
+|min_length_ratio|float|最小长度比例阈值，低于该值的检测结果将被过滤（相对于图像长边）|0.0|
+|exclude_category_list|list[str]|需要排除的类别列表|[]|
+
+#### FFMpeg配置/FFMpegConfig
+
+FFMpeg视频编码配置用于控制使用 FFMpegVideoWriter 时的视频编码参数。其各项参数说明如下：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|path|Optional[str]|FFMpeg可执行文件路径。如果为None，将使用系统PATH中的FFMpeg|None|
+|preset|str|FFMpeg编码预设，可选值如 "slow", "medium", "fast" 等|"slow"|
+|crf|int|恒定速率因子（Constant Rate Factor），控制视频质量（0-51，值越小质量越高）|18|
+|video_encoder|str|视频编码器，如 "libx264", "libx265" 等|"libx264"|
+|pix_fmt|str|像素格式，如 "yuv420p", "yuv422p" 等|"yuv420p"|
+
+启用FFMpegVideoWriter时，会按照如下路径顺序查找FFMpeg工具：
+1. 如果 `path` 字段指定了路径，将在该路径下查找 `ffmpeg` 和 `ffprobe`
+2. 在 MetDetPy 项目根目录下查找
+3. 在系统 PATH 环境变量中查找
+
+如果未找到 FFMpeg，程序将报错。
+
+#### 原始图像加载配置/RawImgLoadCfg
+
+原始图像加载配置用于控制加载RAW格式图像时的处理参数。其各项参数说明如下：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|power|float|伽马校正的幂值|2.222|
+|target_nl_mean|float|目标归一化亮度均值|0.3|
+|contrast_alpha|float|对比度增强系数|1.2|
+|output_bps|int|输出图像的位深度（位数）|8|

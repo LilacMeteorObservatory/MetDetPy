@@ -73,6 +73,8 @@ Supported optional parameters in ClipToolkit are as follows：
 * `--mode`: Convert the clip to an image or video. It should be selected from `{image, video}`. This option will be overridden by specific filenames in the JSON.
 
 * `--suffix`: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode. This option will be covered by a specific filename in JSON.
+  
+  **Note**: The video writer affects the available video suffixes. See [Available Video Writers](#available-video-writers) for details.
 
 * `--save-path`: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in `--save-path` to simplify your JSON.
 
@@ -84,9 +86,26 @@ Supported optional parameters in ClipToolkit are as follows：
 
 * `--with-annotation`: also output `labelme` style annotation JSON files (only supported in Ordinary and Sample Generating modes when annotations are available).
 
-* `--with-bbox`: draw bounding boxes on exported images (only supported in Ordinary and Sample Generating modes when annotations are available).
+* `--with-bbox`: draw bounding boxes on exported images/videos (only supported in Ordinary and Sample Generating modes when annotations are available).
 
 * `--debug`: run in debug mode to print more detailed information.
+
+### Video Writer Configuration
+
+ClipToolkit uses the `writer` field in the configuration file (default: `./global/clip_cfg.json`) to specify the video writer (VideoWriter). Different video writers support different video formats and features:
+
+#### Available Video Writers
+
+|VideoWriter|Supported Export Formats|Audio Copying|Parameter Configuration|
+|-----------|----------------------|-------------|---------------------|
+|OpenCVVideoWriter|Only supports `.avi` format|Not supported|Not supported|
+|PyAVVideoWriter (release version)|Only supports `.avi` format|Not supported|Not supported|
+|PyAVVideoWriter (self-built + associated FFMpeg with support)|Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.)|Full support for audio copying and transcoding|Full support for all export configurations|
+|FFMpegVideoWriter (recommended, requires local FFMpeg and FFProbe tools)|Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.)|Full support for audio copying and transcoding|Full support for all export configurations|
+
+#### Configuring FFMpegVideoWriter
+
+When using `FFMpegVideoWriter`, you need to configure FFMpeg-related parameters in the `export.ffmpeg_config` section of the configuration file (see [Configuration Documentation](./config-doc.md#ffmpeg-config) for details)
 
 Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
 

@@ -16,7 +16,7 @@ classDiagram
 
 class MDRF {
     version: str
-    basic_info: Optional[BasicInfo]
+    basic_info: Union[BasicInfo, MockVideoObject]
     config: Optional[MainDetectCfg]
     type: str
     anno_size: Optional[list[int]]
@@ -52,6 +52,7 @@ class SingleImgRecord {
     preds: list[str]
     prob: list[str]
     img_filename: Optional[str]
+    img_size: Optional[list[int]]
     num_frame: Optional[int]
 }
 
@@ -98,7 +99,7 @@ Keys in an MDRF and their meanings:
 | --- | ---- | ----------- |
 | loader | `str` | The loader name used by the detector. |
 | video | `str` | Path to the source video (may be relative). |
-| mask | `str` | Path to a mask image (may be relative). |
+| mask | `Optional[str]` | Path to a mask image (may be relative). If no mask is used, this field is `None`. |
 | start_time | `int` | Segment start time in milliseconds. |
 | end_time | `int` | Segment end time in milliseconds. |
 | resolution | `list[int]` | Input video resolution. |
@@ -132,6 +133,7 @@ Keys in an MDRF and their meanings:
 | preds | `list[str]` | Predicted class labels. |
 | prob | `list[str]` | Prediction probabilities/scores. |
 | img_filename | `Optional[str]` | Source image filename. If read from a time-lapse video this field may be empty. |
+| img_size | `Optional[list[int]]` | Image dimensions `[width, height]`. If not specified, this field is `None`. |
 | num_frame | `Optional[int]` | Corresponding frame index in the source time-lapse video. If images came from a directory, this may be empty. |
 
 
@@ -162,6 +164,9 @@ Keys in an MDRF and their meanings:
 | real_dist | `float` | Real length in original resolution (pixels). |
 | raw_score | `Optional[float]` | Raw confidence estimated by the main detector (range [0,1]). `None` if the result wasn't detected by the main detector. |
 | recheck_score | `Optional[float]` | Recheck detector confidence (range [0,1]). `None` if recheck detector did not detect this target. |
+| center_point_list | `list[list[int]]` | List of center point coordinates for the target motion trajectory. This field is excluded from serialization by default (controlled by `exclude_attrs`). |
+| relative_brightness | `Optional[float]` | Relative brightness value of the target, dimensionless, used to represent the sample's brightness relative to the background. Only included in positive samples after recheck. |
+| aesthetic_score | `Optional[float]` | Aesthetic score of the target, dimensionless, used to characterize the sample's visual appeal. Calculated by combining the sample's length, brightness, and confidence. Only included in positive samples after recheck. |
 
 
 ###### Note [1]

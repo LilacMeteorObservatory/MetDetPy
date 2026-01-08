@@ -69,7 +69,9 @@ ClipToolkit支持的可选参数列表如下：
 
 * `--mode`：将剪辑转换为图像或视频。 应从 `{image, video}` 中选择。 此选项会被 json 中的特定文件名覆盖。
 
-* `--suffix`：输出的后缀。 默认情况下，图像模式为“jpg”，视频模式为“avi”。 此选项可以被 JSON 中的特定文件名覆盖。
+* `--suffix`：输出的后缀。 默认情况下，图像模式为"jpg"，视频模式为"avi"。 此选项可以被 JSON 中的特定文件名覆盖。
+  
+  **注意**：视频写入器会影响可选的视频后缀。详见[可用的视频写入器](#可用的视频写入器)。
 
 * `--save-path`：放置图像/视频的路径。 当 JSON 中只包含一个片段时，您可以在 `--save-path` 中包含文件名以简化您的 JSON。
 
@@ -77,13 +79,31 @@ ClipToolkit支持的可选参数列表如下：
 
 * `--with-annotation`: 同时输出 labelme 风格的标注json文件（仅支持通用模式和样本生成模式，需要附带有目标标注）。
 
-* `--with-bbox`: 在导出的图像中绘制检测框（仅支持通用模式和样本生成模式，需要附带有目标标注）。
+* `--with-bbox`: 在导出的图像/视频中绘制检测框（仅支持通用模式和样本生成模式，需要附带有目标标注）。
 
 * `--png-compressing`: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
 
 * `--jpg-quality`: 生成的jpg图像的质量。 其值应为$Z \in [0,100]$； 默认情况下取值为95。
 
 * `--debug`: 是否在debug模式下运行以打印更详细的信息
+
+### 视频写入器配置
+
+ClipToolkit 使用配置文件（默认为 `./global/clip_cfg.json`）中的 `writer` 字段指定来指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
+
+#### 可用的视频写入器
+
+|VideoWriter|支持导出格式|音频复制|参数配置|
+|-----------|----------|-------|------|
+|OpenCVVideoWriter|仅支持 `.avi` 格式|不支持|不支持|
+|PyAVVideoWriter(发行版本)|只能导出 `.avi` 格式|不支持|不支持|
+|PyAVVideoWriter(自行构建+关联支持的FFMpeg版本)|支持所有 FFMpeg 支持的格式（如 mp4, mkv, avi 等）|完整支持音频复制和转码|完整支持所有导出配置|
+|FFMpegVideoWriter(推荐，需要本地配置FFMpeg和FFProbe工具)|支持所有 FFMpeg 支持的格式（如 mp4, mkv, avi 等）|完整支持音频复制和转码|完整支持所有导出配置|
+
+#### 配置 FFMpegVideoWriter
+
+当使用 `FFMpegVideoWriter` 时，需要在配置文件的 `export.ffmpeg_config` 部分配置 FFMpeg 相关参数（详见[配置文件说明](./config-doc-cn.md#ffmpeg配置ffmpegconfig)）
+
 
 注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，需要注意命令行中双引号的转义。
 

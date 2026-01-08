@@ -207,8 +207,7 @@ Example (line detector):
         },
         "dynamic": {
             "dy_mask": true,
-            "dy_gap": 0.05,
-            "fill_thre": 0.6
+            "window_sec": 5
         }
     }
 }
@@ -287,7 +286,7 @@ Summary table (key parameters):
     </tr>
     <tr>
         <td rowspan="3">hough_line</td>
-        <td>hough_threshold</td>
+        <td>threshold</td>
         <td>int</td>
         <td>Threshold used for Hough line detection (see OpenCV docs).</td>
         <td>10</td>
@@ -305,23 +304,17 @@ Summary table (key parameters):
         <td>10</td>
     </tr>
     <tr>
-        <td rowspan="3">dynamic</td>
+        <td rowspan="2">dynamic</td>
         <td>dy_mask</td>
         <td>bool</td>
         <td>Enable dynamic masking to suppress persistent bright-region responses (reduces FP near stars).</td>
         <td>true</td>
     </tr>
     <tr>
-        <td>dy_gap</td>
+        <td>window_sec</td>
         <td>float</td>
-        <td>Dynamic gap factor: reduces `max_gap` when many responses exist. For example, `0.05` decays `max_gap` to 0 when potential meteor area > 0.05.</td>
-        <td>0.05</td>
-    </tr>
-    <tr>
-        <td>fill_thre</td>
-        <td>float</td>
-        <td>Maximum hollow ratio allowed when forming a line. Set to 0 to disable. ⚠️ Deprecated.</td>
-        <td>0.6</td>
+        <td>Time window length (seconds) for dynamic masking. Controls the duration of the dynamic mask.</td>
+        <td>5</td>
     </tr>
     <tr>
         <td>model</td>
@@ -446,9 +439,10 @@ Key fields:
 |---|---|---|---|
 |`loader`|str|Loader implementation|`"ThreadVideoLoader"`|
 |`wrapper`|str|Video backend wrapper|See above|
-|`writer`|str|Video writer backend, e.g. `OpenCVVideoWriter`, `PyAVVideoWriter`.|`"PyAVVideoWriter"`|
+|`writer`|str|Video writer backend, e.g. `OpenCVVideoWriter`, `PyAVVideoWriter`, `FFMpegVideoWriter`.|`"FFMpegVideoWriter"`|
 |`image_denoise`|DenoiseOption|Image denoise options|See below|
 |`export`|ExportOption|Export options|See below|
+|`raw_img_load_config`|Optional[RawImgLoadCfg]|Raw image loading configuration (optional)|See [docs](#raw-image-load-config) below|
 
 Class diagram (excerpt):
 
@@ -457,15 +451,15 @@ classDiagram
 
 class ExportOption {
     positive_category_list: list[str]
-    exclude_category_list: list[str]
+    bbox_color_mapping: Optional[dict[str, list[int]]]
+    filter_rules: FilterRules
     jpg_quality: int
     png_compressing: int
     with_bbox: bool
     with_annotation: bool
     bbox_color: list[int]
     bbox_thickness: int
-    video_encoder: str
-    pix_fmt: str
+    ffmpeg_config: FFMpegConfig
 }
 
 class ConnectParam {
@@ -506,6 +500,7 @@ class ClipCfg {
     writer: str
     image_denoise: DenoiseOption
     export: ExportOption
+    raw_img_load_config: Optional[RawImgLoadCfg]
 }
 
 ClipCfg --> DenoiseOption : image_denoise
@@ -561,10 +556,53 @@ Key fields and recommended defaults are documented in `../global/clip_cfg.json`.
 |Field|Type|Description|Recommended|
 |---|---|---|---|
 |`positive_category_list`|list|Categories to export as positives.|[`"METEOR"`,`"RED_SPRITE"`]| 
-|`exclude_category_list`|list|Categories to exclude by default.|[]|
+|`bbox_color_mapping`|Optional[dict[str, list[int]]]|Category-specific bounding box color mapping (BGR order). If specified, overrides `bbox_color`.|None|
+|`filter_rules`|FilterRules|Filter rules configuration|See [Filter Rules](#filter-rules)|
+|`jpg_quality`|int|JPEG export quality (1-100).|95|
+|`png_compressing`|int|PNG export compression level (0-9).|3|
 |`with_bbox`|bool|Include bounding boxes in exports.|false|
 |`with_annotation`|bool|Include annotation files in exports.|false|
-|`bbox_color`|list|BBox color in BGR order.|[0,0,255]|
+|`bbox_color`|list|Default bounding box color in BGR order.|[255,0,0]|
 |`bbox_thickness`|int|BBox thickness.|2|
-|`video_encoder`|str|Encoder for PyAV writer (when using `PyAVVideoWriter`).|`"libx264"`|
-|`pix_fmt`|str|Pixel format for exported video (PyAV writer).|`"yuv420p"`|
+|`ffmpeg_config`|FFMpegConfig|FFMpeg video encoding configuration (when using `FFMpegVideoWriter`).|See [FFMpeg Config](#ffmpeg-config)|
+
+#### Filter Rules
+
+Filter rules are used to filter detection results during export. Fields:
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`switch`|bool|Enable filter rules.|true|
+|`threshold`|float|Confidence threshold; results below this value will be filtered.|0.0|
+|`min_length_ratio`|float|Minimum length ratio threshold; results below this value will be filtered (relative to image long side).|0.0|
+|`exclude_category_list`|list[str]|List of categories to exclude.|[]|
+
+#### FFMpeg Config
+
+FFMpeg configuration controls video encoding parameters when using `FFMpegVideoWriter`. Fields:
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`path`|Optional[str]|Path to FFMpeg executable. If None, uses FFMpeg from system PATH.|None|
+|`preset`|str|FFMpeg encoding preset, e.g. "slow", "medium", "fast".|"slow"|
+|`crf`|int|Constant Rate Factor for quality control (0-51, lower is higher quality).|18|
+|`video_encoder`|str|Video encoder, e.g. "libx264", "libx265".|"libx264"|
+|`pix_fmt`|str|Pixel format, e.g. "yuv420p", "yuv422p".|"yuv420p"|
+
+When FFMpegVideoWriter is enabled, FFMpeg tools are searched in the following order:
+1. If the `path` field is specified, it will look for `ffmpeg` and `ffprobe` in that path.
+2. In the MetDetPy project root directory.
+3. In the system PATH environment variable.
+
+If no FFMpeg is available，an exception will be raised.
+
+#### Raw Image Load Config
+
+Raw image loading configuration controls processing parameters when loading RAW format images. Fields:
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`power`|float|Gamma correction power value.|2.222|
+|`target_nl_mean`|float|Target normalized brightness mean.|0.3|
+|`contrast_alpha`|float|Contrast enhancement coefficient.|1.2|
+|`output_bps`|int|Output image bit depth (bits per sample).|8|

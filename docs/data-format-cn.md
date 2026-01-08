@@ -16,7 +16,7 @@ classDiagram
 
 class MDRF {
     version: str
-    basic_info: Optional[BasicInfo]
+    basic_info: Union[BasicInfo, MockVideoObject]
     config: Optional[MainDetectCfg]
     type: str
     anno_size: Optional[list[int]]
@@ -52,6 +52,7 @@ class SingleImgRecord {
     preds: list[str]
     prob: list[str]
     img_filename: Optional[str]
+    img_size: Optional[list[int]]
     num_frame: Optional[int]
 }
 
@@ -97,7 +98,7 @@ BasicInfo 包含源视频的基本信息。其各键值以及释义如下：
 | ------- | ------ | -------------------- |
 | loader | `str` | 视频检测器 loader名称。|
 | video | `str` | 待检测视频的路径，可能是相对路径。|
-| mask | `str`| 遮罩图片的路径，可能是相对路径。|
+| mask | `Optional[str]`| 遮罩图片的路径，可能是相对路径。如果未使用遮罩，该项为 `None`。|
 | start_time | `int` | 待检测片段的开始时间(单位：ms)。|
 | end_time | `int` | 待检测片段的结束时间(单位：ms)。|
 | resolution | `list[int]` | 输入视频的分辨率信息。|
@@ -129,6 +130,7 @@ SingleImgRecord 对应图像检测时一张/一帧图像的必要信息。其各
 | preds | `list[str]` | 检测结果类别列表 |
 | prob | `list[str]` | 检测结果得分列表 |
 | img_filename| `Optional[str]` | 源图像名称。如果是从延时视频中读取的图像，该项为空。|
+| img_size | `Optional[list[int]]` | 图像尺寸 `[width, height]`。如果未指定，该项为 `None`。|
 | num_frame | `Optional[int]` | 源延时视频对应的帧。如果从图像序列读取的图像，该项为空。|
 
 ## MDTarget
@@ -158,6 +160,9 @@ MDTarget 定义视频片段中单个目标的所有属性信息。其各键值�
 | real_dist | `float` | 目标在原始分辨率下的真实长度，单位为像素。 |
 | raw_score | `Optional[float]` | 主检测器预估的目标置信度， 代表目标从运动属性评估属于正样本的概率，范围为[0,1]。如果结果不是主检测器检出的，则该项结果为None。|
 | recheck_score | `Optional[float]` | 重校验检测器预估的目标置信度， 代表目标从最终视觉效果评估属于正样本的概率，范围为[0,1]。如果重校验检测器没有检出该结果，则该项结果为None。 |
+| center_point_list | `list[list[int]]` | 目标运动轨迹的中心点坐标列表。该字段默认不包含在序列化输出中。 |
+| relative_brightness | `Optional[float]` | 目标的相对亮度值，无量纲，用于表示该样本相对背景的亮度。仅在重校验后的正样本结果中包含此字段。 |
+| aesthetic_score | `Optional[float]` | 目标的美学评分，无量纲，用于表征样本的观赏性。结合样本的长度、亮度和置信度计算。仅在重校验后的正样本结果中包含此字段。 |
 
 
 ###### 注[1]
