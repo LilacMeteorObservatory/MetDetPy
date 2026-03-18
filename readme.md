@@ -77,47 +77,50 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
                [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
+               [--resource-dir RESOURCE_DIR]
 ```
 
 #### Main Arguments
 
-* `target`: meteor video filename. Support common video encoding like H264, HEVC, etc.
+- `target`: meteor video filename. Support common video encoding like H264, HEVC, etc.
 
-* `--cfg`: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
+- `--cfg`: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
 
-* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+- `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* `--start-time`: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
+- `--start-time`: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
 
-* `--end-time`: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
+- `--end-time`: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
 
-* `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow. The default is `"frontend"`.
+- `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow. The default is `"frontend"`.
 
-* `--debug`: indicates whether to print debug information.
+- `--debug`: indicates whether to print debug information.
 
-* `--visual`: showing a debug window displaying videos and detected meteors.
+- `--visual`: showing a debug window displaying videos and detected meteors.
 
-* `--live-mode`: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
+- `--live-mode`: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
 
-* `--provider`: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
+- `--provider`: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
 
-* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+- `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+
+- `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
 
 #### Extra Arguments
 
 The following arguments have default values in config files. If they are configured in command line arguments, the default value will be overrided. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
 
-* `--resize`: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
+- `--resize`: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
 
-* `--exp-time`: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
+- `--exp-time`: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
 
-* `--adaptive-thre`: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
+- `--adaptive-thre`: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
 
-* `--bi-thre`: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
+- `--bi-thre`: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
 
-* `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
+- `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
 
-* `--recheck`: indicates whether apply recheck mechanism. Select from {on, off}.
+- `--recheck`: indicates whether apply recheck mechanism. Select from {on, off}.
 
 #### Example
 
@@ -145,29 +148,32 @@ python MetDetPhoto.py target [--mask MASK]
                              [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                              [--visu] [--visu-resolution VISU_RESOLUTION]
                              [--save-path SAVE_PATH]
+                             [--resource-dir RESOURCE_DIR]
 ```
 
 #### Arguments
 
-* `target`: meteor image target, support single image, image folder and a timelapse video with common video encoding.
+- `target`: meteor image target, support single image, image folder and a timelapse video with common video encoding.
 
-* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+- `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
 
-* `--model-path`: path to the model weight file. Use [./weights/yolov5s_v2.onnx](./weights/yolov5s_v2.onnx) as the default weight file.
+- `--model-path`: path to the model weight file. Use [./weights/yolov5s_v2.onnx](./weights/yolov5s_v2.onnx) as the default weight file.
 
-* `--model-type`: the type of the model. For now only `YOLO` is supported. Default to `YOLO`.
+- `--model-type`: the type of the model. For now only `YOLO` is supported. Default to `YOLO`.
 
-* `--exclude-noise`: exclude common noise category (like satellites and bugs) from predictions, only save positive samples to files.
+- `--exclude-noise`: exclude common noise category (like satellites and bugs) from predictions, only save positive samples to files.
 
-* `--debayer`: whether to execute debayer transform for timelapse video before detection.
+- `--debayer`: whether to execute debayer transform for timelapse video before detection.
 
-* `--debayer-pattern`: debayer pattern, like RGGB or BGGR. Only work when `--debayer` is applied.
+- `--debayer-pattern`: debayer pattern, like RGGB or BGGR. Only work when `--debayer` is applied.
 
-* `--visu`: showing a debug window displaying images and detected meteors.
+- `--visu`: showing a debug window displaying images and detected meteors.
 
-* `--visu-resolution`: visualized debug window resolution.
+- `--visu-resolution`: visualized debug window resolution.
 
-* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+- `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+
+- `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
 
 #### Example
 
@@ -207,11 +213,11 @@ uzanka [[Github]](https://github.com/uzanka)
 
 纸片儿 [[Github]](https://github.com/ArtisticZhao)
 
-DustYe夜尘 [[Bilibili]](https://space.bilibili.com/343640654)
+DustYe 夜尘 [[Bilibili]](https://space.bilibili.com/343640654)
 
 RoyalK [[Weibo]](https://weibo.com/u/2244860993) [[Bilibili]](https://space.bilibili.com/259900185)
 
-MG_Raiden扬 [[Weibo]](https://weibo.com/811151123) [[Bilibili]](https://space.bilibili.com/11282636)
+MG_Raiden 扬 [[Weibo]](https://weibo.com/811151123) [[Bilibili]](https://space.bilibili.com/11282636)
 
 星北之羽 [[Bilibili]](https://space.bilibili.com/366525868/)
 
@@ -225,7 +231,7 @@ LittleQ
 
 兔爷 [[Weibo]](https://weibo.com/u/2094322147)[[Bilibili]](https://space.bilibili.com/1044435613)
 
-Jeff戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space.bilibili.com/474329765)
+Jeff 戴建峰 [[Weibo]](https://weibo.com/1957056403) [[Bilibili]](https://space.bilibili.com/474329765)
 
 贾昊
 

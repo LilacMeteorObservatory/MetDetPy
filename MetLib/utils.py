@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import datetime
 import os.path as path
+import os
 import sys
 import warnings
 from typing import Any, Callable, Optional, Sequence, TypeVar, Union
@@ -23,9 +24,60 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-# WORK_PATH 指向 MetDetPy 项目根目录位置。
-WORK_PATH = path.split(path.dirname(path.abspath(__file__)))[0]
-CLIP_CONFIG_PATH = path.join(WORK_PATH, "global", "clip_cfg.json")
+_resource_dir_override: str | None = os.environ.get("METDET_RESOURCE_DIR", None)
+ID2NAME: dict[int, str] = {}
+NAME2ID: dict[str, int] = {}
+NUM_CLASS: int = 0
+_id2name_loaded = False
+
+def _ensure_class_names_loaded():
+    global ID2NAME, NAME2ID, NUM_CLASS, _id2name_loaded
+    if _id2name_loaded:
+        return
+    with open(relative2abs_path("./global/class_name.txt")) as f:
+        mapper = [x.strip().split() for x in f.readlines()]
+        for num, name in mapper:
+            ID2NAME[int(num)] = name
+            NAME2ID[name] = int(num)
+    MAX_EXISTING_ID = max(ID2NAME.keys())
+    ID2NAME[MAX_EXISTING_ID + 1] = "DROPPED"
+    ID2NAME[MAX_EXISTING_ID + 2] = "OTHERS"
+    NAME2ID["DROPPED"] = MAX_EXISTING_ID + 1
+    NAME2ID["OTHERS"] = MAX_EXISTING_ID + 2
+    NUM_CLASS = len(ID2NAME)
+    _id2name_loaded = True
+
+def set_resource_dir(resource_dir: str | None):
+    global _resource_dir_override
+    _resource_dir_override = resource_dir
+
+def _get_workspace_path():
+    if _resource_dir_override:
+        return _resource_dir_override
+    base_dir = path.dirname(path.abspath(__file__))
+    if getattr(sys, 'frozen', False):
+        exe_dir = path.dirname(sys.argv[0]) if sys.argv and sys.argv[0] else None
+        if exe_dir and path.isabs(exe_dir) and path.isdir(exe_dir):
+            return exe_dir
+        return path.dirname(sys.executable)
+    return path.split(base_dir)[0]
+
+class _LazyPath:
+    def __init__(self, func):
+        self._func = func
+    def __call__(self):
+        return self._func()
+    def __str__(self):
+        return str(self._func())
+    def __fspath__(self):
+        return self._func()
+
+WORK_PATH = _LazyPath(_get_workspace_path)
+
+def _get_clip_config_path():
+    return path.join(str(WORK_PATH), "global", "clip_cfg.json")
+
+CLIP_CONFIG_PATH = _LazyPath(_get_clip_config_path)
 
 logger = get_default_logger()
 
@@ -914,7 +966,7 @@ def relative2abs_path(rpath: str):
     """
     if rpath.startswith("./"):
         rpath = rpath[2:]
-    return path.join(WORK_PATH, rpath)
+    return path.join(str(WORK_PATH), rpath)
 
 
 def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -999,17 +1051,14 @@ def is_lfs_pointer(file_path: str, max_read: int = 4096):
         b'\xef\xbb\xbf' + LFS_HEADER)
 
 
-ID2NAME: dict[int, str] = {}
-NAME2ID: dict[str, int] = {}
-with open(relative2abs_path("./global/class_name.txt")) as f:
-    mapper = [x.strip().split() for x in f.readlines()]
-    for num, name in mapper:
-        ID2NAME[int(num)] = name
-        NAME2ID[name] = int(num)
-MAX_EXISTING_ID = max(ID2NAME.keys())
-ID2NAME[MAX_EXISTING_ID + 1] = "DROPPED"
-ID2NAME[MAX_EXISTING_ID + 2] = "OTHERS"
-NAME2ID["DROPPED"] = MAX_EXISTING_ID + 1
-NAME2ID["OTHERS"] = MAX_EXISTING_ID + 2
-# NUM_CLASS here includes "OTHERS" with the last label
-NUM_CLASS = len(ID2NAME)
+def get_id2name() -> dict[int, str]:
+    _ensure_class_names_loaded()
+    return ID2NAME
+
+def get_name2id() -> dict[str, int]:
+    _ensure_class_names_loaded()
+    return NAME2ID
+
+def get_num_class() -> int:
+    _ensure_class_names_loaded()
+    return NUM_CLASS

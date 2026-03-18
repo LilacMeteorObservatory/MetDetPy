@@ -17,8 +17,8 @@ from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
-                          NUM_CLASS, SWITCH2BOOL, VERSION, frame2time,
-                          frame2ts, relative2abs_path)
+                          SWITCH2BOOL, VERSION, frame2time,
+                          frame2ts, get_num_class, relative2abs_path, set_resource_dir)
 
 
 def detect_video(video_name: str,
@@ -121,7 +121,7 @@ def detect_video(video_name: str,
         detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
                                              fps=rt_param.eq_fps,
                                              mask=video_loader.mask,
-                                             num_cls=NUM_CLASS,
+                                             num_cls=get_num_class(),
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
@@ -245,8 +245,12 @@ if __name__ == "__main__":
         '--cfg',
         '-C',
         help="Path to the config file.",
-        default=relative2abs_path("./config/m3det_normal.json"))
+        default=None)
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
+    parser.add_argument(
+        '--resource-dir', '-R',
+        help="Path to the resource folder (config/weights/resource/global).",
+        default=None)
 
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
@@ -330,6 +334,12 @@ if __name__ == "__main__":
                         help="Save detection results as a json file.")
 
     args = parser.parse_args()
+    
+    if args.resource_dir:
+        set_resource_dir(args.resource_dir)
+
+    if args.cfg is None:
+        args.cfg = relative2abs_path("./config/m3det_normal.json")
 
     cfg = MainDetectCfg.from_json_file(args.cfg)
 

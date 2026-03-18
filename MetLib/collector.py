@@ -14,7 +14,8 @@ from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
 from .model import init_model
 from .stacker import max_stacker
 from .utils import (ID2NAME, NAME2ID, NUM_CLASS, FloatArray, FloatSeq2D,
-                    IntArray, IntSeq2D, box_matching, color_interpolater,
+                    IntArray, IntSeq2D, _ensure_class_names_loaded,
+                    box_matching, color_interpolater,
                     frame2ts, pt_drct, pt_len, pt_len_sqr, pt_offset)
 from .videoloader import VanillaVideoLoader
 
@@ -50,8 +51,16 @@ class Name2Label(object):
     RARE_SPRITE = 5
     SPACECRAFT = 6
     BUGS = 7
-    OTHERS = NUM_CLASS - 2
-    DROPPED = NUM_CLASS - 1
+    
+    @staticmethod
+    def OTHERS():
+        from .utils import get_num_class
+        return get_num_class() - 2
+    
+    @staticmethod
+    def DROPPED():
+        from .utils import get_num_class
+        return get_num_class() - 1
 
 
 def scale_to(pt: list[int], rescale: list[float]):
@@ -438,7 +447,7 @@ class MeteorCollector(object):
                         2) and (self.prob_meteor(ms) != self.det_thre):
                     # 没有后校验的情况下，UNKNOWN，PLANE_SATELLITE类型不给予输出
                     if self.met_exporter.recheck or not (ms.cate in [
-                            Name2Label.OTHERS, Name2Label.PLANE_SATELLITE
+                            Name2Label.OTHERS(), Name2Label.PLANE_SATELLITE
                     ]):
                         temp_waiting_meteor.append(ms)
                     else:
@@ -689,7 +698,7 @@ class MetExporter(object):
             if flag == self.DROP_FLAG:
                 for ms_attr in data:
                     # Drop类标签修正
-                    ms_attr.category = ID2NAME[Name2Label.DROPPED]
+                    ms_attr.category = ID2NAME[Name2Label.DROPPED()]
                     # 坐标修正和序列化
                     output_dict = SingleMDRecord.from_target(
                         ms_attr, self.raw_size)
@@ -808,7 +817,7 @@ class MetExporter(object):
                 score = score_list[l, label]
                 sure_meteor = output_dict.target[r]
                 sure_meteor.category = ID2NAME.get(label,
-                                                   ID2NAME[Name2Label.OTHERS])
+                                                   ID2NAME[Name2Label.OTHERS()])
                 sure_meteor.raw_score = sure_meteor.score
                 sure_meteor.recheck_score = round(score.astype(np.float64),
                                                   ndigits=3)
@@ -840,7 +849,7 @@ class MetExporter(object):
                 else:
                     # 流星类被丢弃时需要重新标记为 DROPPED
                     if label == Name2Label.METEOR:
-                        sure_meteor.category = ID2NAME[Name2Label.DROPPED]
+                        sure_meteor.category = ID2NAME[Name2Label.DROPPED()]
                     new_drop_list.append(sure_meteor)
                 unmatched_proposal_list[r] = False
             # after fix. to be optimized.
@@ -856,7 +865,7 @@ class MetExporter(object):
                     continue
                 if output_dict.target[idx].category in self.positive_cates:
                     output_dict.target[idx].category = ID2NAME[
-                        Name2Label.OTHERS]
+                        Name2Label.OTHERS()]
                 new_drop_list.append(output_dict.target[idx])
 
         return new_final_list, new_drop_list
