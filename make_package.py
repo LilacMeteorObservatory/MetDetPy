@@ -72,7 +72,11 @@ def file_to_zip(path_original: str, z: zipfile.ZipFile):
 
 def copy_tree(tree_path: str, tgt_path: str):
     print(f"Copy {tree_path} folder...", end="", flush=True)
-    shutil.copytree(f"./{tree_path}", f"{tgt_path}/{tree_path}")
+    tgt_dir = f"{tgt_path}/{tree_path}"
+    if os.path.exists(tgt_dir):
+        print("Already exists, skipped.")
+        return
+    shutil.copytree(f"./{tree_path}", tgt_dir)
     print("Done.")
 
 
@@ -105,12 +109,23 @@ argparser.add_argument(
     type=str,
     help="Sign the generated executable files by nuitka.",
 )
+argparser.add_argument(
+    "--onefile",
+    action="store_true",
+    help="Generate a single executable file (onefile mode). WARNING: onefile mode has issues with static file paths.",
+)
 
 args = argparser.parse_args()
 compile_tool = args.tool
 release_version = VERSION
 apply_upx = args.apply_upx
 apply_zip = args.apply_zip
+onefile_mode = args.onefile
+
+if onefile_mode:
+    print("WARNING: onefile mode may have issues with static file paths.")
+    print("Consider using directory mode (default) instead.")
+
 
 # 根据平台/版本决定确定编译/打包后的程序后缀
 
@@ -186,6 +201,8 @@ met_cfg: dict[str, Union[bool, str]] = {
     "--standalone": True,
     "--output-dir": compile_path,
 }
+if onefile_mode:
+    met_cfg["--onefile"] = True
 
 met_cfg.update(nuitka_base)
 
@@ -202,6 +219,8 @@ stack_cfg: dict[str, Union[bool, str]] = {
     "--standalone": True,
     "--output-dir": compile_path
 }
+if onefile_mode:
+    stack_cfg["--onefile"] = True
 stack_cfg.update(nuitka_base)
 
 nuitka_compile(compile_tool,
@@ -214,6 +233,8 @@ mep_cfg: dict[str, Union[bool, str]] = {
     "--standalone": True,
     "--output-dir": compile_path,
 }
+if onefile_mode:
+    mep_cfg["--onefile"] = True
 
 mep_cfg.update(nuitka_base)
 
@@ -223,45 +244,59 @@ nuitka_compile(compile_tool,
                target=join_path(work_path, "MetDetPhoto.py"))
 
 # postprocessing
-# remove duplicate files of ClipToolkit
-print("Merging...", end="", flush=True)
-shutil.move(
-    join_path(compile_path, "ClipToolkit.dist",
-                f"ClipToolkit{exec_suffix}"),
-    join_path(compile_path, "MetDetPy.dist"))
-shutil.move(
-    join_path(compile_path, "MetDetPhoto.dist",
-                f"MetDetPhoto{exec_suffix}"),
-    join_path(compile_path, "MetDetPy.dist"))
-shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
-shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
-print("Done.")
-# rename executable file and folder
-# shutil.move(join_path(compile_path, "MetLib"),
-#            join_path(compile_path, "MetDetPy.dist", "MetLib"))
-print("Renaming executable files...", end="", flush=True)
-shutil.move(join_path(compile_path, "MetDetPy.dist"),
-            join_path(compile_path, "MetDetPy"))
-print("Done.")
+if onefile_mode:
+    print("Cleaning up...", end="", flush=True)
+    try:
+        shutil.rmtree(join_path(compile_path, "MetDetPy.dist"))
+    except FileNotFoundError:
+        pass
+    try:
+        shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
+    except FileNotFoundError:
+        pass
+    try:
+        shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
+    except FileNotFoundError:
+        pass
+    print("Done.")
+else:
+    print("Merging...", end="", flush=True)
+    shutil.move(
+        join_path(compile_path, "ClipToolkit.dist",
+                    f"ClipToolkit{exec_suffix}"),
+        join_path(compile_path, "MetDetPy.dist"))
+    shutil.move(
+        join_path(compile_path, "MetDetPhoto.dist",
+                    f"MetDetPhoto{exec_suffix}"),
+        join_path(compile_path, "MetDetPy.dist"))
+    shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
+    shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
+    print("Done.")
+    print("Renaming executable files...", end="", flush=True)
+    shutil.move(join_path(compile_path, "MetDetPy.dist"),
+                join_path(compile_path, "MetDetPy"))
+    print("Done.")
 
-# copy configuration file
+print("Copying static folders...", end="", flush=True)
 src_list = ["config", "weights", "resource", "global"]
+tgt_base = "./dist/MetDetPy" if not onefile_mode else "./dist"
 for src_folder in src_list:
-    copy_tree(src_folder, "./dist/MetDetPy")
+    copy_tree(src_folder, tgt_base)
+print("Done.")
 
 # copy necessary py file (from lib)
-# for now only uuid.py is detected should be like so.
 import uuid
 
-shutil.copy(uuid.__file__, "./dist/MetDetPy")
+uuid_tgt = "./dist/MetDetPy" if not onefile_mode else "./dist"
+shutil.copy(uuid.__file__, uuid_tgt)
 
 # copy pyexiv2
 try:
     import pyexiv2
     pyexiv_path, init_file = os.path.split(pyexiv2.__file__)
-    # TODO: A temp way to remove dll version pyexiv2. Should be fixed in the future.
-    shutil.rmtree("./dist/MetDetPy/pyexiv2")
-    shutil.copytree(pyexiv_path, "./dist/MetDetPy/pyexiv2")
+    pyexiv_tgt = "./dist/MetDetPy/pyexiv2" if not onefile_mode else "./dist/pyexiv2"
+    shutil.rmtree(pyexiv_tgt)
+    shutil.copytree(pyexiv_path, pyexiv_tgt)
 except Exception as e:
     pass
 

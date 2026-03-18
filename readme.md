@@ -77,6 +77,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
                [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
+               [--resource-dir RESOURCE_DIR]
 ```
 
 #### Main Arguments
@@ -102,6 +103,8 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 * `--provider`: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
 
 * `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+
+* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
 
 #### Extra Arguments
 
@@ -145,6 +148,7 @@ python MetDetPhoto.py target [--mask MASK]
                              [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                              [--visu] [--visu-resolution VISU_RESOLUTION]
                              [--save-path SAVE_PATH]
+                             [--resource-dir RESOURCE_DIR]
 ```
 
 #### Arguments
@@ -168,6 +172,8 @@ python MetDetPhoto.py target [--mask MASK]
 * `--visu-resolution`: visualized debug window resolution.
 
 * `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
+
+* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
 
 #### Example
 

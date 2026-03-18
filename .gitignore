@@ -4,3 +4,4 @@ toolkit/
 test/test*.json
 .vscode/
 dataset/
+test/

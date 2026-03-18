@@ -24,6 +24,7 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                       [--with-annotation][--with-bbox]
                       [--debug]
+                      [--resource-dir RESOURCE_DIR]
                       
 ```
 
@@ -87,6 +88,8 @@ ClipToolkit支持的可选参数列表如下：
 
 * `--debug`: 是否在debug模式下运行以打印更详细的信息
 
+* `--resource-dir`（或 `-R`）：资源文件夹路径，该文件夹应包含 `config/`、`weights/`、`resource/` 和 `global/` 子文件夹。指定后，程序将从该目录读取静态文件而非默认位置。这在使用打包后的可执行文件（onefile模式）时特别有用。
+
 ### 视频写入器配置
 
 ClipToolkit 使用配置文件（默认为 `./global/clip_cfg.json`）中的 `writer` 字段指定来指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
@@ -146,6 +149,7 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 ```sh
 python make_package.py [--tool {nuitka}] [--mingw64]
      [--apply-upx] [--apply-zip] [--version VERSION]
+     [--onefile]
 ```
 
 * `--tool`: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
@@ -157,6 +161,8 @@ python make_package.py [--tool {nuitka}] [--mingw64]
 * `--apply-zip`: 打包完成时同时生成Zip压缩包。
 
 * `--version`: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
+
+* `--onefile`: 生成单文件可执行程序（onefile模式）。使用此模式时，需要确保静态资源文件夹（`config/`、`weights/`、`resource/`、`global/`）放置在可执行文件旁边，或在运行时使用 `--resource-dir` / `-R` 选项指定其位置。
 
 目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
 

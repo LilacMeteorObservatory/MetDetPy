@@ -77,6 +77,7 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
                [--provider {cpu,default,coreml,dml,cuda}][--live-mode {on,off}][--save-path SAVE-PATH]
+               [--resource-dir RESOURCE_DIR]
 ```
 
 #### 主要参数
@@ -102,6 +103,8 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
 * `--provider`: 指定优先使用的模型后端，可选值会根据平台有所差异。如果指定的模型后端不可用，则会使用默认选项。
 
 * `--save-path`: 保存[MDRF](./tool-usage.md#meteor-detection-recording-format-mdrf)格式的检测结果到给定的路径或JSON文件下。
+
+* `--resource-dir`（或 `-R`）：资源文件夹路径，该文件夹应包含 `config/`、`weights/`、`resource/` 和 `global/` 子文件夹。指定后，程序将从该目录读取静态文件而非默认位置。这在使用打包后的可执行文件（onefile模式）时特别有用。
 
 #### 额外参数
 
@@ -146,6 +149,7 @@ python MetDetPhoto.py target [--mask MASK]
                              [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                              [--visu] [--visu-resolution VISU_RESOLUTION]
                              [--save-path SAVE_PATH]
+                             [--resource-dir RESOURCE_DIR]
 ```
 
 #### 参数
@@ -169,6 +173,8 @@ python MetDetPhoto.py target [--mask MASK]
 * `--visu-resolution`: 可视化窗口的分辨率设置。
 
 * `--save-path`: 保存检测结果到 [MDRF](./tool-usage.md#meteor-detection-recording-format-mdrf) 格式文件中。
+
+* `--resource-dir`（或 `-R`）：资源文件夹路径，该文件夹应包含 `config/`、`weights/`、`resource/` 和 `global/` 子文件夹。指定后，程序将从该目录读取静态文件而非默认位置。这在使用打包后的可执行文件（onefile模式）时特别有用。
 
 #### 示例
 

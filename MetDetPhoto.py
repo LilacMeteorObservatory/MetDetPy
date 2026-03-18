@@ -13,6 +13,7 @@
 """
 import argparse
 import json
+import os.path as path
 import os
 from typing import cast
 
@@ -31,7 +32,7 @@ from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
 from MetLib.model import YOLOModel
-from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset
+from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset, relative2abs_path, set_resource_dir
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
 
@@ -106,7 +107,10 @@ parser.add_argument("target", help="path to the img or video.")
 parser.add_argument("--mask", help="path to the mask file.")
 parser.add_argument("--model-path",
                     help="/path/to/the/model",
-                    default="./weights/yolov5s_v2.onnx")
+                    default=None)
+parser.add_argument("--resource-dir",
+                    help="Path to the resource folder (config/weights/resource/global).",
+                    default=None)
 parser.add_argument("--exclude-noise", action="store_true")
 parser.add_argument("--model-type",
                     help="type of the model. Support YOLO.",
@@ -139,8 +143,14 @@ parser.add_argument("--debug", "-D", action="store_true", help="debug mode.")
 
 args = parser.parse_args()
 
+if args.resource_dir:
+    set_resource_dir(args.resource_dir)
+
+if args.model_path is None:
+    args.model_path = "./weights/yolov5s_v2.onnx"
+
 input_path = args.target
-model_path = args.model_path
+model_path = relative2abs_path(args.model_path) if not path.isabs(args.model_path) else args.model_path
 visu_resolution = parse_resize_param(
     args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE
 ) if args.visu_resolution else DEFAULT_VISUAL_WINDOW_SIZE

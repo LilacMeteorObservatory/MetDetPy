@@ -28,6 +28,7 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                       [--with-annotation] [--with-bbox]
                       [--debug]
+                      [--resource-dir RESOURCE_DIR]
 
 ```
 
@@ -90,6 +91,8 @@ Supported optional parameters in ClipToolkit are as follows：
 
 * `--debug`: run in debug mode to print more detailed information.
 
+* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
+
 ### Video Writer Configuration
 
 ClipToolkit uses the `writer` field in the configuration file (default: `./global/clip_cfg.json`) to specify the video writer (VideoWriter). Different video writers support different video formats and features:
@@ -148,6 +151,7 @@ Its usage is as follows:
 ```sh
 python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
      [--apply-upx] [--apply-zip] [--version VERSION]
+     [--onefile]
 ```
 
 * `--tool`: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
@@ -159,6 +163,8 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
 * `--apply-zip`: generate zip package when compiling/packaging is finished.
 
 * `--version`: MetDetPy version tag. Used for naming zip package.
+
+* `--onefile`: generate a single executable file (onefile mode). When using this mode, you need to ensure that the static resource folders (`config/`, `weights/`, `resource/`, `global/`) are placed next to the executable file, or use the `--resource-dir` / `-R` option to specify their location at runtime.
 
 The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 

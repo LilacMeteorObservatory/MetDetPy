@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+from os import path
 from typing import Optional, Union
 
 import cv2
@@ -9,7 +10,7 @@ from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
 from .metstruct import ModelCfg
-from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, xywh2xyxy
+from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
 
 ort.set_default_logger_severity(4)
 logger = get_default_logger()
@@ -420,7 +421,8 @@ def init_model(cfg: ModelCfg, logger: BaseMetLog):
     if not cfg.name in available_models:
         raise Exception(f"No model named {cfg.name}.")
     Model = available_models[cfg.name]
-    return Model(weight_path=cfg.weight_path,
+    weight_path = relative2abs_path(cfg.weight_path) if not path.isabs(cfg.weight_path) else cfg.weight_path
+    return Model(weight_path=weight_path,
                  dtype=cfg.dtype,
                  nms=cfg.nms,
                  warmup=cfg.warmup,
