@@ -24,7 +24,7 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-_resource_dir_override: str | None = os.environ.get("METDET_RESOURCE_DIR", None)
+_resource_dir_override: Optional[str] = os.environ.get("METDET_RESOURCE_DIR", None)
 ID2NAME: dict[int, str] = {}
 NAME2ID: dict[str, int] = {}
 NUM_CLASS: int = 0
@@ -47,7 +47,7 @@ def _ensure_class_names_loaded():
     NUM_CLASS = len(ID2NAME)
     _id2name_loaded = True
 
-def set_resource_dir(resource_dir: str | None):
+def set_resource_dir(resource_dir: Optional[str]):
     global _resource_dir_override
     _resource_dir_override = resource_dir
 
