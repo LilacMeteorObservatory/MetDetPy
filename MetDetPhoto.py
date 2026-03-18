@@ -13,6 +13,7 @@
 """
 import argparse
 import json
+import os.path as path
 import os
 from typing import cast
 
@@ -149,7 +150,6 @@ if args.model_path is None:
     args.model_path = "./weights/yolov5s_v2.onnx"
 
 input_path = args.target
-import os.path as path
 model_path = relative2abs_path(args.model_path) if not path.isabs(args.model_path) else args.model_path
 visu_resolution = parse_resize_param(
     args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE

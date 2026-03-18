@@ -7,14 +7,12 @@ Several tools are provided with MetDetPy to support related functions.
 ## Menu
 
 ### Toolkit
-
-- [ClipToolkit - (Batch) image stacking and video clipping](#cliptoolkit)
-- [Evaluate - Performance evaluation and regression testing](#evaluate)
-- [make_package - Packaging script to executable files](#make-package)
+* [ClipToolkit - (Batch) image stacking and video clipping](#cliptoolkit)
+* [Evaluate - Performance evaluation and regression testing](#evaluate)
+* [make_package - Packaging script to executable files](#make-package)
 
 ### Data Format
-
-- [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf)
+* [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf)
 
 ## ClipToolkit
 
@@ -39,61 +37,61 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
 ClipToolkit can accept three input modes, which are primarily determined by the positional arguments passed in. These modes and the corresponding usage of positional arguments are as follows:
 
 1. Ordinary Mode
-   The ordinary mode is the basic mode starting from `v1.3.0`, which can be used to create multiple stacked images or video clips at once, and can configure the name and path for each image/video. To run ClipToolkit in ordinary mode, two positional arguments need to be passed in: `target` (the path to the target video file) and `json` (a JSON-formatted string or the path to a JSON file).
-   In this context, the `json` should be a JSON array containing several sets of start time, end time, and optionally filename information. Each element should include:
+    The ordinary mode is the basic mode starting from `v1.3.0`, which can be used to create multiple stacked images or video clips at once, and can configure the name and path for each image/video. To run ClipToolkit in ordinary mode, two positional arguments need to be passed in: `target` (the path to the target video file) and `json` (a JSON-formatted string or the path to a JSON file).
+    In this context, the `json` should be a JSON array containing several sets of start time, end time, and optionally filename information. Each element should include:
+    
+    * A required `"time"` key, the value of which should be an array consisting of two strings in the `"hh:mm:ss.ms"` format, representing the start and end times of the segment.
+    * An optional `"filename"` key, where you can specify the filename and extension in its value (indicating the format to which the video clip should be converted and named).
 
-   - A required `"time"` key, the value of which should be an array consisting of two strings in the `"hh:mm:ss.ms"` format, representing the start and end times of the segment.
-   - An optional `"filename"` key, where you can specify the filename and extension in its value (indicating the format to which the video clip should be converted and named).
-
-   In this mode, the filename and type options specified in the `JSON` will be prioritized. Optional parameters will only take effect when there are no corresponding parameters. An example of a JSON instance is [clip_test.json](../test/clip_test.json). Usage is as follows:
+    In this mode, the filename and type options specified in the `JSON` will be prioritized. Optional parameters will only take effect when there are no corresponding parameters. An example of a JSON instance is [clip_test.json](../test/clip_test.json). Usage is as follows:
 
 ```sh
 python ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540 --save-path ./test
 ```
 
 2. Simplified Mode
-   The simplified mode is enabled by passing only a video file as a positional argument, used to generate a single image stack or video clip. The start and end times, format, and other parameters for the generated file need to be specified through optional parameters, defaulting to a single JPG format image stack of the entire video. In this mode, there is no need to construct a JSON file or escape strings, making it easier to use. Its usage is as follows:
+    The simplified mode is enabled by passing only a video file as a positional argument, used to generate a single image stack or video clip. The start and end times, format, and other parameters for the generated file need to be specified through optional parameters, defaulting to a single JPG format image stack of the entire video. In this mode, there is no need to construct a JSON file or escape strings, making it easier to use. Its usage is as follows:
 
 ```sh
 python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name ./test/generated_img.jpg
 ```
 
 3. Sample Generating Mode
-   Sample Generating Mode suits for condition when you want to generate all stacked images or video clips for detection results (or annotations). This mode can be enabled by specifying only a `JSON` file in `MDRF` format as input (an introduction to this file format can be found at [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf)). This format file can be generated by `evaluate` or `MetDetPy` since `MetDetPy v2.2.0`. Remaining parameters are specified through optional parameters. This can be used to generate a batch of annotated images for fine-tuning models. Its usage is as follows:
+    Sample Generating Mode suits for condition when you want to generate all stacked images or video clips for detection results (or annotations). This mode can be enabled by specifying only a `JSON` file in `MDRF` format as input (an introduction to this file format can be found at [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf)). This format file can be generated by `evaluate` or `MetDetPy` since `MetDetPy v2.2.0`. Remaining parameters are specified through optional parameters. This can be used to generate a batch of annotated images for fine-tuning models. Its usage is as follows:
 
 ```sh
 python ClipToolkit.py ./test/video_mdrf.json --mode video
-```
+``` 
 
 ### Optional Parameters
 
 Supported optional parameters in ClipToolkit are as follows：
 
-- `--start-time`: The start time of the segment. It can be specified using milliseconds or in the `HH:MM:SS.ms` format. This is only effective in simplified mode. The default is the start time of the video.
+* `--start-time`: The start time of the segment. It can be specified using milliseconds or in the `HH:MM:SS.ms` format. This is only effective in simplified mode. The default is the start time of the video.
 
-- `--end-time`: The end time of the segment. It can be specified using milliseconds or in the `HH:MM:SS.ms` format. This is only effective in simplified mode. The default is the end time of the video.
+* `--end-time`: The end time of the segment. It can be specified using milliseconds or in the `HH:MM:SS.ms` format. This is only effective in simplified mode. The default is the end time of the video.
 
-- `--mode`: Convert the clip to an image or video. It should be selected from `{image, video}`. This option will be overridden by specific filenames in the JSON.
+* `--mode`: Convert the clip to an image or video. It should be selected from `{image, video}`. This option will be overridden by specific filenames in the JSON.
 
-- `--suffix`: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode. This option will be covered by a specific filename in JSON.
-
+* `--suffix`: the suffix of the output. By default, it is "jpg" for image mode and "avi" for video mode. This option will be covered by a specific filename in JSON.
+  
   **Note**: The video writer affects the available video suffixes. See [Available Video Writers](#available-video-writers) for details.
 
-- `--save-path`: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in `--save-path` to simplify your JSON.
+* `--save-path`: the path where image(s)/video(s) are placed. When only one clip is provided in JSON, you can include the filename in `--save-path` to simplify your JSON.
 
-- `--resize`: resize image/video to the given resolution. It should be a string where two numbers are joined by `x`,like `960x540` or `1920x1080`.
+* `--resize`: resize image/video to the given resolution. It should be a string where two numbers are joined by `x`,like `960x540` or `1920x1080`.
 
-- `--png-compressing`: the compressing rate of the generated png image. It should be int ranged $Z \in [0,9]$; By default, it is 3.
+* `--png-compressing`: the compressing rate of the generated png image. It should be int ranged $Z \in [0,9]$; By default, it is 3.
 
-- `--jpg-quality`: the quality of generated jpg image. It should be int ranged $Z \in [0,100]$; By default, it is 95.
+* `--jpg-quality`: the quality of generated jpg image. It should be int ranged $Z \in [0,100]$; By default, it is 95.
 
-- `--with-annotation`: also output `labelme` style annotation JSON files (only supported in Ordinary and Sample Generating modes when annotations are available).
+* `--with-annotation`: also output `labelme` style annotation JSON files (only supported in Ordinary and Sample Generating modes when annotations are available).
 
-- `--with-bbox`: draw bounding boxes on exported images/videos (only supported in Ordinary and Sample Generating modes when annotations are available).
+* `--with-bbox`: draw bounding boxes on exported images/videos (only supported in Ordinary and Sample Generating modes when annotations are available).
 
-- `--debug`: run in debug mode to print more detailed information.
+* `--debug`: run in debug mode to print more detailed information.
 
-- `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
+* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
 
 ### Video Writer Configuration
 
@@ -101,18 +99,19 @@ ClipToolkit uses the `writer` field in the configuration file (default: `./globa
 
 #### Available Video Writers
 
-| VideoWriter                                                              | Supported Export Formats                                             | Audio Copying                                  | Parameter Configuration                    |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------ |
-| OpenCVVideoWriter                                                        | Only supports `.avi` format                                          | Not supported                                  | Not supported                              |
-| PyAVVideoWriter (release version)                                        | Only supports `.avi` format                                          | Not supported                                  | Not supported                              |
-| PyAVVideoWriter (self-built + associated FFMpeg with support)            | Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.) | Full support for audio copying and transcoding | Full support for all export configurations |
-| FFMpegVideoWriter (recommended, requires local FFMpeg and FFProbe tools) | Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.) | Full support for audio copying and transcoding | Full support for all export configurations |
+|VideoWriter|Supported Export Formats|Audio Copying|Parameter Configuration|
+|-----------|----------------------|-------------|---------------------|
+|OpenCVVideoWriter|Only supports `.avi` format|Not supported|Not supported|
+|PyAVVideoWriter (release version)|Only supports `.avi` format|Not supported|Not supported|
+|PyAVVideoWriter (self-built + associated FFMpeg with support)|Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.)|Full support for audio copying and transcoding|Full support for all export configurations|
+|FFMpegVideoWriter (recommended, requires local FFMpeg and FFProbe tools)|Supports all formats supported by FFMpeg (e.g., mp4, mkv, avi, etc.)|Full support for audio copying and transcoding|Full support for all export configurations|
 
 #### Configuring FFMpegVideoWriter
 
 When using `FFMpegVideoWriter`, you need to configure FFMpeg-related parameters in the `export.ffmpeg_config` section of the configuration file (see [Configuration Documentation](./config-doc.md#ffmpeg-config) for details)
 
 Notice: if using a JSON-format string instead of the path to a JSON file, you should be really careful about the escape of double quotes in command lines.
+
 
 ## Evaluate
 
@@ -126,20 +125,19 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--d
 
 ### Arguments
 
-- `json`: A JSON file in `MDRF` format, which needs to contain the necessary information related to the video (video file and mask file paths, start and end times) to initiate. Its format should meet the requirements specified in [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf).
+* `json`: A JSON file in `MDRF` format, which needs to contain the necessary information related to the video (video file and mask file paths, start and end times) to initiate. Its format should meet the requirements specified in [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf).
 
-- `--cfg`: Configuration file. By default, it uses the default configuration, which is [m3det_normal.json](../config/m3det_normal.json).
+* `--cfg`: Configuration file. By default, it uses the default configuration, which is [m3det_normal.json](../config/m3det_normal.json).
 
-- `--load`: Compared target result. If this is enabled with a path to another `JSON`, `evaluate.py` will directly load its results for comparison as the current detection result instead of running detection through the video.
+* `--load`: Compared target result. If this is enabled with a path to another `JSON`, `evaluate.py` will directly load its results for comparison as the current detection result instead of running detection through the video.
 
-- `--save`: The path and filename where the detection results will be saved.
+* `--save`: The path and filename where the detection results will be saved.
 
-- `--metrics`: Depending on the category of the provided JSON file, it performs regression testing (comparing with other prediction results) or calculates detection precision and recall (comparing with ground truth). To apply this option, the `json` file needs to contain `results` information.
+* `--metrics`: Depending on the category of the provided JSON file, it performs regression testing (comparing with other prediction results) or calculates detection precision and recall (comparing with ground truth). To apply this option, the `json` file needs to contain `results` information.
 
-- `--debug`: When starting `evaluate.py` with this option, detailed debug information will be provided.
+* `--debug`: When starting `evaluate.py` with this option, detailed debug information will be provided.
 
 ### Example
-
 (To be updated)
 
 ## Package python codes to executables
@@ -156,19 +154,19 @@ python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
      [--onefile]
 ```
 
-- `--tool`: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
+* `--tool`: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
 
-- `--mingw64`: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
+* `--mingw64`: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
 
-- `--apply-upx`: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
+* `--apply-upx`: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
 
-- `--apply-zip`: generate zip package when compiling/packaging is finished.
+* `--apply-zip`: generate zip package when compiling/packaging is finished.
 
-- `--version`: MetDetPy version tag. Used for naming zip package.
+* `--version`: MetDetPy version tag. Used for naming zip package.
 
-- `--onefile`: generate a single executable file (onefile mode). When using this mode, you need to ensure that the static resource folders (`config/`, `weights/`, `resource/`, `global/`) are placed next to the executable file, or use the `--resource-dir` / `-R` option to specify their location at runtime.
+* `--onefile`: generate a single executable file (onefile mode). When using this mode, you need to ensure that the static resource folders (`config/`, `weights/`, `resource/`, `global/`) are placed next to the executable file, or use the `--resource-dir` / `-R` option to specify their location at runtime.
 
-The target executable file and its zip package version (if applied) will be generated in [dist](./dist/) directory.
+The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
 
 **Notice:**
 
