@@ -336,6 +336,7 @@ class LoaderCfg(DictAble):
     grayscale: bool
     upper_bound: Optional[float] = None
     continue_on_err: bool = False
+    hwaccel: Optional[str] = None
 
 
 @dataclasses.dataclass

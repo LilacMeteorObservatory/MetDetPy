@@ -252,6 +252,7 @@ try:
             # video mode
             video = ThreadVideoLoader(OpenCVVideoWrapper,
                                       input_path,
+                                      hwaccel=None,
                                       mask_name=args.mask,
                                       exp_option="real-time",
                                       debayer=args.debayer,

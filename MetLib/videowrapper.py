@@ -43,7 +43,7 @@ class BaseVideoWrapper(metaclass=ABCMeta):
 
     """
 
-    def __init__(self, video_name: str) -> None:
+    def __init__(self, video_name: str, hwaccel: Optional[str] = None) -> None:
         pass
 
     @property
@@ -91,12 +91,13 @@ class OpenCVVideoWrapper(BaseVideoWrapper):
 
     Args:
         video_name (str): The video filename.
-
+        hwaccel (Optional[str]): The hardware acceleration type. 
+            This is not actually working, just for compatibility.
     Raises:
         FileNotFoundError: triggered when the video file can not be opened. 
     """
 
-    def __init__(self, video_name: str) -> None:
+    def __init__(self, video_name: str, hwaccel: Optional[str] = None) -> None:
         self.video = cv2.VideoCapture(video_name, cv2.CAP_FFMPEG)
         if not self.video.isOpened():
             raise FileNotFoundError(
@@ -175,9 +176,15 @@ class PyAVVideoWrapper(BaseVideoWrapper):
         av.error.FFmpegError could be raised during av.open.
     """
 
-    def __init__(self, video_name: str) -> None:
+    def __init__(self, video_name: str, hwaccel: Optional[str] = None) -> None:
+        if hwaccel is not None:
+            self.video_decoder = av.codec.hwaccel.HWAccel(
+                device_type=hwaccel, allow_software_fallback=True)
+        else:
+            self.video_decoder = None
         self.container = av.open(video_name,
-                                 options={'threads': str(os.cpu_count())})
+                                 options={'threads': str(os.cpu_count())},
+                                 hwaccel=self.video_decoder)
         self.video = self.container.streams.video[0]
         self.video.thread_type = "FRAME"
         self.video_frame_cache: list[av.VideoFrame] = []
@@ -196,7 +203,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
     @property
     def backend_name(self):
-        return self.__class__.__name__ + "(FFmpeg)"
+        return f"{self.__class__.__name__}(FFmpeg)({self.container.streams[0].codec_context.codec.name})"
 
     @property
     def num_frames(self):
@@ -220,10 +227,8 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                     self.video_frame_cache.extend(frame[1:])
                 return True, frame[0].to_ndarray(format='bgr24')
         except Exception as e:
-            logger.error(
-                f"{e.__repr__()} encountered when reading"
-                f"video frame with {self.__class__.__name__}."
-            )
+            logger.error(f"{e.__repr__()} encountered when reading"
+                         f"video frame with {self.__class__.__name__}.")
             return False, None
 
     def release(self):

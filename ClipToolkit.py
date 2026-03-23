@@ -469,6 +469,7 @@ def main():
     video_loader = VideoLoaderCls(VideoWrapperCls,
                                   video_name,
                                   resize_option=None,
+                                  hwaccel=None,
                                   exp_option="real-time",
                                   resize_interpolation=cv2.INTER_LANCZOS4,
                                   debayer=args.debayer,
