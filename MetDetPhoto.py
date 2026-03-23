@@ -240,6 +240,7 @@ try:
                     ],
                     img_filename=input_path)
             ]
+            logger.info(str(results))
             #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
                 visu_info = construct_visu_info(boxes,

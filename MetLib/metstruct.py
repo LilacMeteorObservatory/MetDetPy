@@ -34,8 +34,8 @@ class Box(object):
             coord_list
         ) == 4, f"Invalid coord list length: expect 4, got {len(coord_list)}."
         (x1, y1, x2, y2) = coord_list
-        x1, x2 = min(x1, x2), max(x1, x2)
-        y1, y2 = min(y1, y2), max(y1, y2)
+        x1, x2 = max(0, min(x1, x2)), max(x1, x2)
+        y1, y2 = max(0, min(y1, y2)), max(y1, y2)
         return cls(x1, y1, x2, y2)
 
     @classmethod
