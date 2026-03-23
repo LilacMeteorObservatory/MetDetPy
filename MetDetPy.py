@@ -147,11 +147,7 @@ def detect_video(video_name: str,
         # TODO: 可视化模块暂未完全支持参数化设置。
         visual_manager = OpenCVMetVisu(exp_time=rt_param.exp_time,
                                        resolution=video_loader.runtime_size,
-                                       flag=visual_mode,
-                                       visu_param_list=[
-                                           *detector.visu_param,
-                                           *meteor_collector.visu_param
-                                       ])
+                                       flag=visual_mode)
         # Init main iterator
         main_iterator = range(start_frame, end_frame, rt_param.exp_frame)
         if work_mode == 'frontend':
@@ -193,7 +189,9 @@ def detect_video(video_name: str,
                 visu_info.append(
                     TextVisu(
                         "timestamp",
-                        text_list=[TextColorPair(frame2ts(i, rt_param.fps))]))
+                        text_list=[TextColorPair(frame2ts(i, rt_param.fps))],
+                        position="left-bottom",
+                        color="white"))
                 visu_info.extend(detector.visu())
                 visu_info.extend(meteor_collector.visu(frame_num=i))
                 visual_manager.display_a_frame(x, visu_info)

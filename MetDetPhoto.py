@@ -49,16 +49,6 @@ CATE2COLOR_MAPPING: dict[str, ColorTuple] = {
     "SPACECRAFT": (255, 0, 255)
 }
 
-# 可视化参数组
-visu_param: list[BaseVisuAttrs] = [
-    DrawRectVisu(
-        name="activate_meteors",
-        color="as-input",
-    ),
-    DrawRectVisu(name="score_bg", thickness=-1),
-    TextVisu(name="score_text", color="white")
-]
-
 
 def construct_visu_info(boxes: NDArray[np.int_],
                         preds: NDArray[np.float64],
@@ -93,10 +83,12 @@ def construct_visu_info(boxes: NDArray[np.int_],
     visu_info: list[BaseVisuAttrs] = [
         TextVisu("timestamp",
                  text_list=[TextColorPair(watermark_text)],
+                 position="left-bottom",
+                 color="white",
                  position_flag=True),
         DrawRectVisu("activate_meteors", pair_list=active_meteors),
-        DrawRectVisu("score_bg", pair_list=score_bg),
-        TextVisu("score_text", text_list=score_text)
+        DrawRectVisu("score_bg", pair_list=score_bg, thickness=-1),
+        TextVisu("score_text", text_list=score_text, color="white")
     ]
     return visu_info
 
@@ -169,8 +161,7 @@ try:
         ]
         visual_manager = OpenCVMetVisu(exp_time=1,
                                        resolution=visu_resolution,
-                                       flag=args.visu,
-                                       visu_param_list=visu_param)
+                                       flag=args.visu)
         img_loader = MultiThreadImgLoader(img_list, logger=logger)
         # temp fix: mock video object
         video = MockVideoObject(image_folder=input_path)
@@ -237,8 +228,7 @@ try:
             img = img * mask
             visual_manager = OpenCVMetVisu(exp_time=1,
                                            resolution=visu_resolution,
-                                           flag=args.visu,
-                                           visu_param_list=visu_param)
+                                           flag=args.visu)
             boxes, preds = model.forward(img)
 
             results = [
@@ -270,8 +260,7 @@ try:
             video.start()
             visual_manager = OpenCVMetVisu(exp_time=1,
                                            resolution=visu_resolution,
-                                           flag=args.visu,
-                                           visu_param_list=visu_param)
+                                           flag=args.visu)
             results = []
             for i in tqdm.tqdm(range(tot_frames)):
                 img = video.pop()

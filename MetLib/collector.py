@@ -408,14 +408,6 @@ class MeteorCollector(object):
                                         max_interval=self.max_interval,
                                         det_thre=self.det_thre)
 
-        # 定义可视化接口字段及格式
-        self.visu_param: list[BaseVisuAttrs] = [
-            DrawRectVisu("active_meteors", color="as-input"),
-            DrawCircleVisu("active_pts", radius=2, thickness=-1),
-            DrawRectVisu("score_bg", thickness=-1, color="as-input"),
-            TextVisu("score_text", color="white")
-        ]
-
     def update(self, cur_frame: int, lines: IntSeq2D, cates: FloatSeq2D):
         """
         更新流星序列的主要函数。
@@ -563,9 +555,12 @@ class MeteorCollector(object):
 
         ret: list[BaseVisuAttrs] = [
             DrawRectVisu("active_meteors", pair_list=active_meteors),
-            DrawCircleVisu("active_pts", dot_list=active_pts),
-            TextVisu("score_text", text_list=score_text),
-            DrawRectVisu("score_bg", pair_list=score_bg)
+            DrawCircleVisu("active_pts",
+                            dot_list=active_pts,
+                            radius=2,
+                            thickness=-1),
+            TextVisu("score_text", text_list=score_text, color="white"),
+            DrawRectVisu("score_bg", pair_list=score_bg, thickness=-1)
         ]
 
         return ret
