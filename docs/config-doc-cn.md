@@ -668,7 +668,7 @@ ExportOption --> ClipPaddingOption : clip_padding
 
 #### 过滤规则配置/FilterRules
 
-过滤规则用于在导出时过滤检测结果。其各项参数说明如下：
+过滤规则用于在导出时过滤检测结果，会同时作用于图像导出和视频导出流程。其各项参数说明如下：
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
@@ -676,6 +676,11 @@ ExportOption --> ClipPaddingOption : clip_padding
 |threshold|float|置信度阈值，低于该值的检测结果将被过滤|0.0|
 |min_length_ratio|float|最小长度比例阈值，低于该值的检测结果将被过滤（相对于图像长边）|0.0|
 |exclude_category_list|list[str]|需要排除的类别列表|[]|
+
+说明：
+
+* 若通过 `ClipToolkit` 命令行显式使用 `--enable-filter-rules` 或 `--disable-filter-rules`，将覆盖此处 `switch` 的配置值。
+* 若过滤后无有效目标，当前导出任务会被跳过。
 
 #### 时间补偿配置/ClipPaddingOption
 

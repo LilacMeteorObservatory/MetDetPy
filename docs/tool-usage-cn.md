@@ -23,6 +23,7 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
                       [--jpg-quality JPG_QUALITY][--png-compressing PNG_COMPRESSING]
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                       [--with-annotation][--with-bbox]
+                      [--enable-filter-rules | --disable-filter-rules]
                       [--debug]
                       
 ```
@@ -59,6 +60,20 @@ python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00
 python ClipToolkit.py ./test/video_mdrf.json --mode video
 ``` 
 
+### 支持的导出格式
+
+|输出\输入|RAW|jpg|延时视频|常规视频|
+|----------------|---|---|------|------|
+|视频| x | x | x | ✅转码，支持h264，带有音频 |
+|视频+标注框| x | x | x | ✅转码，支持h264，带有音频 |
+|图像Only| ✅拷贝 | ✅拷贝 | ✅读+写jpg | ✅读+写jpg |
+|图像+标注框| ✅读+写jpg | ✅读+写jpg | ✅读+写jpg | ✅读+写jpg |
+|图像+labelme| ✅同步写 | ✅同步写| ✅同步写| ✅同步写 |
+
+x: 不该有这个需求
+-: 目前不支持
+✅: 目前的实现是理想态
+
 ### 可选参数
 
 ClipToolkit支持的可选参数列表如下：
@@ -81,15 +96,29 @@ ClipToolkit支持的可选参数列表如下：
 
 * `--with-bbox`: 在导出的图像/视频中绘制检测框（仅支持通用模式和样本生成模式，需要附带有目标标注）。
 
+* `--enable-filter-rules`: 启用 `export.filter_rules.switch`。
+
+* `--disable-filter-rules`: 禁用 `export.filter_rules.switch`。
+
+  **注意**：上述两个参数会覆盖配置文件中的同名项。如果这两个参数都不传，则以配置文件为准。
+
+* `--padding-before`: 片段开始时间前的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.before` 设置。
+
+* `--padding-after`: 片段结束时间后的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.after` 设置。
+
 * `--png-compressing`: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
 
 * `--jpg-quality`: 生成的jpg图像的质量。 其值应为$Z \in [0,100]$； 默认情况下取值为95。
 
 * `--debug`: 是否在debug模式下运行以打印更详细的信息
 
-* `--padding-before`: 片段开始时间前的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.before` 设置。
+### 过滤规则在导出流程中的行为
 
-* `--padding-after`: 片段结束时间后的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.after` 设置。
+当 `export.filter_rules.switch=true`（或通过命令行显式启用）时：
+
+* 过滤规则同时应用于图像导出和视频导出。
+* 绘制标注框与导出 labelme 标注时，使用过滤后的目标集合。
+* 若某个切片/图像过滤后无有效目标，将跳过该条导出任务。
 
 
 

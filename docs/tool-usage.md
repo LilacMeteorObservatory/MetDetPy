@@ -27,6 +27,7 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
                       [--png-compressing PNG_COMPRESSING] [--jpg-quality JPG_QUALITY]
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                       [--with-annotation] [--with-bbox]
+                      [--enable-filter-rules | --disable-filter-rules]
                       [--debug]
 
 ```
@@ -88,7 +89,21 @@ Supported optional parameters in ClipToolkit are as follows：
 
 * `--with-bbox`: draw bounding boxes on exported images/videos (only supported in Ordinary and Sample Generating modes when annotations are available).
 
+* `--enable-filter-rules`: enable `export.filter_rules.switch`.
+
+* `--disable-filter-rules`: disable `export.filter_rules.switch`.
+
+  **Note**: the above 2 option will override the config value. If neither switch is provided, ClipToolkit uses `export.filter_rules.switch` from config.
+
 * `--debug`: run in debug mode to print more detailed information.
+
+### Filter rule behavior in export
+
+When `export.filter_rules.switch=true` (or explicitly enabled via CLI):
+
+* Filter rules are applied to both image export and video export flows.
+* Bounding-box drawing and labelme annotation export both use the filtered target list.
+* If no valid target remains after filtering, that image/clip export task is skipped.
 
 ### Video Writer Configuration
 
