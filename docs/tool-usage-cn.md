@@ -87,11 +87,19 @@ ClipToolkit支持的可选参数列表如下：
 
 * `--debug`: 是否在debug模式下运行以打印更详细的信息
 
-### 视频写入器配置
+* `--padding-before`: 片段开始时间前的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.before` 设置。
+
+* `--padding-after`: 片段结束时间后的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.after` 设置。
+
+
+
+### 配置文件参数
+
+ClipToolkit 还支持通过配置文件（默认为 `./global/clip_cfg.json`）设置更多参数。
+
+#### 视频写入器配置
 
 ClipToolkit 使用配置文件（默认为 `./global/clip_cfg.json`）中的 `writer` 字段指定来指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
-
-#### 可用的视频写入器
 
 |VideoWriter|支持导出格式|音频复制|参数配置|
 |-----------|----------|-------|------|
@@ -106,6 +114,25 @@ ClipToolkit 使用配置文件（默认为 `./global/clip_cfg.json`）中的 `wr
 
 
 注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，需要注意命令行中双引号的转义。
+
+
+#### 时间补偿配置 (`export.clip_padding`)
+
+在配置文件的 `export` 部分可以设置时间补偿参数，用于在每个视频片段的起始和结束时间前后额外补偿指定的时间长度：
+
+```json
+"export": {
+    "clip_padding": {
+        "before": 0.5,  // 开始时间前补偿 0.5 秒
+        "after": 0.5    // 结束时间后补偿 0.5 秒
+    }
+}
+```
+
+|参数|说明|默认值|
+|------|------|--------|
+|`before`|开始时间前补偿的时间长度（秒）|0.0|
+|`after`|结束时间后补偿的时间长度（秒）|0.0|
 
 
 ## Evaluate

@@ -91,6 +91,10 @@
             255
         ],
         "bbox_thickness": 2,
+        "clip_padding": {
+            "before": 0.0,
+            "after": 0.0
+        },
         "ffmpeg_config":{
             "path": null,
             "preset": "slow",

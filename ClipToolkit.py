@@ -14,7 +14,7 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
     示例：python ClipToolkit.py execution_result.json --mode video
 
 可选参数：
-[--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING]
+[--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] [--padding-before PADDING_BEFORE] [--padding-after PADDING_AFTER]
 
 """
 
@@ -39,7 +39,8 @@ from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest,
                               SimpleTarget, VideoFrameData)
 from MetLib.stacker import (all_stacker, max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
-from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, pt_len, ts2frame
+from MetLib.utils import (CLIP_CONFIG_PATH, U8Mat, adjust_ts, frame2ts, pt_len,
+                           ts2frame)
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI", "MP4"]
@@ -77,6 +78,10 @@ def update_cfg_from_args(base_cfg: ClipCfg, args: argparse.Namespace):
     base_cfg.export.png_compressing = args.png_compressing
     base_cfg.export.with_bbox = args.with_bbox
     base_cfg.export.with_annotation = args.with_annotation
+    if args.padding_before is not None:
+        base_cfg.export.clip_padding.before = args.padding_before
+    if args.padding_after is not None:
+        base_cfg.export.clip_padding.after = args.padding_after
 
 
 def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
@@ -416,6 +421,17 @@ def main():
                            action="store_true",
                            help="apply debug mode.")
 
+    argparser.add_argument("--padding-before",
+                           type=float,
+                           help="padding time before the clip start (in seconds). "
+                           "Overrides the config file setting.",
+                           default=None)
+    argparser.add_argument("--padding-after",
+                           type=float,
+                           help="padding time after the clip end (in seconds). "
+                           "Overrides the config file setting.",
+                           default=None)
+
     args = argparser.parse_args()
 
     t0 = time.time()
@@ -499,6 +515,36 @@ def main():
             if video_frame.end_time is None:
                 video_frame.end_time = frame2ts(video_loader.end_frame,
                                                 video_loader.fps)
+            # 应用 clip_padding 补偿
+            if export_cfg.clip_padding.before != 0.0:
+                video_frame.start_time = adjust_ts(
+                    video_frame.start_time,
+                    -export_cfg.clip_padding.before,
+                    video_loader.fps)
+            if export_cfg.clip_padding.after != 0.0:
+                video_frame.end_time = adjust_ts(
+                    video_frame.end_time,
+                    export_cfg.clip_padding.after,
+                    video_loader.fps)
+
+            # 边界检查：确保时间戳在视频有效范围内
+            start_frame = ts2frame(video_frame.start_time, video_loader.fps)
+            end_frame = ts2frame(video_frame.end_time, video_loader.fps)
+
+            if start_frame < video_loader.start_frame:
+                logger.warning(
+                    f"Clip start_time {video_frame.start_time} (frame {start_frame}) "
+                    f"is before video start. Clipping to video start.")
+                video_frame.start_time = frame2ts(video_loader.start_frame,
+                                                  video_loader.fps)
+
+            if end_frame > video_loader.end_frame:
+                logger.warning(
+                    f"Clip end_time {video_frame.end_time} (frame {end_frame}) "
+                    f"is after video end. Clipping to video end.")
+                video_frame.end_time = frame2ts(video_loader.end_frame,
+                                                video_loader.fps)
+
             # 如果未给定名称则使用缺省名称
             tgt_name = video_frame.saved_filename if video_frame.saved_filename else f"{video_name_pure}_{video_frame.start_time}-{video_frame.end_time}.{default_suffix}"
             tgt_name = tgt_name.replace(":", "_")

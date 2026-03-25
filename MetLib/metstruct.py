@@ -454,6 +454,13 @@ class FilterRules(object):
 
 
 @dataclasses.dataclass
+class ClipPaddingOption(object):
+    """视频片段前后额外补偿的时间配置"""
+    before: float = 0.0  # 开始时间前补偿（秒）
+    after: float = 0.0   # 结束时间后补偿（秒）
+
+
+@dataclasses.dataclass
 class FFMpegConfig(object):
     path: Optional[str]
     preset: str = "slow"
@@ -478,6 +485,8 @@ class ExportOption(object):
     bbox_color: list[int] = dataclasses.field(
         default_factory=lambda: [255, 0, 0])
     bbox_thickness: int = 2
+    clip_padding: ClipPaddingOption = dataclasses.field(
+        default_factory=lambda: ClipPaddingOption())
     ffmpeg_config: FFMpegConfig = dataclasses.field(
         default_factory=lambda: FFMpegConfig(path=None))
 

@@ -469,7 +469,13 @@ class ExportOption {
     with_annotation: bool
     bbox_color: list[int]
     bbox_thickness: int
+    clip_padding: ClipPaddingOption
     ffmpeg_config: FFMpegConfig
+}
+
+class ClipPaddingOption {
+    before: float
+    after: float
 }
 
 class ConnectParam {
@@ -518,6 +524,7 @@ ClipCfg --> ExportOption : export
 DenoiseOption --> ConnectParam : connect_lines
 DenoiseOption --> SimpleDenoiseParam : simple_param
 DenoiseOption --> MFNRDenoiseParam : mfnr_param
+ExportOption --> ClipPaddingOption : clip_padding
 ```
 
 
@@ -656,6 +663,7 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 |with_annotation|bool|导出时是否默认需要带上标注文件|false|
 |bbox_color|list|默认标注框颜色(BGR顺序)|[255,0,0]|
 |bbox_thickness|int|标注框粗细|2|
+|clip_padding|ClipPaddingOption|视频片段前后额外补偿的时间配置|见[时间补偿配置](#时间补偿配置clippaddingoption)|
 |ffmpeg_config|FFMpegConfig|FFMpeg视频编码配置（仅在启用 FFMpegVideoWriter 时生效）|见[FFMpeg配置](#ffmpeg配置)|
 
 #### 过滤规则配置/FilterRules
@@ -668,6 +676,20 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 |threshold|float|置信度阈值，低于该值的检测结果将被过滤|0.0|
 |min_length_ratio|float|最小长度比例阈值，低于该值的检测结果将被过滤（相对于图像长边）|0.0|
 |exclude_category_list|list[str]|需要排除的类别列表|[]|
+
+#### 时间补偿配置/ClipPaddingOption
+
+时间补偿配置用于在每个视频片段的起始和结束时间前后额外补偿指定的时间长度。其各项参数说明如下：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|before|float|开始时间前补偿的时间长度（秒）。正数表示向前扩展，负数表示向后收缩。|0.0|
+|after|float|结束时间后补偿的时间长度（秒）。正数表示向后扩展，负数表示向前收缩。|0.0|
+
+**注意事项**：
+- 当补偿后的时间戳超出视频边界时，程序会自动裁剪到视频的有效范围，并输出警告日志
+- 文件名使用裁剪后的时间戳生成，确保时间戳的合法性
+- 该配置对所有导出模式（图像/视频）均生效
 
 #### FFMpeg配置/FFMpegConfig
 
