@@ -8,6 +8,7 @@
     "loader": {
         "name": "ThreadVideoLoader",
         "wrapper": "PyAVVideoWrapper",
+        "hwaccel": "null",
         "resize": 960,
         "exp_time": "auto",
         "merge_func": "max",
@@ -17,7 +18,7 @@
     },
     "detector": {
         "name": "M3Detector",
-        "window_sec": 1,
+        "window_sec": 3,
         "cfg": {
             "binary": {
                 "adaptive_bi_thre": true,

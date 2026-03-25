@@ -568,7 +568,7 @@ Key fields and recommended defaults are documented in `../global/clip_cfg.json`.
 
 #### Filter Rules
 
-Filter rules are used to filter detection results during export. Fields:
+Filter rules are used to filter detection results during export, applied in both image and video export flows. Fields:
 
 |Field|Type|Description|Recommended|
 |---|---|---|---|
@@ -576,6 +576,11 @@ Filter rules are used to filter detection results during export. Fields:
 |`threshold`|float|Confidence threshold; results below this value will be filtered.|0.0|
 |`min_length_ratio`|float|Minimum length ratio threshold; results below this value will be filtered (relative to image long side).|0.0|
 |`exclude_category_list`|list[str]|List of categories to exclude.|[]|
+
+Notes:
+
+* If `ClipToolkit` is invoked with `--enable-filter-rules` or `--disable-filter-rules`, that CLI flag overrides this `switch` value.
+* If no valid target remains after filtering, the corresponding export task is skipped.
 
 #### FFMpeg Config
 

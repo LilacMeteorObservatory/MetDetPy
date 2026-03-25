@@ -85,36 +85,23 @@ MetVisu 组件用于在检测时创建实时窗口并展示必要信息。在算
 
 ### 可视化接口的设计
 
-MetDetPy主框架中默认会将从视频加载器获取的帧和时间戳作为背景。为了渲染每一帧的检测情况，还需要 detector 和 collector 支持将需要的数据绘制到画面。需要在这些类在成员中包含 visu_param ，并支持 visu 方法。MetDetPy会在运行的主阶段获取对应值并尝试绘制。
+MetDetPy主框架中默认会将从视频加载器获取的帧和时间戳作为背景。为了渲染每一帧的检测情况，还需要 `detector` 和 `collector` 在运行时把“本帧需要绘制的内容”返回给 `MetVisu`。
 
-其中，visu_param 代表需要绘制的信息，在初始化阶段定义即可；visu()方法则需要返回需要绘制的具体内容,在运行过程中可更新。如，在visu_param定义"meteor"是一个需要绘制的对象，每次visu()方法则返回该帧需要绘制在的具体位置。
+当前的 `MetVisu` 采用纯运行时渲染：`display_a_frame(base_img, data_list)` 直接依据传入的 `data_list` 绘制。
 
-#### visu_param
-visu_param是一个dict[str, list]的对象。对于每一项，其key为名称，value为包含两个参数的list。
+#### data_list
+`data_list` 是 `list[BaseVisuAttrs]`：渲染顺序保持为 `img` → `draw` → `text`，在同一类别内会按 `data_list` 的出现顺序绘制。
 
-list的第一项代表可视化类型，目前支持"draw"(绘制),"img"（图像叠加），"text"（文字）。第二项代表对应可视化需要的参数列表。
-
-draw的参数如下：
-* type 代表需要绘制的图像。支持 "rectangle" 与 "circle" 。
-* color 代表需要绘制的颜色。支持字符串形式的颜色名称，"as-input" 或者具体的RGB值。
-* 绘制不同类型时还需要提供的参数不同。这 些参数都支持 "as-input"，即在运行时指定位置。
-* circle类还需要指定：radius，position，thickness。
-* rectangle类还需要指定：position，thickness，
-
-img的参数如下：
-* weight 叠加的强度。如果希望叠加灰度图像，需要指定 color 叠加的颜色。
-
-text的参数如下：
-* position 文字输出的位置。对于需要监视的数值，可以通过使用默认的位置，MetVisu会自动排版。
-* color 代表绘制的颜色。
+对象字段说明（以代码中的类型命名为准）：
+* `ImgVisuAttrs`（img）：`name`、`img`、可选 `weight`/`color`
+* `DrawRectVisu` / `DrawCircleVisu`（draw）：`name`、矩形用 `pair_list`、圆点用 `dot_list`，可选 `thickness`/`radius`/颜色
+* `TextVisu`（text）：`name`、`text_list`；`TextColorPair` 的 `position/color` 可以不填，会沿用 `TextVisu` 的默认值（`TextVisu.position` 支持使用 `POSITION_MAP` 的字符串 key）
 
 #### visu()
 
-visu()方法返回一个dict[str, list]的对象。
+`visu()` 方法返回 `list[BaseVisuAttrs]`，描述“这一帧要画什么”。
 
-对于每一项，其key为名称，value为需要按照规则可视化的list。
-
-注意：固定位置的text不支持长度大于1的list的（其位置需要在输入时确定，因此不能接受变长列表，但需要是列表（以统一输入格式）。目前没有做对应检查。）
+渲染器会按 `data_list` 的类别顺序 `img` → `draw` → `text`，以及同一类别内的出现顺序来绘制。固定位置文字允许多条，但默认会绘制到同一坐标从而可能发生重叠；需要错开时请为每个 `TextColorPair` 显式提供 `position`。
 
 
 

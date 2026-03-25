@@ -228,6 +228,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list[int], str, None] = None,
+                 hwaccel: Optional[str] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -250,6 +251,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             video_name (str): the filename of the video.
             mask_name (Optional[str]): the filename of the mask. The default is None.
             resize_option (Union[int, list, str, None]): resize option from input. The default is None.
+            hwaccel (Optional[str]): the hardware acceleration type. The default is None.
             start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
             end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
             grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
@@ -275,7 +277,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.continue_on_err = continue_on_err
 
         # load video and mask
-        self.video = video_wrapper(video_name)
+        self.video = video_wrapper(video_name, hwaccel=hwaccel)
         self.runtime_size = parse_resize_param(resize_option, self.raw_size)
         self.mask = load_mask(self.mask_name, self.runtime_size,
                               self.grayscale)
@@ -529,6 +531,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list[int], str, None] = None,
+                 hwaccel: Optional[str] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -544,7 +547,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.queue: Queue[Union[Literal['failed'],
                                 U8Mat]] = Queue(maxsize=self.maxsize)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, debayer,
+                         hwaccel, start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
                          merge_func, continue_on_err, **kwargs)
 
@@ -665,6 +668,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
                  video_name: str,
                  mask_name: Optional[str] = None,
                  resize_option: Union[int, list[int], str, None] = None,
+                 hwaccel: Optional[str] = None,
                  start_time: Optional[str] = None,
                  end_time: Optional[str] = None,
                  grayscale: bool = False,
@@ -679,7 +683,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.maxsize = maxsize
         self.notify_queue: Any = MQueue(maxsize=self.maxsize - 1)
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         start_time, end_time, grayscale, debayer,
+                         hwaccel, start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
                          merge_func, continue_on_err, **kwargs)
 
@@ -697,7 +701,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         self.subprocess: Any = Process(target=self.videoloop, daemon=True)
         self.subprocess.start()
         # a hack way
-        self.video = self.video_wrapper(self.video_name)
+        self.video = self.video_wrapper(self.video_name, hwaccel=self.hwaccel)
 
     def clear_queue(self):
         while self.notify_queue.qsize() > 0:
@@ -740,7 +744,7 @@ class ProcessVideoLoader(VanillaVideoLoader):
         return self.merge_func(np_buffer[ret])
 
     def videoloop(self):
-        self.video = self.video_wrapper(self.video_name)
+        self.video = self.video_wrapper(self.video_name, hwaccel=self.hwaccel)
         self.video.set_to(self.start_frame)
 
         np_buffer = np.frombuffer(self.buffer,
