@@ -476,7 +476,7 @@ class DiffAreaGuidingDetecor(BaseDetector):
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
                  num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         self.logger = logger
-        self.logger.info(f"Momentum={(1 - 1 / (window_sec * fps))}")
+        self.logger.info(f"Momentum={(1 - 1 / (window_sec * fps)):.4f}")
         self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
 
     def update(self, new_frame: U8Mat) -> None:
@@ -493,14 +493,14 @@ class DiffAreaGuidingDetecor(BaseDetector):
             self.bg_maintainer.update(self.cur_frame)
             self.diff_img = np.zeros_like(self.cur_frame)
             return [], []
-        self.diff_img = (self.cur_frame.astype(np.float64) > self.bg_maintainer.cur_value).astype(np.uint8) * 255
+        self.diff_img = ((self.cur_frame.astype(np.float64) + 100)
+                         > self.bg_maintainer.cur_value).astype(np.uint8) * 255
         #self.diff_img[neg_value_mask] = 0
         self.post_update()
         return [], []
 
     def visu(self):
         ret: list[BaseVisuAttrs] = [
-            ImgVisuAttrs("mix_bg", img=self.bg_maintainer.cur_value.astype(np.uint8), weight=1),
             ImgVisuAttrs("diff_mask",
                          img=self.diff_img,
                          color="yellow",
@@ -511,7 +511,9 @@ class DiffAreaGuidingDetecor(BaseDetector):
                 color="green",
                 text_list=[
                     TextColorPair(
-                        text=f"EMA: {self.bg_maintainer.cur_momentum:.4f}")
+                        text=
+                        f"Diff+: {np.mean(self.cur_frame.astype(np.float64) - self.bg_maintainer.cur_value):.4f}"
+                    )
                 ])
         ]
         return ret

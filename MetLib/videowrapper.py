@@ -281,10 +281,12 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                 if cur_frame >= frame_num:
                     # reset & flush video_frame_cache
                     self._cur_frame_idx = frame_num
+                    self._last_frame_data = None
                     self.video_frame_cache = []
                     return True
         # reset & flush video_frame_cache
         self._cur_frame_idx = frame_num
+        self._last_frame_data = None
         self.video_frame_cache = []
         return True
 
