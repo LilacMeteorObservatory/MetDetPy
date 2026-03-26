@@ -401,8 +401,7 @@ class Uint8EMA(EMA):
             self.adjust_weight()
         value_copy = np.array(value, dtype=np.int16)
         self.cur_value = (self.cur_momentum * self.cur_value +
-                          (1 - self.cur_momentum) * value_copy).astype(
-                              np.uint8)
+                          (1 - self.cur_momentum) * value_copy)
         self.t += 1
 
     def adjust_weight(self) -> None:
@@ -690,7 +689,7 @@ def adjust_ts(time_str: str, offset_sec: float, fps: float) -> str:
     # 计算偏移帧数
     offset_frame = int(round(offset_sec * fps))
     # 应用偏移
-    adjusted_frame = frame + offset_frame
+    adjusted_frame = max(0, frame + offset_frame)
     # 转换回时间字符串
     return frame2ts(adjusted_frame, fps)
 
