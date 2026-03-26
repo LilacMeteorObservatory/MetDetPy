@@ -562,19 +562,18 @@ def main():
             # 边界检查：确保时间戳在视频有效范围内
             start_frame = ts2frame(video_frame.start_time, video_loader.fps)
             end_frame = ts2frame(video_frame.end_time, video_loader.fps)
-
-            if start_frame < video_loader.start_frame:
+            if start_frame < 0:
                 logger.warning(
                     f"Clip start_time {video_frame.start_time} (frame {start_frame}) "
                     f"is before video start. Clipping to video start.")
-                video_frame.start_time = frame2ts(video_loader.start_frame,
+                video_frame.start_time = frame2ts(0,
                                                   video_loader.fps)
 
-            if end_frame > video_loader.end_frame:
+            if end_frame > video_loader.video_total_frames:
                 logger.warning(
                     f"Clip end_time {video_frame.end_time} (frame {end_frame}) "
                     f"is after video end. Clipping to video end.")
-                video_frame.end_time = frame2ts(video_loader.end_frame,
+                video_frame.end_time = frame2ts(video_loader.video_total_frames,
                                                 video_loader.fps)
 
             # 如果未给定名称则使用缺省名称
@@ -605,7 +604,7 @@ def main():
                 frame_target_list = filter_targets(video_frame.target_list,
                                                    filter_rules, diag_length)
                 if not frame_target_list:
-                    logger.info(
+                    logger.debug(
                         f"Skip {video_frame.saved_filename} because no valid target in this clip."
                     )
                     continue
