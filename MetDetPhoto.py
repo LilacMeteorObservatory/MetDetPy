@@ -32,7 +32,7 @@ from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
 from MetLib.model import YOLOModel
-from MetLib.utils import ID2NAME, VERSION, parse_resize_param, pt_offset, relative2abs_path, set_resource_dir
+from MetLib.utils import VERSION, parse_resize_param, pt_offset, relative2abs_path, set_resource_dir, get_id2name
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
 
@@ -49,6 +49,7 @@ CATE2COLOR_MAPPING: dict[str, ColorTuple] = {
     "RARE_SPRITE": (0, 0, 255),
     "SPACECRAFT": (255, 0, 255)
 }
+ID2NAME = get_id2name()
 
 
 def construct_visu_info(boxes: NDArray[np.int_],
@@ -97,12 +98,11 @@ def construct_visu_info(boxes: NDArray[np.int_],
 parser = argparse.ArgumentParser()
 parser.add_argument("target", help="path to the img or video.")
 parser.add_argument("--mask", help="path to the mask file.")
-parser.add_argument("--model-path",
-                    help="/path/to/the/model",
-                    default=None)
-parser.add_argument("--resource-dir",
-                    help="Path to the resource folder (config/weights/resource/global).",
-                    default=None)
+parser.add_argument("--model-path", help="/path/to/the/model", default=None)
+parser.add_argument(
+    "--resource-dir",
+    help="Path to the resource folder (config/weights/resource/global).",
+    default=None)
 parser.add_argument("--exclude-noise", action="store_true")
 parser.add_argument("--model-type",
                     help="type of the model. Support YOLO.",
@@ -142,7 +142,8 @@ if args.model_path is None:
     args.model_path = "./weights/yolov5s_v2.onnx"
 
 input_path = args.target
-model_path = relative2abs_path(args.model_path) if not path.isabs(args.model_path) else args.model_path
+model_path = relative2abs_path(
+    args.model_path) if not path.isabs(args.model_path) else args.model_path
 visu_resolution = parse_resize_param(
     args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE
 ) if args.visu_resolution else DEFAULT_VISUAL_WINDOW_SIZE
@@ -240,7 +241,6 @@ try:
                                            resolution=visu_resolution,
                                            flag=args.visu)
             boxes, preds = model.forward(img)
-
             results = [
                 SingleImgRecord(
                     boxes=[list(map(int, x)) for x in boxes],
