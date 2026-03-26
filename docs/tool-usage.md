@@ -28,6 +28,7 @@ python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TI
                       [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                       [--with-annotation] [--with-bbox]
                       [--enable-filter-rules | --disable-filter-rules]
+                      [--padding-before PADDING_BEFORE] [--padding-after PADDING_AFTER]
                       [--debug]
                       [--resource-dir RESOURCE_DIR]
 
@@ -95,6 +96,10 @@ Supported optional parameters in ClipToolkit are as follows：
 * `--disable-filter-rules`: disable `export.filter_rules.switch`.
 
   **Note**: the above 2 option will override the config value. If neither switch is provided, ClipToolkit uses `export.filter_rules.switch` from config.
+
+* `--padding-before`: padding time before clip start (in seconds). If specified, it overrides `export.clip_padding.before` in config.
+
+* `--padding-after`: padding time after clip end (in seconds). If specified, it overrides `export.clip_padding.after` in config.
 
 * `--debug`: run in debug mode to print more detailed information.
 

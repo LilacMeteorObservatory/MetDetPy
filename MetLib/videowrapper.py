@@ -188,6 +188,9 @@ class PyAVVideoWrapper(BaseVideoWrapper):
         self.video = self.container.streams.video[0]
         self.video.thread_type = "FRAME"
         self.video_frame_cache: list[av.VideoFrame] = []
+        # 逻辑帧计数器，用于追踪实际帧位置
+        self._cur_frame_idx = 0
+        self._last_frame_data = None
 
     @property
     def num_frames_by_container(self):
@@ -215,17 +218,41 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
     def read(self):
         try:
-            while True:
-                if len(self.video_frame_cache) > 0:
-                    return True, self.video_frame_cache.pop(0).to_ndarray(
-                        format='bgr24')
-                frame: list[av.VideoFrame] = self.container.demux(
-                    video=0).__next__().decode()  # type: ignore
-                if len(frame) == 0:
-                    continue
-                if len(frame) > 1:
-                    self.video_frame_cache.extend(frame[1:])
-                return True, frame[0].to_ndarray(format='bgr24')
+            if not self.video_frame_cache:
+                # 尝试从容器中解码新帧
+                for packet in self.container.demux(self.video):
+                    frames: list[
+                        av.VideoFrame] = packet.decode()  # type: ignore
+                    if frames:
+                        self.video_frame_cache.extend(frames)
+                        break
+                else:
+                    # End of stream or no more frames can be decoded
+                    return False, None
+
+            next_frame = self.video_frame_cache[0]
+
+            if next_frame.pts is None:
+                self._last_frame_data = self.video_frame_cache.pop(
+                    0).to_ndarray(format='bgr24')
+                self._cur_frame_idx += 1
+                return True, self._last_frame_data
+
+            # 如果实际索引超前，则补帧
+            actual_frame_idx = self.pts2frame(next_frame.pts)
+            if self._cur_frame_idx < actual_frame_idx:
+                if self._last_frame_data is not None:
+                    self._cur_frame_idx += 1
+                    return True, self._last_frame_data
+                else:
+                    self._cur_frame_idx = actual_frame_idx
+
+            self._last_frame_data = self.video_frame_cache.pop(0).to_ndarray(
+                format='bgr24')
+            self._cur_frame_idx += 1
+
+            return True, self._last_frame_data
+
         except Exception as e:
             logger.error(f"{e.__repr__()} encountered when reading"
                          f"video frame with {self.__class__.__name__}.")
@@ -252,7 +279,15 @@ class PyAVVideoWrapper(BaseVideoWrapper):
             for decoded_frame in packet.decode():
                 cur_frame = self.pts2frame(decoded_frame.pts)
                 if cur_frame >= frame_num:
+                    # reset & flush video_frame_cache
+                    self._cur_frame_idx = frame_num
+                    self._last_frame_data = None
+                    self.video_frame_cache = []
                     return True
+        # reset & flush video_frame_cache
+        self._cur_frame_idx = frame_num
+        self._last_frame_data = None
+        self.video_frame_cache = []
         return True
 
     def force_set_to(self, frame_num: int) -> bool:
