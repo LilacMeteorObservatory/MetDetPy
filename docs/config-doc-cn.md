@@ -527,6 +527,22 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 ExportOption --> ClipPaddingOption : clip_padding
 ```
 
+### 视频写入器配置
+
+ClipToolkit 通过配置文件中的 `writer` 字段指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
+
+| VideoWriter | 支持导出格式 | 音频复制 | 参数配置 |
+|-------------|------------|---------|---------|
+| OpenCVVideoWriter | 仅支持 `.avi` 格式 | 不支持 | 不支持 |
+| PyAVVideoWriter（发行版本） | 只能导出 `.avi` 格式 | 不支持 | 不支持 |
+| PyAVVideoWriter（自行构建） | 支持 PyAV 支持的所有格式 | 部分支持 | 有限支持 |
+| FFMpegVideoWriter（推荐） | 支持 FFMpeg 支持的所有格式（mp4, mkv, avi 等） | 完整支持音频复制和转码 | 完整支持所有导出配置 |
+
+### 配置 FFMpegVideoWriter
+
+当使用 `FFMpegVideoWriter` 时，需要在配置文件的 `export.ffmpeg_config` 部分配置 FFMpeg 相关参数。
+
+> 详见 [ffmpeg配置](../config-doc-cn.md#ffmpeg配置ffmpegconfig)
 
 ### 图像降噪配置
 支持在导出图像时对导出图像进行后处理，降低图像噪点，连接可能存在的断线等。具体配置如下：

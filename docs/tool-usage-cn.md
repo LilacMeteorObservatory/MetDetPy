@@ -4,168 +4,17 @@
 
 MetDetPy提供了一些用于支持相关功能的工具。
 
-## Menu
+## 目录
 
 * [ClipToolkit - (批)图像堆栈或视频切片工具](#cliptoolkit)
 * [Evaluate - 性能评估，效果测试工具](#evaluate)
-* [make_package - 打包可执行程序工具](#打包Python代码为可执行程序)
+* [make_package - 打包可执行程序工具](#make-package)
 
 ## ClipToolkit
 
-`ClipToolkit`（切片工具）可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。从`MetDetPy v2.2.0`开始，ClipToolkit扩展了调用方式，以支持更灵活的使用和更通用的场景。
+`ClipToolkit`（切片工具）可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。要了解如何使用该工具，请参考 [ClipToolkit 使用指南](./tool-usage/ClipToolkit-usage-cn.md)。
 
-ClipToolkit的完整参数列表如下：
-
-```sh
-python ClipToolkit.py target [json] [--start-time START_TIME] [--end-time END_TIME]
-                      [--mode {image,video}] [--suffix SUFFIX]
-                      [--save-path SAVE_PATH] [--resize RESIZE]
-                      [--jpg-quality JPG_QUALITY][--png-compressing PNG_COMPRESSING]
-                      [--debayer] [--debayer-pattern DEBAYER_PATTERN]
-                      [--with-annotation][--with-bbox]
-                      [--enable-filter-rules | --disable-filter-rules]
-                      [--debug]
-                      [--resource-dir RESOURCE_DIR]
-                      
-```
-
-### 用法简介
-
-ClipToolkit 共可接受3种输入模式，这主要通过传入的位置参数(Positional Arguments)决定。这些模式和对应的位置参数用法如下：
-
-1. 通用模式
-    通用模式是从 `v1.3.0` 开始的基本模式，可用于一次性创建多个叠加图或视频切片,并配置每一个图/视频的名称与路径。要使 ClipToolkit 在通用模式下运行，需要传入两个位置参数：`target`（目标视频文件路径）与 `json` （JSON格式的字符串或者JSON文件的路径）。
-    其中，json 应该是一个包含了若干组起始时间，结束时间和文件名（可选）信息的json数组，每个元素都应该包含：
-
-    * 必要`"time"`键，其值应是两个`"hh:mm:ss.ms"`格式的字符串组成的数组，表示片段的开始时间和结束时间；
-    * 可选的`"filename"` 键，您可以在其值中指定文件名和后缀（即视频剪辑应该转换为何种格式并命名。）
-    * 可选的 `"target"` 键，需要为数组，每一项包含`"pt1"`,`"pt2"`和`"preds"`，表明标注框位置和类别。
-
-    此模式下，优先使用`JSON`中指定的文件名和类型选项。可选参数将仅在无对应参数时生效。JSON的一个实例为 [clip_test.json](../test/clip_test.json)。使用例如下：
-
-```sh
-python ClipToolkit.py ./test/20220413Red.mp4 ./test/clip_test.json --mode image --suffix jpg --jpg-quality 60 --resize 960x540 --save-path ./test
-```
-
-2. 精简模式
-    精简模式通过仅传入一个视频文件作为位置参数以启用，用于产生单个图像堆栈或视频切片。产生文件的起止时间，格式和其他参数需要通过可选参数指定，默认为完整视频堆栈一张`JPG`格式的图像作为结果。这种方式下不需要构建`JSON`文件或转义字符串，更容易在命令行场景使用。使用例如下：
-
-```sh
-python ClipToolkit.py ./test/20220413Red.mp4 --start-time 00:03:00 --end-time 00:05:00 --mode image --output-name ./test/generated_img.jpg
-```
-
-3. 样本生成模式
-    当希望为检测结果（或标注）生成所有对应的叠加图或视频切片时，可以通过仅指定一个`MDRF`格式的`JSON`文件作为输入（有关该文件格式的介绍可见[流星检测记录格式 (MDRF)](#meteor-detection-recording-format-mdrf)。该格式文件可从`MetDetPy v2.2.0`之后的`evaluate`或`MetDetPy`生成）来启用该模式。其余参数通过可选参数指定。这可以用于生成批量的标注图像，用于微调模型。使用例如下：
-
-```sh
-python ClipToolkit.py ./test/video_mdrf.json --mode video
-``` 
-
-### 支持的导出格式
-
-|输出\输入|RAW|jpg|延时视频|常规视频|
-|----------------|---|---|------|------|
-|视频| x | x | x | ✅转码，支持h264，带有音频 |
-|视频+标注框| x | x | x | ✅转码，支持h264，带有音频 |
-|图像Only| ✅拷贝 | ✅拷贝 | ✅读+写jpg | ✅读+写jpg |
-|图像+标注框| ✅读+写jpg | ✅读+写jpg | ✅读+写jpg | ✅读+写jpg |
-|图像+labelme| ✅同步写 | ✅同步写| ✅同步写| ✅同步写 |
-
-x: 不该有这个需求
--: 目前不支持
-✅: 目前的实现是理想态
-
-### 可选参数
-
-ClipToolkit支持的可选参数列表如下：
-
-* `--start-time`: 片段起始时间。可使用毫秒数或 `HH:MM:SS.ms` 格式指定。仅在简单模式下有效。默认为视频起始时间。
-
-* `--end-time`: 片段结束时间。可使用毫秒数或 `HH:MM:SS.ms` 格式指定。仅在简单模式下有效。默认为视频结束时间。
-
-* `--mode`：将剪辑转换为图像或视频。 应从 `{image, video}` 中选择。 此选项会被 json 中的特定文件名覆盖。
-
-* `--suffix`：输出的后缀。 默认情况下，图像模式为"jpg"，视频模式为"avi"。 此选项可以被 JSON 中的特定文件名覆盖。
-  
-  **注意**：视频写入器会影响可选的视频后缀。详见[可用的视频写入器](#可用的视频写入器)。
-
-* `--save-path`：放置图像/视频的路径。 当 JSON 中只包含一个片段时，您可以在 `--save-path` 中包含文件名以简化您的 JSON。
-
-* `--resize`：将图像/视频调整为给定的分辨率。
-
-* `--with-annotation`: 同时输出 labelme 风格的标注json文件（仅支持通用模式和样本生成模式，需要附带有目标标注）。
-
-* `--with-bbox`: 在导出的图像/视频中绘制检测框（仅支持通用模式和样本生成模式，需要附带有目标标注）。
-
-* `--enable-filter-rules`: 启用 `export.filter_rules.switch`。
-
-* `--disable-filter-rules`: 禁用 `export.filter_rules.switch`。
-
-  **注意**：上述两个参数会覆盖配置文件中的同名项。如果这两个参数都不传，则以配置文件为准。
-
-* `--padding-before`: 片段开始时间前的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.before` 设置。
-
-* `--padding-after`: 片段结束时间后的补偿时间（秒）。如果指定，将覆盖配置文件中的 `export.clip_padding.after` 设置。
-
-* `--png-compressing`: 生成的png图像压缩程度。 其值应为$Z \in [0,9]$； 默认情况下取值为3。
-
-* `--jpg-quality`: 生成的jpg图像的质量。 其值应为$Z \in [0,100]$； 默认情况下取值为95。
-
-* `--debug`: 是否在debug模式下运行以打印更详细的信息
-
-* `--resource-dir`（或 `-R`）：资源文件夹路径，该文件夹应包含 `config/`、`weights/`、`resource/` 和 `global/` 子文件夹。指定后，程序将从该目录读取静态文件而非默认位置。这在使用打包后的可执行文件（onefile模式）时特别有用。
-
-### 过滤规则在导出流程中的行为
-
-当 `export.filter_rules.switch=true`（或通过命令行显式启用）时：
-
-* 过滤规则同时应用于图像导出和视频导出。
-* 绘制标注框与导出 labelme 标注时，使用过滤后的目标集合。
-* 若某个切片/图像过滤后无有效目标，将跳过该条导出任务。
-
-
-
-### 配置文件参数
-
-ClipToolkit 还支持通过配置文件（默认为 `./global/clip_cfg.json`）设置更多参数。
-
-#### 视频写入器配置
-
-ClipToolkit 使用配置文件（默认为 `./global/clip_cfg.json`）中的 `writer` 字段指定来指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
-
-|VideoWriter|支持导出格式|音频复制|参数配置|
-|-----------|----------|-------|------|
-|OpenCVVideoWriter|仅支持 `.avi` 格式|不支持|不支持|
-|PyAVVideoWriter(发行版本)|只能导出 `.avi` 格式|不支持|不支持|
-|PyAVVideoWriter(自行构建+关联支持的FFMpeg版本)|支持所有 FFMpeg 支持的格式（如 mp4, mkv, avi 等）|完整支持音频复制和转码|完整支持所有导出配置|
-|FFMpegVideoWriter(推荐，需要本地配置FFMpeg和FFProbe工具)|支持所有 FFMpeg 支持的格式（如 mp4, mkv, avi 等）|完整支持音频复制和转码|完整支持所有导出配置|
-
-#### 配置 FFMpegVideoWriter
-
-当使用 `FFMpegVideoWriter` 时，需要在配置文件的 `export.ffmpeg_config` 部分配置 FFMpeg 相关参数（详见[配置文件说明](./config-doc-cn.md#ffmpeg配置ffmpegconfig)）
-
-
-注意：如果使用 JSON 格式的字符串而不是 JSON 文件的路径，需要注意命令行中双引号的转义。
-
-
-#### 时间补偿配置 (`export.clip_padding`)
-
-在配置文件的 `export` 部分可以设置时间补偿参数，用于在每个视频片段的起始和结束时间前后额外补偿指定的时间长度：
-
-```json
-"export": {
-    "clip_padding": {
-        "before": 0.5,  // 开始时间前补偿 0.5 秒
-        "after": 0.5    // 结束时间后补偿 0.5 秒
-    }
-}
-```
-
-|参数|说明|默认值|
-|------|------|--------|
-|`before`|开始时间前补偿的时间长度（秒）|0.0|
-|`after`|结束时间后补偿的时间长度（秒）|0.0|
-
+---
 
 ## Evaluate
 
@@ -194,7 +43,9 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 ### Example
 (To be updated)
 
-## 打包Python代码为可执行程序
+---
+
+## make_package
 
 我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具使用 `nuitka` 来打包/编译。
 
