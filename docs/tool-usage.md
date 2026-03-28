@@ -6,15 +6,28 @@ Several tools are provided with MetDetPy to support related functions.
 
 ## Menu
 
-### Toolkit
+### Tool User Guides
+* [Detection Tools - MetDetPy and MetDetPhoto](#detection-tools)
 * [ClipToolkit - (Batch) image stacking and video clipping](#cliptoolkit)
+
+### Other Tools
 * [Evaluate - Performance evaluation and regression testing](#evaluate)
 * [make_package - Packaging script to executable files](#make-package)
 
 ### Data Format
 * [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf)
 
-## ClipToolkit
+## Tool User Guides
+
+### Detection Tools
+
+MetDetPy provides two detection tools: `MetDetPy` for video meteor detection and `MetDetPhoto` for image meteor detection. Each tool has its own characteristics and is suitable for different use cases.
+
+For detailed usage information about these detection tools, please refer to the [Detection Tools User Guide](./tool-usage/Detector-usage.md).
+
+---
+
+### ClipToolkit
 
 `ClipToolkit` can be used to create multiple video segments from a single video or a stack of images from these video segments at once. For detailed usage information, please see the [ClipToolkit User Guide](./tool-usage/ClipToolkit-usage.md).
 

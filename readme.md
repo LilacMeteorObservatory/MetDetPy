@@ -65,125 +65,56 @@ The above packages enable MetDetPy to run properly, but deep learning models in 
 
 - In the current packaged Windows release we use a DirectML-enabled runtime. Default CUDA wheels will be adopted when fully tested.
 
-## Usage
+## Quick Start
 
-### Run Video Meteor Detector
+MetDetPy's detection tools are designed with sensible default configurations and can run directly without additional parameters in most cases.
 
-MetDetPy is the launcher of the video meteor detector, its usage is as follows:
-
-```sh
-python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [--end-time END_TIME]
-               [--exp-time EXP_TIME] [--mode {backend,frontend}] [--debug] [--visual]
-               [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
-               [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
-               [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
-               [--resource-dir RESOURCE_DIR]
-```
-
-#### Main Arguments
-
-* `target`: meteor video filename. Support common video encoding like H264, HEVC, etc.
-
-* `--cfg`: path to the configuration file. Use [./config/m3det_normal.json](./config/m3det_normal.json) under the config folder by default.
-
-* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
-
-* `--start-time`: the time at which the detection starts (an int in ms or a string format in `"HH:MM:SS"`). The default value is the start of the video (i.e., 0).
-
-* `--end-time`: the time until which the detecting ends (an int in ms or a string format in `"HH:MM:SS"`). The default value is the end of the video.
-
-* `--mode`: the running mode. Its argument should be selected from `{backend, frontend}`. In `frontend` mode, there will be a progress bar indicating related information. In `backend` mode, the progress information is flushed immediately to suit pipeline workflow. The default is `"frontend"`.
-
-* `--debug`: indicates whether to print debug information.
-
-* `--visual`: showing a debug window displaying videos and detected meteors.
-
-* `--live-mode`: when running in live mode, the detection speed will closely match the actual video time. This option balance cpu cost. Should be selected from `{on, off}`.
-
-* `--provider`: specifies the preferred provider to be used for models. The available providers may vary depending on the platform. If the specified provider is not available, the "default" option will be used.
-
-* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
-
-* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
-
-#### Extra Arguments
-
-The following arguments have default values in config files. If they are configured in command line arguments, the default value will be overrided. Their detailed explanation can be seen in [configuration documents](./docs/config-doc.md).
-
-* `--resize`: the frame image size used during the detection. This can be set by single int (like `960`, for the long side), list (like `[960,540]`) or string (like `960x540` or `1920x1080`).
-
-* `--exp-time`: the exposure time of each frame in the video. Set with a float number or select from {auto, real-time, slow}. For most cases, option "auto" works well.
-
-* `--adaptive-thre`: indicates whether apply adaptive binary threshold in the detector. Select from {on, off}.
-
-* `--bi-thre`: the binary threshold used in the detector. When the adaptive binary threshold is applied, this option is invalidated. Do not set --sensitivity with this at the same time.
-
-* `--sensitivity`: the sensitivity of the detector. Select from {low, normal, high}. When adaptive binary threshold is applied, higher sensitivity will estimate a higher threshold. Do not set --bi-thre with this at the same time.
-
-* `--recheck`: indicates whether apply recheck mechanism. Select from {on, off}.
-
-#### Example
+### Video Detection
 
 ```sh
-python MetDetPy.py "./test/20220413Red.mp4" --mask "./test/mask-east.jpg" --visu --save-path .
+# Detect video (results only output to command line)
+python MetDetPy.py video.mp4
+
+# Detect and save results
+python MetDetPy.py video.mp4 --save-path results.json
+
+# After detection, filter out all negative samples and small size results, export only all meteor segments as videos
+python MetDetPy.py video.mp4 --save-path results.json
+python ClipToolkit.py results.json --mode video --enable-filter-rules --save-path ./output
+
+# Or export with bounding boxes
+python ClipToolkit.py results.json --mode video --enable-filter-rules --with-bbox --save-path ./output
 ```
 
-#### Output
-
-`MetDetPy` outputs the detection results to the command line for real-time verification during runtime. Specifying the `--save-path` parameter at runtime will also save the detection results to a specified file in `MDRF` format. The detection result file can be processed by the `MetDetPy` project's [Other Tools](#Usage-of-Other-Tools) to further generate content such as meteor fragments, meteor screenshots, and annotation files.
-
-For instructions on using these tools, please refer to the [Tool Documentation](./docs/tool-usage.md); for information on the meaning of the output fields, please refer to the [Data Format](./docs/data-format.md).
-
-#### Customize Configuration
-
-MetDetPy reads arguments from configuration files. For most circumstances, preset configuration files work well, but there are also times when better detection results can be achieved by adjusting detection arguments. This document explains the meanings of arguments so that they can adjusted according to the requirement. See [configuration documents](./docs/config-doc.md) for more information.
-
-### Run Image Meteor Detector
-
-`MetDetPhoto` is the launcher of the image meteor detector, its usage is as follows:
+### Image Detection
 
 ```sh
-python MetDetPhoto.py target [--mask MASK]
-                             [--model-path MODEL_PATH] [--model-type MODEL_TYPE]
-                             [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
-                             [--visu] [--visu-resolution VISU_RESOLUTION]
-                             [--save-path SAVE_PATH]
-                             [--resource-dir RESOURCE_DIR]
+# Detect image folder
+python MetDetPhoto.py ./images
+
+# Detect and save results
+python MetDetPhoto.py ./images --save-path results.json
+
+# After detection, filter out all negative samples and small size results, copy positive samples to another folder
+python ClipToolkit.py results.json --enable-filter-rules  --save-path ./output
+
+# Or export with bounding boxes
+python ClipToolkit.py results.json --enable-filter-rules --with-bbox --save-path ./output
 ```
 
-#### Arguments
+## Documentation
 
-* `target`: meteor image target, support single image, image folder and a timelapse video with common video encoding.
+### Tool User Guides
 
-* `--mask`: mask image. To create a mask image, draw mask regions on a blank image using any color (except white). Support JPEG and PNG format.
+* [Detection Tools User Guide](./docs/tool-usage/Detector-usage.md) - MetDetPy (video detector) and MetDetPhoto (image detector)
+* [ClipToolkit User Guide](./docs/tool-usage/ClipToolkit-usage.md) - Video clipping and image stacking tool
+* [Evaluate Tool Documentation](./docs/tool-usage.md#evaluate) - Performance evaluation and regression testing
+* [make_package Tool Documentation](./docs/tool-usage.md#make-package) - Packaging script
 
-* `--model-path`: path to the model weight file. Use [./weights/yolov5s_v2.onnx](./weights/yolov5s_v2.onnx) as the default weight file.
+### Configuration and Data Format
 
-* `--model-type`: the type of the model. For now only `YOLO` is supported. Default to `YOLO`.
-
-* `--exclude-noise`: exclude common noise category (like satellites and bugs) from predictions, only save positive samples to files.
-
-* `--debayer`: whether to execute debayer transform for timelapse video before detection.
-
-* `--debayer-pattern`: debayer pattern, like RGGB or BGGR. Only work when `--debayer` is applied.
-
-* `--visu`: showing a debug window displaying images and detected meteors.
-
-* `--visu-resolution`: visualized debug window resolution.
-
-* `--save-path`: save detection results to a json file in [MDRF](./docs/tool-usage.md#meteor-detection-recording-format-mdrf) format.
-
-* `--resource-dir` (or `-R`): path to the resource folder containing `config/`, `weights/`, `resource/`, and `global/` subfolders. When specified, the program will read static files from this directory instead of the default location. This is useful when running the packaged executable (onefile mode) from a different directory.
-
-#### Example
-
-```sh
-python MetDetPhoto.py "/path/to/your/folder" --mask "/path/to/your/mask.jpg" --exclude-noise --save-path .
-```
-
-### Usage of Other Tools
-
-Several tools are provided with MetDetPy to support related functions, including ClipToolkit (batch image stacking and video clipping tool), Evaluate (performance evaluation and regression testing tool), and make_package (packaging script). Access the [tool documentation](./docs/tool-usage.md) to learn more about how to use these tools.
+* [Configuration File Documentation](./docs/config-doc.md) - Understand the meaning of each configuration option
+* [Data Format Documentation](./docs/data-format.md) - Understand input configuration and output file formats
 
 ## Performance and Efficiency
 
@@ -198,7 +129,9 @@ Several tools are provided with MetDetPy to support related functions, including
 This project is licensed under the Mozilla Public License 2.0 (MPL-2.0). This means you are free to use, modify, and distribute this software with the following conditions:
 
 1. **Source Code Availability**: Any modifications you make to the source code must also be made available under the MPL-2.0 license. This ensures that the community can benefit from improvements and changes.
+
 2. **File-Level Copyleft**: You can combine this software with other code under different licenses, but any modifications to the MPL-2.0 licensed files must remain under the same license.
+
 3. **No Warranty**: The software is provided "as-is" without any warranty of any kind, either express or implied. Use it at your own risk.
 
 For more detailed information, please refer to the [MPL-2.0 license text](https://www.mozilla.org/en-US/MPL/2.0/).

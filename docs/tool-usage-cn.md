@@ -6,11 +6,24 @@ MetDetPy提供了一些用于支持相关功能的工具。
 
 ## 目录
 
-* [ClipToolkit - (批)图像堆栈或视频切片工具](#cliptoolkit)
-* [Evaluate - 性能评估，效果测试工具](#evaluate)
-* [make_package - 打包可执行程序工具](#make-package)
+* [工具使用指南](#工具使用指南)
+    * [检测工具 - MetDetPy 和 MetDetPhoto](#检测工具)
+    * [ClipToolkit - (批)图像堆栈或视频切片工具](#cliptoolkit)
+* [其他工具](#其他工具)
+    * [Evaluate - 性能评估，效果测试工具](#evaluate)
+    * [make_package - 打包可执行程序工具](#make-package)
 
-## ClipToolkit
+## 工具使用指南
+
+### 检测工具
+
+MetDetPy 提供了两种检测工具：`MetDetPy` 用于视频流星检测，`MetDetPhoto` 用于图像流星检测。这两个工具各有特点，适用于不同的使用场景。
+
+要了解如何使用这些检测工具，请参考 [检测工具使用指南](./tool-usage/Detector-usage-cn.md)。
+
+---
+
+### ClipToolkit
 
 `ClipToolkit`（切片工具）可用于一次性创建一个视频中的多段视频切片或这些视频段的堆栈图像。要了解如何使用该工具，请参考 [ClipToolkit 使用指南](./tool-usage/ClipToolkit-usage-cn.md)。
 
