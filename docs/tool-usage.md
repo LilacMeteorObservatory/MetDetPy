@@ -142,34 +142,51 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--d
 
 ## Package python codes to executables
 
-We provide [make_package.py](../make_package.py) to freeze MetDetPy programs into stand-alone executables. This tool supports `pyinstaller` or `nuitka` to package/compile MetDetPy (and related tools).
+We provide two packaging scripts to freeze MetDetPy programs into stand-alone executables:
 
-When using it, make sure that either `pyinstaller` or `nuitka` is installed. When using `nuitka`, ensure at least one C/C++ compiler is available on your computer.
+1. **[make_package.py](../make_package.py)** - Uses `nuitka` for compilation
+2. **[make_package_pyinstaller.py](../make_package_pyinstaller.py)** - Uses `pyinstaller` for packaging
 
-Its usage is as follows:
+Choose the one that best fits your needs.
+
+### Using Nuitka (make_package.py)
+
+When using `nuitka`, ensure at least one C/C++ compiler is available on your computer.
 
 ```sh
-python make_package.py [--tool {nuitka,pyinstaller}] [--mingw64]
-     [--apply-upx] [--apply-zip] [--version VERSION]
+python make_package.py [--mingw64] [--apply-upx] [--apply-zip]
      [--onefile]
 ```
 
-* `--tool`: your compile/package tool. It should be selected from {nuitka,pyinstaller}. `nuitka` is the default option.
+* `--mingw64`: use the mingw64 compiler. Only works on Windows.
 
-* `--mingw64`: use the mingw64 compiler. Only worked when using `nuitka` and your OS is windows.
+* `--apply-upx`: apply UPX to squeeze the size of the executable program.
 
-* `--apply-upx`: apply UPX to squeeze the size of the executable program. Only worked when using `nuitka`.
-
-* `--apply-zip`: generate zip package when compiling/packaging is finished.
-
-* `--version`: MetDetPy version tag. Used for naming zip package.
+* `--apply-zip`: generate zip package when compilation is finished.
 
 * `--onefile`: generate a single executable file (onefile mode). When using this mode, you need to ensure that the static resource folders (`config/`, `weights/`, `resource/`, `global/`) are placed next to the executable file, or use the `--resource-dir` / `-R` option to specify their location at runtime.
 
-The target executable file and its zip package version (if applied) will be generated in  [dist](./dist/)  directory.
+### Using PyInstaller (make_package_pyinstaller.py)
+
+```sh
+python make_package_pyinstaller.py [--apply-zip] [--onefile]
+     [--windowed] [--icon ICON_PATH]
+```
+
+* `--apply-zip`: generate zip package when packaging is finished.
+
+* `--onefile`: generate a single executable file (onefile mode).
+
+* `--windowed`: use windowed mode (no console) for GUI applications.
+
+* `--icon`: path to an icon file for the executable.
+
+### Common Notes
+
+The target executable file and its zip package version (if applied) will be generated in the [dist](./dist/) directory.
 
 **Notice:**
 
-1. It is suggested to use `Python>=3.9` and `nuitka>=2.0.0` to avoid compatibility issues when using the `nuitka` path. `pyinstaller` can also be used (ensure `pyinstaller>=5.0` if you choose it).
+1. It is suggested to use `Python>=3.9` and `nuitka>=2.0.0` when using `nuitka`. For `pyinstaller`, ensure `pyinstaller>=6.0`.
 2. Due to the nature of Python packaging, these tools cannot generate cross-platform executables; build the executable on the target platform.
 3. If `matplotlib` or `scipy` exists in the environment, they may be included in the packaged output. To reduce package size, prepare a clean environment or avoid installing heavy optional dependencies.

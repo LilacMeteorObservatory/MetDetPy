@@ -23,7 +23,7 @@ MetDetPy is a Python-based meteor detector project that detects meteors from vid
 
 ## Release Version
 
-You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release artifacts are packaged for common platforms (Windows, macOS). You can also build standalone executables yourself using `nuitka` (see [Package python codes to executables](./docs/tool-usage.md#package-python-codes-to-executables)).
+You can get the latest release version of MetDetPy [here](https://github.com/LilacMeteorObservatory/MetDetPy/releases). The release artifacts are packaged for common platforms (Windows, macOS). You can also build standalone executables yourself using `make_package.py` (nuitka) or `make_package_pyinstaller.py` (pyinstaller) - see [Package python codes to executables](./docs/tool-usage.md#package-python-codes-to-executables) for details.
 
 Besides, MetDetPy has worked as the backend of the Meteor Master since version 1.2.0. Meteor Master (AI) is a meteor detection software developed by [奔跑的龟斯](https://www.photohelper.cn), which has a well-established GUI, live streaming video support, convenient export function, automatic running, etc. You can get more information at [Meteor Master Official Site](https://www.photohelper.cn/MeteorMaster), or get its latest version from the Microsoft Store / App Store. Its earlier version can get from [Baidu NetDisk](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01)
 

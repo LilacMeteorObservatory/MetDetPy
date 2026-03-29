@@ -140,34 +140,51 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 
 ## 打包Python代码为可执行程序
 
-我们提供了 [make_package.py](../make_package.py) 来将MetDetPy打包为独立的可执行程序。该工具使用 `nuitka` 来打包/编译。
+我们提供了两个打包脚本将MetDetPy打包为独立的可执行程序：
 
-当使用该脚本时，请确保安装了 `nuitka` ，并确保在您的设备上有至少一个C/C++编译器可用。
+1. **[make_package.py](../make_package.py)** - 使用 `nuitka` 进行编译
+2. **[make_package_pyinstaller.py](../make_package_pyinstaller.py)** - 使用 `pyinstaller` 进行打包
 
-该工具的用法如下：
+你可以根据需要选择合适的脚本。
+
+### 使用 Nuitka（make_package.py）
+
+当使用 `nuitka` 时，请确保在您的设备上有至少一个C/C++编译器可用。
 
 ```sh
-python make_package.py [--tool {nuitka}] [--mingw64]
-     [--apply-upx] [--apply-zip] [--version VERSION]
+python make_package.py [--mingw64] [--apply-upx] [--apply-zip]
      [--onefile]
 ```
 
-* `--tool`: 使用的打包/编译工具。应当从 {nuitka,pyinstaller} 中选择。默认的编译器为 `nuitka` 。
+* `--mingw64`: 使用MinGW64作为编译器。该选项仅在Windows上生效。
 
-* `--mingw64`: 使用MinGW64作为编译器。该选项仅在Windows上使用 `nuitka` 进行编译时生效。
-
-* `--apply-upx`: 启用UPX以压缩可执行程序的大小。仅当使用 `nuitka` 进行编译时生效。
+* `--apply-upx`: 启用UPX以压缩可执行程序的大小。
 
 * `--apply-zip`: 打包完成时同时生成Zip压缩包。
 
-* `--version`: 指定 MetDetPy 的版本号（仅用于文件名中）。当空缺时默认使用 `./MetLib/utils.py` 中的版本号。
-
 * `--onefile`: 生成单文件可执行程序（onefile模式）。使用此模式时，需要确保静态资源文件夹（`config/`、`weights/`、`resource/`、`global/`）放置在可执行文件旁边，或在运行时使用 `--resource-dir` / `-R` 选项指定其位置。
+
+### 使用 PyInstaller（make_package_pyinstaller.py）
+
+```sh
+python make_package_pyinstaller.py [--apply-zip] [--onefile]
+     [--windowed] [--icon ICON_PATH]
+```
+
+* `--apply-zip`: 打包完成时同时生成Zip压缩包。
+
+* `--onefile`: 生成单文件可执行程序（onefile模式）。
+
+* `--windowed`: 使用窗口模式（无控制台）运行GUI应用程序。
+
+* `--icon`: 指定可执行文件的图标路径。
+
+### 通用说明
 
 目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
 
 注意：
 
-1. 建议使用 `Python>=3.9`, 且安装 `nuitka>=2.0.0` 以避免兼容性问题。
-
-2. 由于Python的特性，`nuitka` 均无法跨平台打包生成可执行文件。你只能打包当前平台的可执行程序。
+1. 建议使用 `Python>=3.9`, 且安装 `nuitka>=2.0.0`。使用 `pyinstaller` 时请确保 `pyinstaller>=6.0`。
+2. 由于Python的特性，这些工具均无法跨平台打包生成可执行文件。你只能打包当前平台的可执行程序。
+3. 如果你的环境中存在 `matplotlib` 或 `scipy`，它们可能会被打包进去。如果想要减小打包体积，请准备一个干净的环境或避免安装这些重量级依赖。
