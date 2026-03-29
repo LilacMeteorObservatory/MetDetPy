@@ -23,7 +23,7 @@ MetDetPy 可从直录视频或图像中检测流星。其视频检测受到[uzan
 
 ## 发行版
 
-你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS）。你也可以自行使用 `nuitka` 构建独立的可执行文件（见 [打包Python代码为可执行程序](./tool-usage-cn.md#打包Python代码为可执行程序))。
+你可以从 [Release](https://github.com/LilacMeteorObservatory/MetDetPy/releases) 处获取最新的MetDetPy发行版。发行版将 MetDetPy 进行了打包，可独立在主流平台运行（Windows，macOS）。你也可以自行使用 `make_package.py`（nuitka）或 `make_package_pyinstaller.py`（pyinstaller）构建独立的可执行文件（见 [打包Python代码为可执行程序](./tool-usage-cn.md#打包Python代码为可执行程序)）。
 
 此外，MetDetPy 从 Meteor Master 的 1.2.0 版本开始作为其后端。Meteor Master (AI)是由 [奔跑的龟斯](https://www.photohelper.cn) 开发的流星检测软件，在 MetDetPy 的基础上提供了完善的GUI，多种直播流支持，便捷的导出和自动启停等功能。可以从 [Meteor Master官方网站](https://www.photohelper.cn/MeteorMaster) 获取更多信息，或从微软商店/App Store获取其最新版。其早期版本可从 [百度网盘](https://pan.baidu.com/s/1B-O8h4DT89y_u1_YKXKGhA) (Access Code: jz01) 获取。
 
