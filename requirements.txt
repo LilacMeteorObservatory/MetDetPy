@@ -6,6 +6,7 @@ onnxruntime>=1.16.0
 av>=15.0.0
 dacite>=1.9.0
 pyexiv2>=2.12.0
+rawpy>=0.20.0
 
 # for windows user it is recommended to install:
 #onnxruntime-directml>=1.16.0

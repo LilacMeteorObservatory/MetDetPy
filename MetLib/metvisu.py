@@ -19,7 +19,6 @@ from .utils import COLOR_MAP, U8Mat, pt_offset
 DEFAULT_VISUAL_DELAY = 200
 DEFAULT_INTERRUPT_KEY = "q"
 DEFAULT_COLOR = "white"
-AS_INPUT = "as-input"
 
 # 描述初始位置
 # TODO: 稳健性需要更多测试
@@ -115,12 +114,12 @@ class BaseVisuAttrs(object):
 class ImgVisuAttrs(BaseVisuAttrs):
     weight: Optional[float] = None
     img: Optional[U8Mat] = None
-    color: Union[ColorTuple, str, LAZY_FLAG, None] = None
+    color: Union[ColorTuple, str, None] = None
     sync_attributes: list[str] = dataclasses.field(
         default_factory=lambda: ['weight', 'img', 'color'])
 
     def render(self, src_img: U8Mat, scaler: tuple[float, float]) -> U8Mat:
-        if self.weight is None or self.img is None or self.color == AS_INPUT:
+        if self.weight is None or self.img is None:
             self.not_ready_error_raiser()
         if len(self.img.shape) == 2:
             if self.color is not None:
@@ -145,7 +144,7 @@ class DrawVisuAttrs(BaseVisuAttrs):
 
 @dataclasses.dataclass
 class SquareColorPair(object):
-    dot_pair: tuple[list[int], list[int]]
+    dot_pair: Optional[tuple[list[int], list[int]]] = None
     color: Union[tuple[int, ...], ColorTuple, str, None] = None
     thickness: Optional[int] = None
 
@@ -163,10 +162,10 @@ class SquareColorPair(object):
 
 @dataclasses.dataclass
 class DrawRectVisu(DrawVisuAttrs):
-    pair_list: Union[list[SquareColorPair], LAZY_FLAG] = AS_INPUT
+    pair_list: Optional[list[SquareColorPair]] = None
 
     def render(self, src_img: U8Mat, scaler: tuple[float, float]):
-        if self.pair_list == AS_INPUT or self.thickness is None:
+        if self.thickness is None:
             self.not_ready_error_raiser()
         for pdata in self.pair_list:
             pdata.sync(self)
@@ -182,8 +181,8 @@ class DrawRectVisu(DrawVisuAttrs):
 
 @dataclasses.dataclass
 class DotColorPair(object):
-    dot: tuple[int, int]
-    color: Union[tuple[int, ...], ColorTuple, str, None]
+    dot: Optional[tuple[int, int]] = None
+    color: Union[tuple[int, ...], ColorTuple, str, None] = None
     radius: Optional[int] = None
 
     def sync(self, src: DrawCircleVisu):
@@ -200,13 +199,13 @@ class DotColorPair(object):
 
 @dataclasses.dataclass
 class DrawCircleVisu(DrawVisuAttrs):
-    dot_list: Union[list[DotColorPair], LAZY_FLAG] = AS_INPUT
+    dot_list: Optional[list[DotColorPair]] = None
     radius: Union[int, None] = None
     sync_attributes: list[str] = dataclasses.field(
         default_factory=lambda: ["color", "thickness", "radius"])
 
     def render(self, src_img: U8Mat, scaler: tuple[float, float]):
-        if self.dot_list == AS_INPUT or self.thickness is None:
+        if self.thickness is None:
             self.not_ready_error_raiser()
         for ddata in self.dot_list:
             ddata.sync(self)
@@ -221,7 +220,7 @@ class DrawCircleVisu(DrawVisuAttrs):
 
 @dataclasses.dataclass
 class TextColorPair(object):
-    text: str
+    text: Optional[str] = None
     position: Union[str, list[int], None] = None
     color: Union[ColorTuple, str, None] = None
 
@@ -239,7 +238,7 @@ class TextColorPair(object):
 
 @dataclasses.dataclass
 class TextVisu(BaseVisuAttrs):
-    text_list: Union[list[TextColorPair], LAZY_FLAG] = AS_INPUT
+    text_list: Optional[list[TextColorPair]] = None
     position: Union[list[int], str, LAZY_FLAG, None] = None
     color: Union[ColorTuple, str, LAZY_FLAG, None] = None
     font_face: Optional[int] = None
@@ -251,8 +250,8 @@ class TextVisu(BaseVisuAttrs):
         ["position", "color", "font_face", "font_scale", "font_thickness"])
 
     def render(self, src_img: U8Mat, scaler: tuple[float, float]) -> U8Mat:
-        if (self.text_list == AS_INPUT or self.font_face is None
-                or self.font_scale is None or self.font_thickness is None):
+        if (self.font_face is None or self.font_scale is None
+                or self.font_thickness is None):
             raise self.not_ready_error_raiser()
         for tdata in self.text_list:
             tdata.sync(self)
@@ -282,7 +281,6 @@ class OpenCVMetVisu(object):
                  flag: bool = True,
                  delay: int = DEFAULT_VISUAL_DELAY,
                  interrupt_key: str = DEFAULT_INTERRUPT_KEY,
-                 visu_param_list: Optional[list[BaseVisuAttrs]] = None,
                  mor_thickness: int = 2,
                  font_size: float = 0.5,
                  font_color: Optional[str] = None,
@@ -299,7 +297,6 @@ class OpenCVMetVisu(object):
             flag (bool, optional): Whether to show the debug window. Defaults to True.
             delay (int, optional): _description_. Defaults to DEFAULT_VISUAL_DELAY.
             interrupt_key (str, optional): _description_. Defaults to DEFAULT_INTERRUPT_KEY.
-            visu_param_list
             mor_thickness (int, optional): _description_. Defaults to 2.
             font_size (float, optional): _description_. Defaults to 0.5.
             font_color (Optional[str], optional): _description_. Defaults to None.
@@ -326,84 +323,11 @@ class OpenCVMetVisu(object):
         self.radius = radius
         self.dist2boarder = dist2boarder
         self.manual_stop = False
-        self.deafult_rect_config = DrawRectVisu("default",
-                                                color=self.font_color,
-                                                thickness=self.mor_thickness)
-        self.default_text_config = TextVisu("default",
-                                            position="as-input",
-                                            color=self.font_color,
-                                            font_face=self.fontface,
-                                            font_scale=self.font_size,
-                                            font_thickness=self.font_thickness)
         self.logger = get_default_logger()
-
-        # 默认的接口：仅时间。（BG图像不通过该接口解析）
-        # 还可以有：视频的基本信息。进度条。
-
-        self.visu_param: list[
-            BaseVisuAttrs] = visu_param_list if visu_param_list else []
-        self.visu_param.insert(
-            0, TextVisu(name="timestamp",
-                        position="left-bottom",
-                        color="white"))
-        self.init_visu_params(self.visu_param)
 
         # 准备图像使用的Transform
         self.img_expand_channel = Transform()
         self.img_expand_channel.expand_3rd_channel(3)
-
-    def init_visu_params(self, params: list[BaseVisuAttrs]):
-        """可视化参数初始化器。
-
-        Args:
-            params (list[BaseVisuAttrs]): _description_
-
-        Returns:
-            list[dict]: _description_
-        """
-        self.img_visu_param: list[ImgVisuAttrs] = []
-        self.draw_visu_param: list[DrawVisuAttrs] = []
-        self.text_visu_param: list[TextVisu] = []
-        img_w, img_h = self.resolution
-        # 位置累加器，按顺序解析并累加默认位置
-        text_pos_temp = {
-            k: [
-                int(w * img_w) + int(self.dist2boarder * dw),
-                int(h * img_h) + int(self.dist2boarder * dh)
-            ]
-            for (k, (w, h, dw, dh, _, _)) in POSITION_MAP.items()
-        }
-        text_offset = {
-            k: [int(ow * self.font_gap),
-                int(oh * self.font_gap)]
-            for (k, (_, _, _, _, ow, oh)) in POSITION_MAP.items()
-        }
-        # 主解析循环，填充默认值，简化绘制时的步骤。
-        for obj in params:
-            if not isinstance(obj, (ImgVisuAttrs, DrawVisuAttrs, TextVisu)):
-                self.logger.warning(
-                    f"Unrecognized visu type: {obj.__class__.__name__}. " +
-                    "Ignore to continue...")
-                continue
-            if isinstance(obj, ImgVisuAttrs):
-                self.img_visu_param.append(obj)
-                continue
-            # 对于绘制类和文字类的注册项，位置需要明确定义
-            # 但因为复用dataclass的初始化函数，定义时对此没有检查，仅有运行时检查。
-            if isinstance(obj, DrawVisuAttrs):
-                if isinstance(obj, DrawRectVisu):
-                    obj.sync(self.deafult_rect_config)
-                self.draw_visu_param.append(obj)
-            else:
-                obj.sync(self.default_text_config)
-                # 固定位置解析
-                if obj.position in POSITION_MAP:
-                    pos = obj.position
-                    # 更新临时位置后，将当前固定位置转换为坐标。
-                    text_pos_temp[pos] = pt_offset(text_pos_temp[pos],
-                                                   text_offset[pos])
-                    obj.position = text_pos_temp[pos]
-                self.text_visu_param.append(obj)
 
     def display_a_frame(self, base_img: U8Mat,
                         data_list: list[BaseVisuAttrs]) -> bool:
@@ -415,6 +339,52 @@ class OpenCVMetVisu(object):
         Returns:
             bool: 状态值，代表是否成功渲染并展示。
         """
+
+        # 固定位置文字的“多条错开”累加器：
+        # 旧版 init_visu_params 对同一 POSITION_MAP key 会按顺序累加 font_gap 偏移。
+        # 这里恢复这一行为，保证渲染效果一致。
+        img_w, img_h = self.resolution
+        text_pos_temp = {
+            k: [
+                int(w * img_w) + int(self.dist2boarder * dw),
+                int(h * img_h) + int(self.dist2boarder * dh),
+            ]
+            for (k, (w, h, dw, dh, _, _)) in POSITION_MAP.items()
+        }
+        text_offset = {
+            k: [int(ow * self.font_gap), int(oh * self.font_gap)]
+            for (k, (_, _, _, _, ow, oh)) in POSITION_MAP.items()
+        }
+
+        def _resolve_text_position(text: TextVisu):
+            """把 POSITION_MAP 的字符串位置解析为像素坐标。"""
+            if isinstance(text.position,
+                          str) and text.position in POSITION_MAP:
+                # 与旧版一致：先累加，再返回（保证“第一条”也有 1 * font_gap 偏移）。
+                pos_key = text.position
+                text_pos_temp[pos_key] = pt_offset(
+                    text_pos_temp[pos_key], text_offset[pos_key])
+                return text_pos_temp[pos_key]
+            return text.position
+
+        def _fill_text_defaults(text: TextVisu):
+            text.font_face = self.fontface if text.font_face is None else text.font_face
+            text.font_scale = self.font_size if text.font_scale is None else text.font_scale
+            text.font_thickness = self.font_thickness if text.font_thickness is None else text.font_thickness
+            text.color = self.font_color if text.color is None else text.color
+            text.position = _resolve_text_position(text)
+
+        def _fill_draw_defaults(draw: DrawVisuAttrs):
+            # DrawRectVisu / DrawCircleVisu 的 dataclass 在 render 时依赖 thickness/radius/color 等字段。
+            draw.thickness = self.mor_thickness if draw.thickness is None else draw.thickness
+            draw.color = self.font_color if draw.color is None else draw.color
+            if isinstance(draw, DrawCircleVisu):
+                draw.radius = self.radius if draw.radius is None else draw.radius
+
+        def _fill_img_defaults(img: ImgVisuAttrs):
+            if img.weight is None:
+                img.weight = 1.0
+
         # 通过键盘中断时返回失败信号
         # 如果不渲染则固定返回成功
         if not self.flag:
@@ -424,9 +394,6 @@ class OpenCVMetVisu(object):
             self.manual_stop = True
             return False
 
-        data = {d.name: d for d in data_list}
-
-        ### 基础图像预处理
         # 转换灰度图像为BGR图像。
         if len(base_img.shape) == 2:
             base_img = cv2.cvtColor(base_img, cv2.COLOR_GRAY2BGR)
@@ -437,38 +404,35 @@ class OpenCVMetVisu(object):
             scaler = (base_img.shape[1] / self.resolution[0],
                       base_img.shape[0] / self.resolution[1])
             base_img = cv2.resize(base_img, self.resolution)
-        # 渲染顺序：优先所有img，然后绘图，最后是text
-        # img: 仅支持在背景上继续叠加。
-        for img_visu in self.img_visu_param:
-            key = img_visu.name
-            # 跳过不渲染（或缺失）的值
-            # TODO: 检查一下：是否所有都必须要在data中带值？存在一定展示的项，不需要存在于data中吗?下同。
-            if not key in data:
-                continue
-            runtime_visu = data[key]
-            runtime_visu.sync(img_visu)
-            base_img = runtime_visu.render(base_img, scaler)
-        # 绘图类操作
-        # 工作流高度相似的现在，是不是还可以进一步简化一下...
-        for draw_visu in self.draw_visu_param:
-            key = draw_visu.name
-            # 跳过不渲染（或缺失）的值
-            # TODO: 检查一下：是否所有都必须要在data中带值？存在一定展示的项，不需要存在于data中吗
-            if not key in data:
-                continue
-            runtime_draw = data[key]
-            runtime_draw.sync(draw_visu)
-            base_img = runtime_draw.render(base_img, scaler)
 
-        for text_visu in self.text_visu_param:
-            key = text_visu.name
-            # 跳过不渲染（或缺失）的值
-            # TODO: 检查一下：是否所有都必须要在data中带值？存在一定展示的项，不需要存在于data中吗
-            if not key in data:
-                continue
-            runtime_text = data[key]
-            runtime_text.sync(text_visu)
-            base_img = runtime_text.render(base_img, scaler)
+        # 渲染顺序：img -> draw -> text
+        img_list: list[ImgVisuAttrs] = []
+        draw_list: list[DrawVisuAttrs] = []
+        text_list: list[TextVisu] = []
+        for obj in data_list:
+            if isinstance(obj, ImgVisuAttrs):
+                img_list.append(obj)
+            elif isinstance(obj, DrawVisuAttrs):
+                draw_list.append(obj)
+            elif isinstance(obj, TextVisu):
+                text_list.append(obj)
+            else:
+                self.logger.warning(
+                    f"Unrecognized visu type: {obj.__class__.__name__}. Ignore."
+                )
+
+        # img: 仅支持在背景上继续叠加。
+        for img_visu in img_list:
+            _fill_img_defaults(img_visu)
+            base_img = img_visu.render(base_img, scaler)
+
+        for draw_visu in draw_list:
+            _fill_draw_defaults(draw_visu)
+            base_img = draw_visu.render(base_img, scaler)
+
+        for text_visu in text_list:
+            _fill_text_defaults(text_visu)
+            base_img = text_visu.render(base_img, scaler)
 
         # TODO: Add "save_sample_img / save_detect_video" function for debug.
         cv2.imshow(

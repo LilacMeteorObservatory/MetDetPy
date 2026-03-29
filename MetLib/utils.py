@@ -401,8 +401,7 @@ class Uint8EMA(EMA):
             self.adjust_weight()
         value_copy = np.array(value, dtype=np.int16)
         self.cur_value = (self.cur_momentum * self.cur_value +
-                          (1 - self.cur_momentum) * value_copy).astype(
-                              np.uint8)
+                          (1 - self.cur_momentum) * value_copy)
         self.t += 1
 
     def adjust_weight(self) -> None:
@@ -668,6 +667,31 @@ def ts2frame(time: str, fps: float) -> int:
         dt = datetime.datetime.strptime(time, "%H:%M:%S")
     dt_time = dt.hour * 60**2 + dt.minute * 60**1 + dt.second + dt.microsecond / 1e6
     return int(round(dt_time * fps))
+
+
+def adjust_ts(time_str: str, offset_sec: float, fps: float) -> str:
+    """对时间字符串进行偏移调整。
+
+    Args:
+        time_str (str): 时间字符串，格式为 "HH:MM:SS" 或 "HH:MM:SS.MS"
+        offset_sec (float): 偏移秒数，正数向后偏移，负数向前偏移
+        fps (float): 视频帧率
+
+    Returns:
+        str: 偏移后的时间字符串
+
+    Example:
+        adjust_ts("00:00:02.56", 0.5, 25) -> "00:00:02.580"
+        adjust_ts("00:00:02.56", -0.5, 25) -> "00:00:02.540"
+    """
+    # 将时间字符串转换为帧号
+    frame = ts2frame(time_str, fps)
+    # 计算偏移帧数
+    offset_frame = int(round(offset_sec * fps))
+    # 应用偏移
+    adjusted_frame = max(0, frame + offset_frame)
+    # 转换回时间字符串
+    return frame2ts(adjusted_frame, fps)
 
 
 def time2frame(time: int, fps: float) -> int:
