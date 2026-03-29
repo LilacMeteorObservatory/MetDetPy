@@ -160,7 +160,7 @@ The `loader` section controls video input and pre-processing. Example:
     "wrapper": "OpenCVVideoWrapper",
     "resize": 960,
     "exp_time": "auto",
-    "upper_bound": 0.5,
+    "upper_bound": 0.34,
     "merge_func": "max",
     "grayscale": true
 }
@@ -174,7 +174,7 @@ Fields:
 |`wrapper`|str|Underlying video wrapper/backend. Currently supports `"OpenCVVideoWrapper"` and `"PyAVVideoWrapper"`.|`"OpenCVVideoWrapper"`|
 |`resize`|int, array, str|Target resolution for detection. An integer sets the long side length (e.g. `960`) and preserves aspect ratio; a string like `"960:540"` or `"960x540"` or a list `[960,540]` is also accepted.|`960`|
 |`exp_time`|float or str (`"auto"`,`"slow"`,`"real-time"`)|Exposure time per frame in seconds. For classic detectors, `"auto"` lets the program estimate exposure from the clip. Use `"real-time"` when exposures match frame spacing. You may also provide a float value in seconds.|`"auto"` (line detectors) / `0.5` (MLDetector)|
-|`upper_bound`|float (optional)|Upper bound used by `"auto"` exposure estimation. Optional.|`0.5`|
+|`upper_bound`|float (optional)|Upper bound used by `"auto"` exposure estimation. Optional.|`0.34`|
 |`merge_func`|str|How to merge multiple source frames when actual exposure spans multiple frames. Options: `"max"`, `"m3func"`, `"mix_max_median_stacker"`. `"max"` is recommended for meteors.|`"max"`|
 |`grayscale`|bool|Whether to convert frames to grayscale on load. Must be `true` for line-based detectors; for deep-learning detectors use `false`.|`true` (line) / `false` (ML)|
 

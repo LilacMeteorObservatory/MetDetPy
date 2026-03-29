@@ -7,7 +7,7 @@ import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.collector import MeteorCollector
-from MetLib.Detector import (BaseDetector, DiffAreaGuidingDetecor,
+from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
@@ -17,8 +17,8 @@ from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
-                          SWITCH2BOOL, VERSION, frame2time,
-                          frame2ts, get_num_class, relative2abs_path, set_resource_dir)
+                          SWITCH2BOOL, VERSION, frame2time, frame2ts,
+                          get_num_class, relative2abs_path, set_resource_dir)
 
 
 def detect_video(video_name: str,
@@ -116,6 +116,21 @@ def detect_video(video_name: str,
         # wait for logger clear
         while not logger.is_empty:
             continue
+
+        # 对于 M3Detector 类型检测器，需要 window_sec * fps >= 3，否则帧差法可能无法正常工作。
+        if issubclass(DetectorCls, M3Detector) and (cfg.detector.window_sec *
+                                                    rt_param.eq_fps < 3):
+            # 如果原始fps就偏低（<3），即使不进行帧合并也无法运行，抛出错误
+            if video_loader.fps < 3:
+                raise ValueError(
+                    "You are using M3Det detector, but the video FPS is too low (less than 3). "
+                    f"{DetectorCls.__name__} cannot work for this video. Consider increasing the video FPS"
+                    " or using the deep learning detector (DLDet) instead.")
+            else:
+                logger.info(
+                    f"The calculated video equivalent FPS is {rt_param.eq_fps:.2f}. This may be too slow "
+                    f"for {DetectorCls.__name__}. If this estimate seems inaccurate, consider inputting "
+                    "the actual FPS value instead.")
 
         # Init detector
         cfg_det = cfg.detector
@@ -241,14 +256,14 @@ if __name__ == "__main__":
         'target',
         help="input video. Support common video encoding like H264, HEVC, etc."
     )
-    parser.add_argument(
-        '--cfg',
-        '-C',
-        help="Path to the config file.",
-        default=None)
+    parser.add_argument('--cfg',
+                        '-C',
+                        help="Path to the config file.",
+                        default=None)
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
     parser.add_argument(
-        '--resource-dir', '-R',
+        '--resource-dir',
+        '-R',
         help="Path to the resource folder (config/weights/resource/global).",
         default=None)
 
@@ -334,7 +349,7 @@ if __name__ == "__main__":
                         help="Save detection results as a json file.")
 
     args = parser.parse_args()
-    
+
     if args.resource_dir:
         set_resource_dir(args.resource_dir)
 
