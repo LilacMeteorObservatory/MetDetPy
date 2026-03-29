@@ -564,11 +564,12 @@ Key fields and recommended defaults are documented in `../global/clip_cfg.json`.
 |`with_annotation`|bool|Include annotation files in exports.|false|
 |`bbox_color`|list|Default bounding box color in BGR order.|[255,0,0]|
 |`bbox_thickness`|int|BBox thickness.|2|
+|`clip_padding`|ClipPaddingOption|Extra time padding before/after clip boundaries.|See [Clip Padding](#clip-padding)|
 |`ffmpeg_config`|FFMpegConfig|FFMpeg video encoding configuration (when using `FFMpegVideoWriter`).|See [FFMpeg Config](#ffmpeg-config)|
 
 #### Filter Rules
 
-Filter rules are used to filter detection results during export. Fields:
+Filter rules are used to filter detection results during export, applied in both image and video export flows. Fields:
 
 |Field|Type|Description|Recommended|
 |---|---|---|---|
@@ -576,6 +577,20 @@ Filter rules are used to filter detection results during export. Fields:
 |`threshold`|float|Confidence threshold; results below this value will be filtered.|0.0|
 |`min_length_ratio`|float|Minimum length ratio threshold; results below this value will be filtered (relative to image long side).|0.0|
 |`exclude_category_list`|list[str]|List of categories to exclude.|[]|
+
+Notes:
+
+* If `ClipToolkit` is invoked with `--enable-filter-rules` or `--disable-filter-rules`, that CLI flag overrides this `switch` value.
+* If no valid target remains after filtering, the corresponding export task is skipped.
+
+#### Clip Padding
+
+Clip padding controls extra time offsets around each clip boundary.
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`before`|float|Padding before clip start (seconds). Positive values expand earlier; negative values shrink forward.|0.0|
+|`after`|float|Padding after clip end (seconds). Positive values expand later; negative values shrink backward.|0.0|
 
 #### FFMpeg Config
 

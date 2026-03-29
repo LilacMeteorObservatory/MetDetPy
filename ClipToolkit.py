@@ -14,7 +14,7 @@ ClipToolkit 可用于一次性创建一个视频中的多段视频切片或视�
     示例：python ClipToolkit.py execution_result.json --mode video
 
 可选参数：
-[--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING]
+[--mode {image,video}] [--suffix SUFFIX] [--save-path SAVE_PATH] [--resize RESIZE] [--jpg-quality JPG_QUALITY] [--png-compressing PNG_COMPRESSING] [--padding-before PADDING_BEFORE] [--padding-after PADDING_AFTER]
 
 """
 
@@ -39,7 +39,8 @@ from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest,
                               SimpleTarget, VideoFrameData)
 from MetLib.stacker import (all_stacker, max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
-from MetLib.utils import CLIP_CONFIG_PATH, U8Mat, frame2ts, pt_len, set_resource_dir, ts2frame
+from MetLib.utils import (CLIP_CONFIG_PATH, U8Mat, adjust_ts, frame2ts, pt_len,
+                           set_resource_dir, ts2frame)
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI", "MP4"]
@@ -53,6 +54,7 @@ AVAILABLE_STACKER_MAPPING = {
     MFNR: mfnr_mix_stacker,
     SDS: simple_denoise_stacker
 }
+BUILTIN_NEGATIVE_CATEGORIES = {"DROPPED", "OTHERS"}
 
 
 def adaptive_font_param(img: U8Mat) -> dict[str, int]:
@@ -77,6 +79,12 @@ def update_cfg_from_args(base_cfg: ClipCfg, args: argparse.Namespace):
     base_cfg.export.png_compressing = args.png_compressing
     base_cfg.export.with_bbox = args.with_bbox
     base_cfg.export.with_annotation = args.with_annotation
+    if args.padding_before is not None:
+        base_cfg.export.clip_padding.before = args.padding_before
+    if args.padding_after is not None:
+        base_cfg.export.clip_padding.after = args.padding_after
+    if args.filter_rules_switch is not None:
+        base_cfg.export.filter_rules.switch = args.filter_rules_switch
 
 
 def draw_target(img: U8Mat, target_list: Optional[list[SimpleTarget]],
@@ -220,19 +228,20 @@ def parse_input(target_name: str, json_str: Optional[str], logger: BaseMetLog,
         return target_name, request_list
 
 
-def any_valid_target(target_list: list[SimpleTarget],
-                     filter_rules: FilterRules, diag_length: int):
-    """check if there is any target in the target_list should not be filtered by rules.
 
-    Args:
-        target_list (list[SimpleTarget]): list of simple targets
-        filter_rules (FilterRules): _description_
-        diag_length (int): _description_
-
-    Returns:
-        _type_: _description_
-    """
+def filter_targets(target_list: Optional[list[SimpleTarget]],
+                   filter_rules: FilterRules,
+                   diag_length: int) -> list[SimpleTarget]:
+    """Filter targets by export rules and return retained targets."""
+    if target_list is None:
+        return []
+    if diag_length <= 0:
+        return []
+    retained_targets: list[SimpleTarget] = []
     for target in target_list:
+        # Always exclude built-in negative classes once filtering is enabled.
+        if target.preds in BUILTIN_NEGATIVE_CATEGORIES:
+            continue
         if target.preds in filter_rules.exclude_category_list:
             continue
         if target.prob is None or float(target.prob) < filter_rules.threshold:
@@ -240,8 +249,8 @@ def any_valid_target(target_list: list[SimpleTarget],
         if pt_len(target.pt1,
                   target.pt2) / diag_length < filter_rules.min_length_ratio:
             continue
-        return True
-    return False
+        retained_targets.append(target)
+    return retained_targets
 
 
 def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
@@ -261,6 +270,7 @@ def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
         for frame_data in data:
             image_data = None
             diag_length = 0
+            target_list = frame_data.target_list
             # NOTE: 兼容旧输出格式的设计（缺少img_size字段）
             # 新MDRF 会携带 img_size 字段，无需加载图像; 旧版本则需要预先加载图像。
             # v3.0.0后放弃对旧输出格式的兼容。
@@ -274,9 +284,11 @@ def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
                 diag_length = pt_len([0, 0], list(image_data.shape[:2]))
                 frame_data.img_size = image_data.shape[:2][1::-1]
 
+            if filter_rules.switch:
+                target_list = filter_targets(frame_data.target_list,
+                                             filter_rules, diag_length)
             # 如果所有target都被过滤规则过滤，则跳过
-            if filter_rules.switch and not any_valid_target(
-                    frame_data.target_list, filter_rules, diag_length):
+            if filter_rules.switch and not target_list:
                 logger.info(
                     f"Skip {frame_data.img_filename} because no valid target in this image."
                 )
@@ -290,8 +302,7 @@ def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
                                                  raw_cfg, logger)
                     if image_data is None:
                         continue
-                image_data = draw_target(image_data, frame_data.target_list,
-                                         export_cfg)
+                image_data = draw_target(image_data, target_list, export_cfg)
                 # 保存图像到目标路径下
                 if is_ext_within(full_path, SUPPORT_RAW_FORMAT):
                     logger.warning(
@@ -311,6 +322,7 @@ def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
                 logger.info(f"Copied: {full_path}")
             # 在有target的情况下，同时生成labelme风格的标注
             if export_cfg.with_annotation:
+                frame_data.target_list = target_list
                 res_dict = frame_data.to_labelme()
                 if res_dict:
                     anno_path = replace_path_ext(full_path, "json")
@@ -405,6 +417,22 @@ def main():
     argparser.add_argument("--with-bbox",
                            action="store_true",
                            help="draw bounding box contours with red line.")
+    filter_rule_group = argparser.add_mutually_exclusive_group()
+    filter_rule_group.add_argument(
+        "--enable-filter-rules",
+        dest="filter_rules_switch",
+        action="store_true",
+        help=
+        "enable export.filter_rules.switch from command line and override config."
+    )
+    filter_rule_group.add_argument(
+        "--disable-filter-rules",
+        dest="filter_rules_switch",
+        action="store_false",
+        help=
+        "disable export.filter_rules.switch from command line and override config."
+    )
+    argparser.set_defaults(filter_rules_switch=None)
 
     argparser.add_argument("--debayer",
                            action="store_true",
@@ -418,6 +446,17 @@ def main():
     argparser.add_argument("--resource-dir", "-R",
                            type=str,
                            help="Path to the resource folder (config/weights/resource/global).",
+                           default=None)
+
+    argparser.add_argument("--padding-before",
+                           type=float,
+                           help="padding time before the clip start (in seconds). "
+                           "Overrides the config file setting.",
+                           default=None)
+    argparser.add_argument("--padding-after",
+                           type=float,
+                           help="padding time after the clip end (in seconds). "
+                           "Overrides the config file setting.",
                            default=None)
 
     args = argparser.parse_args()
@@ -442,6 +481,7 @@ def main():
 
     denoise_cfg = clip_cfg.image_denoise
     export_cfg = clip_cfg.export
+    filter_rules = export_cfg.filter_rules
 
     # 获取Logger
     logger = get_default_logger()
@@ -477,6 +517,7 @@ def main():
     video_loader = VideoLoaderCls(VideoWrapperCls,
                                   video_name,
                                   resize_option=None,
+                                  hwaccel=None,
                                   exp_option="real-time",
                                   resize_interpolation=cv2.INTER_LANCZOS4,
                                   debayer=args.debayer,
@@ -506,6 +547,35 @@ def main():
             if video_frame.end_time is None:
                 video_frame.end_time = frame2ts(video_loader.end_frame,
                                                 video_loader.fps)
+            # 应用 clip_padding 补偿
+            if export_cfg.clip_padding.before != 0.0:
+                video_frame.start_time = adjust_ts(
+                    video_frame.start_time,
+                    -export_cfg.clip_padding.before,
+                    video_loader.fps)
+            if export_cfg.clip_padding.after != 0.0:
+                video_frame.end_time = adjust_ts(
+                    video_frame.end_time,
+                    export_cfg.clip_padding.after,
+                    video_loader.fps)
+
+            # 边界检查：确保时间戳在视频有效范围内
+            start_frame = ts2frame(video_frame.start_time, video_loader.fps)
+            end_frame = ts2frame(video_frame.end_time, video_loader.fps)
+            if start_frame < 0:
+                logger.warning(
+                    f"Clip start_time {video_frame.start_time} (frame {start_frame}) "
+                    f"is before video start. Clipping to video start.")
+                video_frame.start_time = frame2ts(0,
+                                                  video_loader.fps)
+
+            if end_frame > video_loader.video_total_frames:
+                logger.warning(
+                    f"Clip end_time {video_frame.end_time} (frame {end_frame}) "
+                    f"is after video end. Clipping to video end.")
+                video_frame.end_time = frame2ts(video_loader.video_total_frames,
+                                                video_loader.fps)
+
             # 如果未给定名称则使用缺省名称
             tgt_name = video_frame.saved_filename if video_frame.saved_filename else f"{video_name_pure}_{video_frame.start_time}-{video_frame.end_time}.{default_suffix}"
             tgt_name = tgt_name.replace(":", "_")
@@ -524,6 +594,20 @@ def main():
             video_loader.reset(
                 ts2frame(video_frame.start_time, video_loader.fps),
                 ts2frame(video_frame.end_time, video_loader.fps))
+            frame_target_list = video_frame.target_list
+            if filter_rules.switch:
+                diag_length = 0
+                if video_frame.video_size is not None:
+                    diag_length = pt_len([0, 0], list(video_frame.video_size))
+                else:
+                    diag_length = pt_len([0, 0], video_loader.raw_size)
+                frame_target_list = filter_targets(video_frame.target_list,
+                                                   filter_rules, diag_length)
+                if not frame_target_list:
+                    logger.debug(
+                        f"Skip {video_frame.saved_filename} because no valid target in this clip."
+                    )
+                    continue
 
             if cur_mode == IMAGE_MODE:
                 results = None
@@ -543,7 +627,7 @@ def main():
                         f"and end-time={video_loader.end_time}.")
                     continue
                 if export_cfg.with_bbox:
-                    results = draw_target(results, video_frame.target_list,
+                    results = draw_target(results, frame_target_list,
                                           clip_cfg.export)
                 # img save
                 if results is not None:
@@ -558,6 +642,7 @@ def main():
                     logger.error("Error occured, got empty image.")
                 # 在有target的情况下，同时生成labelme风格的标注
                 if export_cfg.with_annotation:
+                    video_frame.target_list = frame_target_list
                     res_dict = video_frame.to_labelme()
                     anno_path = replace_path_ext(video_frame.saved_filename,
                                                  "json")
@@ -569,7 +654,7 @@ def main():
                     img_series = all_stacker(video_loader, logger=logger)
                     if img_series is not None:
                         post_img_series = [
-                            draw_target(img, video_frame.target_list,
+                            draw_target(img, frame_target_list,
                                         clip_cfg.export) for img in img_series
                         ]
                         status_code = VideoWriterCls.save_video_with_audio(

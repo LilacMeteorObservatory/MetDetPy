@@ -469,7 +469,13 @@ class ExportOption {
     with_annotation: bool
     bbox_color: list[int]
     bbox_thickness: int
+    clip_padding: ClipPaddingOption
     ffmpeg_config: FFMpegConfig
+}
+
+class ClipPaddingOption {
+    before: float
+    after: float
 }
 
 class ConnectParam {
@@ -518,8 +524,25 @@ ClipCfg --> ExportOption : export
 DenoiseOption --> ConnectParam : connect_lines
 DenoiseOption --> SimpleDenoiseParam : simple_param
 DenoiseOption --> MFNRDenoiseParam : mfnr_param
+ExportOption --> ClipPaddingOption : clip_padding
 ```
 
+### 视频写入器配置
+
+ClipToolkit 通过配置文件中的 `writer` 字段指定视频写入器（VideoWriter）。不同的视频写入器支持不同的视频格式和功能：
+
+| VideoWriter | 支持导出格式 | 音频复制 | 参数配置 |
+|-------------|------------|---------|---------|
+| OpenCVVideoWriter | 仅支持 `.avi` 格式 | 不支持 | 不支持 |
+| PyAVVideoWriter（发行版本） | 只能导出 `.avi` 格式 | 不支持 | 不支持 |
+| PyAVVideoWriter（自行构建） | 支持 PyAV 支持的所有格式 | 部分支持 | 有限支持 |
+| FFMpegVideoWriter（推荐） | 支持 FFMpeg 支持的所有格式（mp4, mkv, avi 等） | 完整支持音频复制和转码 | 完整支持所有导出配置 |
+
+### 配置 FFMpegVideoWriter
+
+当使用 `FFMpegVideoWriter` 时，需要在配置文件的 `export.ffmpeg_config` 部分配置 FFMpeg 相关参数。
+
+> 详见 [ffmpeg配置](../config-doc-cn.md#ffmpeg配置ffmpegconfig)
 
 ### 图像降噪配置
 支持在导出图像时对导出图像进行后处理，降低图像噪点，连接可能存在的断线等。具体配置如下：
@@ -656,11 +679,12 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 |with_annotation|bool|导出时是否默认需要带上标注文件|false|
 |bbox_color|list|默认标注框颜色(BGR顺序)|[255,0,0]|
 |bbox_thickness|int|标注框粗细|2|
+|clip_padding|ClipPaddingOption|视频片段前后额外补偿的时间配置|见[时间补偿配置](#时间补偿配置clippaddingoption)|
 |ffmpeg_config|FFMpegConfig|FFMpeg视频编码配置（仅在启用 FFMpegVideoWriter 时生效）|见[FFMpeg配置](#ffmpeg配置)|
 
 #### 过滤规则配置/FilterRules
 
-过滤规则用于在导出时过滤检测结果。其各项参数说明如下：
+过滤规则用于在导出时过滤检测结果，会同时作用于图像导出和视频导出流程。其各项参数说明如下：
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
@@ -668,6 +692,25 @@ DenoiseOption --> MFNRDenoiseParam : mfnr_param
 |threshold|float|置信度阈值，低于该值的检测结果将被过滤|0.0|
 |min_length_ratio|float|最小长度比例阈值，低于该值的检测结果将被过滤（相对于图像长边）|0.0|
 |exclude_category_list|list[str]|需要排除的类别列表|[]|
+
+说明：
+
+* 若通过 `ClipToolkit` 命令行显式使用 `--enable-filter-rules` 或 `--disable-filter-rules`，将覆盖此处 `switch` 的配置值。
+* 若过滤后无有效目标，当前导出任务会被跳过。
+
+#### 时间补偿配置/ClipPaddingOption
+
+时间补偿配置用于在每个视频片段的起始和结束时间前后额外补偿指定的时间长度。其各项参数说明如下：
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|before|float|开始时间前补偿的时间长度（秒）。正数表示向前扩展，负数表示向后收缩。|0.0|
+|after|float|结束时间后补偿的时间长度（秒）。正数表示向后扩展，负数表示向前收缩。|0.0|
+
+**注意事项**：
+- 当补偿后的时间戳超出视频边界时，程序会自动裁剪到视频的有效范围，并输出警告日志
+- 文件名使用裁剪后的时间戳生成，确保时间戳的合法性
+- 该配置对所有导出模式（图像/视频）均生效
 
 #### FFMpeg配置/FFMpegConfig
 

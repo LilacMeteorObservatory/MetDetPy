@@ -15,24 +15,23 @@ def crop_with_box(img: U8Mat, roi: Box):
 
 
 def calc_roi_gradient(img: U8Mat, mask: Optional[NDArray[np.bool_]] = None):
-    if len(img.shape) == 3 and img.shape[-1] == 3:
+    if img.ndim == 3 and img.shape[-1] == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    dx_img = np.array(img, copy=True)
-    dx_img[:-1] = dx_img[1:]
-    dy_img = np.array(img, copy=True)
-    dy_img[:, 1:] = dy_img[:, :-1]
-    Ix = img.astype(np.int16) - dx_img
-    Iy = img.astype(np.int16) - dy_img
-    Ia = np.arctan2(Ix, Iy)
-    weight = np.sqrt(Ix.astype(np.int64)**2 + Iy.astype(np.int64)**2)
-    if mask:
-        weight = weight * mask
+    gx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)  # dI/dx
+    gy = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)  # dI/dy
+    Ia = np.arctan2(-gy, gx) % np.pi
+    weight = np.hypot(gx, gy)
+    if mask is not None:
+        weight = weight * (mask.astype(weight.dtype))
+    else:
+        high_weight = np.percentile(weight, 95)
+        weight = weight * (weight>high_weight)
     sum_weight = np.sum(weight)
+    if sum_weight == 0:
+        return float('nan')
     complex_sum = np.sum(weight * np.exp(1j * Ia))
-    with np.errstate(divide='ignore', invalid='ignore'):
-        mean_complex = complex_sum / sum_weight
-    mean_angle = np.angle(mean_complex)
-    return mean_angle % (2 * np.pi)
+    mean_angle = np.angle(complex_sum / sum_weight)
+    return float(mean_angle % (2 * np.pi))
 
 
 def calc_brightness_with_roi(img: U8Mat,
