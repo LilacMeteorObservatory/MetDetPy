@@ -59,40 +59,12 @@ def get_hidden_imports() -> list[str]:
         "PIL.Image",
         "PIL.ImageTk",
         "pyexiv2",
-        "PyQt5",
-        "PyQt5.QtCore",
-        "PyQt5.QtGui",
-        "PyQt5.QtWidgets",
-        "skimage",
-        "skimage.io",
-        "skimage.transform",
         "uuid",
         "pyexpat",
         "xml.etree.ElementTree",
-        "xml.etree.ElementInclude",
-        "xml.etree.ElementPath",
-        "xml.etree.ElementTree",
         "pkg_resources",
         "pkg_resources.extern",
-        "pkg_resources._vendor",
-        "pkg_resources._vendor.importlib_resources",
-        "pkg_resources._vendor.importlib_resources.abc",
-        "setuptools._vendor",
-        "setuptools._vendor.importlib_resources",
-        "setuptools._vendor.importlib_resources.abc",
     ]
-    try:
-        import mediapipe as mp
-        hidden_imports.append("mediapipe")
-        hidden_imports.append("mediapipe.python")
-        hidden_imports.append("mediapipe.tasks.python")
-    except ImportError:
-        pass
-    try:
-        import dfl
-        hidden_imports.append("dfl")
-    except ImportError:
-        pass
     return hidden_imports
 
 
