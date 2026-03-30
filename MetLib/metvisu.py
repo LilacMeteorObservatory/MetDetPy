@@ -273,6 +273,148 @@ class TextVisu(BaseVisuAttrs):
         return src_img
 
 
+# 4个角落的锚点位置（占画面比例）和图表展开方向
+# key: corner名称, value: (anchor_x比例, anchor_y比例, 展开方向x, 展开方向y)
+# 展开方向 1=向右/向下, -1=向左/向上
+CHART_CORNER_MAP: dict[str, tuple[float, float, int, int]] = {
+    "left-top": (0, 0, 1, 1),
+    "right-top": (1, 0, -1, 1),
+    "left-bottom": (0, 1, 1, -1),
+    "right-bottom": (1, 1, -1, -1),
+}
+
+CHART_PADDING = 5       # 图表上/右/下内边距（像素）
+CHART_PADDING_LEFT = 38 # 图表左侧内边距，留给 Y 轴标注
+CHART_MARGIN = 8        # 图表与画面边缘的距离（像素）
+CHART_FONT_SCALE = 0.7
+CHART_FONT_FACE = cv2.FONT_HERSHEY_PLAIN
+
+
+@dataclasses.dataclass
+class TimeSeriesChartVisu(BaseVisuAttrs):
+    """调用方每帧传入的轻量更新包。
+
+    结构参数（仅首次注册时生效）：corner, chart_w, chart_h, max_points
+    渲染参数（每帧读取）：y_min, y_max, label, line_color, bg_alpha
+    """
+    current_value: float = 0.0
+    # 结构参数
+    corner: str = "right-bottom"
+    chart_w: int = 200
+    chart_h: int = 100
+    max_points: int = 100
+    # 渲染参数
+    y_min: Optional[float] = None
+    y_max: Optional[float] = None
+    label: Optional[str] = None
+    line_color: Union[ColorTuple, str] = "green"
+    bg_alpha: float = 0.5
+
+    def render(self, src_img: U8Mat, scaler: tuple[float, float]) -> U8Mat:  # noqa: ARG002
+        raise RuntimeError(
+            "TimeSeriesChartVisu is a lightweight update packet and cannot render directly. "
+            "Use OpenCVMetVisu to manage chart rendering via the registry.")
+
+
+@dataclasses.dataclass
+class TimeSeriesChartHandle(object):
+    """由 OpenCVMetVisu 内部持有的有状态图表实例，负责维护历史缓冲区并执行渲染。"""
+    name: str
+    corner: str
+    chart_w: int
+    chart_h: int
+    max_points: int
+
+    _buffer: list[float] = dataclasses.field(default_factory=lambda: [], init=False)
+
+    def push(self, value: float):
+        self._buffer.append(value)
+        if len(self._buffer) > self.max_points:
+            self._buffer.pop(0)
+
+    def render(self, src_img: U8Mat, visu: TimeSeriesChartVisu) -> U8Mat:
+        """在 src_img 上就地绘制时序曲线图，返回绘制后的图像。
+
+        src_img 已经是可视化分辨率，直接以像素为单位操作。
+        """
+        if len(self._buffer) < 2:
+            return src_img
+
+        img_h, img_w = src_img.shape[:2]
+        w, h = self.chart_w, self.chart_h
+
+        # --- 确定图表左上角像素坐标 ---
+        if self.corner not in CHART_CORNER_MAP:
+            return src_img
+        ax, ay, dx, dy = CHART_CORNER_MAP[self.corner]
+        anchor_x = int(ax * img_w)
+        anchor_y = int(ay * img_h)
+        # dx/dy 决定图表相对锚点的展开方向
+        x0 = anchor_x + CHART_MARGIN if dx > 0 else anchor_x - CHART_MARGIN - w
+        y0 = anchor_y + CHART_MARGIN if dy > 0 else anchor_y - CHART_MARGIN - h
+        x0 = max(0, min(x0, img_w - w))
+        y0 = max(0, min(y0, img_h - h))
+        x1, y1 = x0 + w, y0 + h
+
+        # --- 绘制半透明背景 ---
+        line_color = parse_color(visu.line_color)
+        alpha = max(0.0, min(1.0, visu.bg_alpha))
+        overlay = src_img.copy()
+        cv2.rectangle(overlay, (x0, y0), (x1, y1), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, alpha, src_img, 1 - alpha, 0, src_img)
+
+        # --- 绘制边框 ---
+        cv2.rectangle(src_img, (x0, y0), (x1, y1), line_color, 1)
+
+        # --- 计算绘图区域（内边距，左侧加宽留给 Y 轴标注） ---
+        px0 = x0 + CHART_PADDING_LEFT
+        py0 = y0 + CHART_PADDING
+        px1 = x1 - CHART_PADDING
+        py1 = y1 - CHART_PADDING
+        plot_w = px1 - px0
+        plot_h = py1 - py0
+        if plot_w <= 0 or plot_h <= 0:
+            return src_img
+
+        # --- 确定 Y 轴范围 ---
+        y_min = visu.y_min if visu.y_min is not None else float(min(self._buffer))
+        y_max = visu.y_max if visu.y_max is not None else float(max(self._buffer))
+        if y_max == y_min:
+            y_max = y_min + 1.0   # 防止除零
+
+        # --- 将历史数据映射到像素坐标 ---
+        n = len(self._buffer)
+        pts: list[tuple[int, int]] = []
+        for i, val in enumerate(self._buffer):
+            px = px0 + int(i / (n - 1) * plot_w) if n > 1 else px0
+            norm = (float(val) - y_min) / (y_max - y_min)
+            norm = max(0.0, min(1.0, norm))
+            py = py1 - int(norm * plot_h)   # y轴向下，值大则像素坐标小
+            pts.append((px, py))
+
+        # --- 绘制折线 ---
+        for i in range(len(pts) - 1):
+            cv2.line(src_img, pts[i], pts[i + 1], line_color, 1, cv2.LINE_AA)
+
+        # --- 绘制 Y 轴 ymax/ymin 标注（绘图区左侧外沿） ---
+        label_x = x0 + CHART_PADDING
+        ymax_str = f"{y_max:.3g}"
+        ymin_str = f"{y_min:.3g}"
+        cv2.putText(src_img, ymax_str, (label_x, py0 + 9),
+                    CHART_FONT_FACE, CHART_FONT_SCALE, line_color, 1, cv2.LINE_AA)
+        cv2.putText(src_img, ymin_str, (label_x, py1),
+                    CHART_FONT_FACE, CHART_FONT_SCALE, line_color, 1, cv2.LINE_AA)
+
+        # --- 绘制标签（图表顶部边框上方居中，或右上角内） ---
+        label: str = visu.label if visu.label is not None else self.name
+        if label:
+            cv2.putText(src_img, label,
+                        (px0, y0 + CHART_PADDING + 9),
+                        CHART_FONT_FACE, CHART_FONT_SCALE, line_color, 1, cv2.LINE_AA)
+
+        return src_img
+
+
 class OpenCVMetVisu(object):
 
     def __init__(self,
@@ -324,6 +466,9 @@ class OpenCVMetVisu(object):
         self.dist2boarder = dist2boarder
         self.manual_stop = False
         self.logger = get_default_logger()
+
+        # 时序图表注册表：name -> TimeSeriesChartHandle
+        self._chart_registry: dict[str, TimeSeriesChartHandle] = {}
 
         # 准备图像使用的Transform
         self.img_expand_channel = Transform()
@@ -405,13 +550,16 @@ class OpenCVMetVisu(object):
                       base_img.shape[0] / self.resolution[1])
             base_img = cv2.resize(base_img, self.resolution)
 
-        # 渲染顺序：img -> draw -> text
+        # 渲染顺序：img -> chart -> draw -> text
         img_list: list[ImgVisuAttrs] = []
+        chart_list: list[TimeSeriesChartVisu] = []
         draw_list: list[DrawVisuAttrs] = []
         text_list: list[TextVisu] = []
         for obj in data_list:
             if isinstance(obj, ImgVisuAttrs):
                 img_list.append(obj)
+            elif isinstance(obj, TimeSeriesChartVisu):
+                chart_list.append(obj)
             elif isinstance(obj, DrawVisuAttrs):
                 draw_list.append(obj)
             elif isinstance(obj, TextVisu):
@@ -425,6 +573,21 @@ class OpenCVMetVisu(object):
         for img_visu in img_list:
             _fill_img_defaults(img_visu)
             base_img = img_visu.render(base_img, scaler)
+
+        # chart: 首次注册，后续 push 新值并渲染。
+        for chart_visu in chart_list:
+            name = chart_visu.name
+            if name not in self._chart_registry:
+                self._chart_registry[name] = TimeSeriesChartHandle(
+                    name=name,
+                    corner=chart_visu.corner,
+                    chart_w=chart_visu.chart_w,
+                    chart_h=chart_visu.chart_h,
+                    max_points=chart_visu.max_points,
+                )
+            handle = self._chart_registry[name]
+            handle.push(chart_visu.current_value)
+            base_img = handle.render(base_img, chart_visu)
 
         for draw_visu in draw_list:
             _fill_draw_defaults(draw_visu)
