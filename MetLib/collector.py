@@ -15,14 +15,15 @@ from .model import init_model
 from .stacker import max_stacker
 from .utils import (ID2NAME, NAME2ID, NUM_CLASS, FloatArray, FloatSeq2D,
                     IntArray, IntSeq2D, _ensure_class_names_loaded,
-                    box_matching, color_interpolater,
-                    frame2ts, pt_drct, pt_len, pt_len_sqr, pt_offset)
+                    box_matching, color_interpolater, frame2ts, pt_drct,
+                    pt_len, pt_len_sqr, pt_offset)
 from .videoloader import VanillaVideoLoader
 
 color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
 DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
+RECHECK_PADDING_FRAMES = 5
 
 
 class Name2Label(object):
@@ -783,13 +784,17 @@ class MetExporter(object):
         new_final_list: list[SingleMDRecord] = []
         new_drop_list: list[MDTarget] = []
         for output_dict in final_list:
-            if output_dict.end_frame is None:
+            if output_dict.start_frame is None or output_dict.end_frame is None:
                 self.logger.error(f"Invalid output clip: {output_dict}")
                 continue
-            stacked_img = max_stacker(video_loader=self.recheck_loader,
-                                      start_frame=output_dict.start_frame,
-                                      end_frame=output_dict.end_frame + 1,
-                                      logger=self.logger)
+            assert self.recheck_loader is not None
+            stacked_img = max_stacker(
+                video_loader=self.recheck_loader,
+                start_frame=max(
+                    0, (output_dict.start_frame - RECHECK_PADDING_FRAMES)),
+                end_frame=min(output_dict.end_frame + RECHECK_PADDING_FRAMES,
+                              self.recheck_loader.video_total_frames - 1),
+                logger=self.logger)
             if stacked_img is None:
                 self.logger.error(
                     "Failed to get stacked img. This clip will be not checked "
