@@ -18,6 +18,7 @@ from .utils import frame2time, time2frame
 from .metlog import get_default_logger
 
 logger = get_default_logger()
+MAX_OFFSET_TOLERANCE_SEC = 0.5
 
 
 class BaseVideoWrapper(metaclass=ABCMeta):
@@ -191,6 +192,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
         # 逻辑帧计数器，用于追踪实际帧位置
         self._cur_frame_idx = 0
         self._last_frame_data = None
+        self.tolerance_frame_num = int(MAX_OFFSET_TOLERANCE_SEC * self.fps)
 
     @property
     def num_frames_by_container(self):
@@ -218,29 +220,44 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
     def read(self):
         try:
-            if not self.video_frame_cache:
-                # 尝试从容器中解码新帧
-                for packet in self.container.demux(self.video):
-                    frames: list[
-                        av.VideoFrame] = packet.decode()  # type: ignore
-                    if frames:
-                        self.video_frame_cache.extend(frames)
-                        break
-                else:
-                    # End of stream or no more frames can be decoded
-                    return False, None
+            while True:
+                if not self.video_frame_cache:
+                    # 尝试从容器中解码新帧
+                    for packet in self.container.demux(self.video):
+                        frames: list[
+                            av.VideoFrame] = packet.decode()  # type: ignore
+                        if frames:
+                            self.video_frame_cache.extend(frames)
+                            break
+                    else:
+                        # End of stream or no more frames can be decoded
+                        return False, None
 
-            next_frame = self.video_frame_cache[0]
-
-            if next_frame.pts is None:
-                self._last_frame_data = self.video_frame_cache.pop(
-                    0).to_ndarray(format='bgr24')
-                self._cur_frame_idx += 1
-                return True, self._last_frame_data
+                next_frame = self.video_frame_cache[0]
+                if next_frame.pts is None:
+                    self._last_frame_data = self.video_frame_cache.pop(
+                        0).to_ndarray(format='bgr24')
+                    self._cur_frame_idx += 1
+                    return True, self._last_frame_data
+                actual_frame_idx = self.pts2frame(next_frame.pts)
+                # 可能存在解码帧索引滞后的情况，尤其是当视频编码存在问题时，此时尝试丢帧。
+                if self._cur_frame_idx > actual_frame_idx and (
+                        self._cur_frame_idx -
+                        actual_frame_idx) > self.tolerance_frame_num:
+                    logger.debug(
+                        f"Decoded frame index {actual_frame_idx} is behind the expected index {self._cur_frame_idx}. "
+                        f"Trying to skip this frame.")
+                    self.video_frame_cache.pop(0)
+                    continue
+                break
 
             # 如果实际索引超前，则补帧
-            actual_frame_idx = self.pts2frame(next_frame.pts)
-            if self._cur_frame_idx < actual_frame_idx:
+            if self._cur_frame_idx < actual_frame_idx and (
+                    actual_frame_idx -
+                    self._cur_frame_idx) > self.tolerance_frame_num:
+                logger.debug(
+                    f"Decoded frame idx {actual_frame_idx} is front of the expected index {self._cur_frame_idx}. "
+                )
                 if self._last_frame_data is not None:
                     self._cur_frame_idx += 1
                     return True, self._last_frame_data
