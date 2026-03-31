@@ -388,10 +388,26 @@ class DLCfg(DictAble):
 
 
 @dataclasses.dataclass
+class BrightnessCoreCfg(DictAble):
+    grid_rows: int
+    grid_cols: int
+    ema_momentum: float
+    z_threshold: float
+    abs_threshold: float
+    global_ratio: float
+    min_cell_valid: float
+
+
+@dataclasses.dataclass
+class BrightnessCfg(DictAble):
+    brightness: BrightnessCoreCfg
+
+
+@dataclasses.dataclass
 class DetectorCfg(DictAble):
     name: str
     window_sec: float
-    cfg: Union[BinaryCfg, DLCfg]
+    cfg: Union[BinaryCfg, DLCfg, BrightnessCfg]
 
 
 @dataclasses.dataclass

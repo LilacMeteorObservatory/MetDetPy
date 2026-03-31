@@ -7,8 +7,8 @@ import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.collector import MeteorCollector
-from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
-                             LineDetector, MLDetector)
+from MetLib.Detector import (BaseDetector, BrightnessDetector, M3Detector,
+                             DiffAreaGuidingDetecor, LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, MainDetectCfg,
@@ -70,10 +70,11 @@ def detect_video(video_name: str,
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
-        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor)):
-            assert grayscale, "Require grayscale ON when using subclass of LineDetector."
+        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor,
+                                     BrightnessDetector)):
+            assert grayscale, "Require grayscale ON when using subclass of LineDetector or BrightnessDetector."
         elif issubclass(DetectorCls, MLDetector):
-            assert not grayscale, "Require grayscale OFF when using subclass of LineDetector."
+            assert not grayscale, "Require grayscale OFF when using MLDetector."
         else:
             raise NotImplementedError("Detector not ready to use.")
 

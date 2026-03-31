@@ -20,12 +20,12 @@ import numpy as np
 
 from .feature import calc_roi_gradient, crop_with_box
 from .metlog import BaseMetLog
-from .metstruct import BinaryCfg, Box, DLCfg
+from .metstruct import BinaryCfg, Box, BrightnessCfg, DLCfg
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model
 from .utils import (EMA, PI, SlidingWindow, U8Mat, Uint8EMA, expand_cls_pred,
-                    generate_group_interpolate, lineset_nms)
+                    generate_group_interpolate, get_name2id, lineset_nms)
 
 NUM_LINES_TOOMUCH = 500
 DEFAULT_INIT_VALUE = 5
@@ -570,4 +570,220 @@ class MLDetector(BaseDetector):
                              for x in self.result_pos
                          ])
         ]
+        return visu_list
+
+
+class BrightnessDetector(BaseDetector):
+    """基于分区亮度跟踪的突变事件检测器。
+
+    将图像划分为 R×C 的网格，对每个单元格维护亮度均值的 EMA 基线和方差 EMA。
+    每帧计算各单元格当前亮度与基线的偏差，通过 z-score + 绝对阈值双重条件判定异常，
+    再将触发的相邻单元格合并为 bounding box 输出。
+
+    主要检测目标：闪电、火流星、人造天体再入等大面积亮度突变事件。
+
+    Args:
+        window_sec (float): 检测器窗口大小（秒），用于确定 EMA warmup 速度。
+        fps (float): 等效帧率。
+        mask (U8Mat): 有效区域掩模。
+        num_cls (int): 类别总数。
+        cfg (BrightnessCfg): 亮度检测器配置。
+        logger (BaseMetLog): 日志器。
+    """
+
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: BrightnessCfg, logger: BaseMetLog):
+        self.num_cls = num_cls
+        self.logger = logger
+        self.b_cfg = cfg.brightness
+        self._brightness_event_id = get_name2id()["BRIGHTNESS_EVENT"]
+
+        R, C = self.b_cfg.grid_rows, self.b_cfg.grid_cols
+        H, W = mask.shape[:2]
+
+        # 网格参数：截断到能被网格整除的尺寸
+        self.cell_h = H // R
+        self.cell_w = W // C
+        self.grid_shape = (R, C)
+        self.frame_size = (H, W)
+        self.trimmed_h = R * self.cell_h
+        self.trimmed_w = C * self.cell_w
+
+        # 计算每个单元格的 mask 有效像素比例，低于阈值则标记为无效
+        trimmed_mask = mask[:self.trimmed_h, :self.trimmed_w]
+        cell_mask_means = trimmed_mask.reshape(
+            R, self.cell_h, C, self.cell_w).mean(axis=(1, 3))
+        self.valid_cells = (cell_mask_means / 255.0
+                            > self.b_cfg.min_cell_valid)
+
+        # EMA 维护基线亮度和方差，复用已有的 EMA 组件
+        warmup_speed = max(int(window_sec * fps), 2)
+        self.baseline_ema = EMA(momentum=self.b_cfg.ema_momentum,
+                                warmup_speed=warmup_speed)
+        self.var_ema = EMA(momentum=self.b_cfg.ema_momentum,
+                           warmup_speed=warmup_speed)
+        # 手动设定方差初始值为 1，避免早期除零
+        self.var_ema.cur_value = np.ones((R, C), dtype=np.float32)
+
+        self.t = 0
+
+        # 可视化状态缓存
+        self.triggered_grid = np.zeros((R, C), dtype=np.uint8)
+        self.delta: Optional[np.ndarray] = None
+        self.z_scores: Optional[np.ndarray] = None
+
+        self.logger.info(
+            f"BrightnessDetector initialized: grid={R}x{C}, "
+            f"cell_size={self.cell_h}x{self.cell_w}, "
+            f"warmup_speed={warmup_speed}, "
+            f"valid_cells={int(np.sum(self.valid_cells))}/{R * C}")
+
+    def update(self, new_frame: U8Mat) -> None:
+        self.cur_frame = new_frame
+
+    def detect(self) -> tuple[list[list[int]], list[list[np.float64]]]:
+        self.t += 1
+        cell_means = self._compute_cell_means(self.cur_frame)
+        baseline = self.baseline_ema.cur_value
+
+        # 计算偏差和 z-score
+        delta = cell_means - baseline
+        var = self.var_ema.cur_value
+        z_scores = delta / np.sqrt(var + 1e-6)
+
+        # 双阈值判定：z-score 阈值（防噪声环境漏报）+ 绝对值阈值（防静场景误报）
+        triggered = ((z_scores > self.b_cfg.z_threshold)
+                     & (delta > self.b_cfg.abs_threshold) & self.valid_cells)
+
+        # 后置更新 EMA（在检测之后更新，防止突变帧自消除）
+        self.baseline_ema.update(cell_means)
+        self.var_ema.update(delta**2)
+
+        # 更新可视化缓存
+        self.triggered_grid = triggered.astype(np.uint8)
+        self.z_scores = z_scores
+        self.delta = delta
+
+        if not triggered.any():
+            return [], []
+
+        # 合并触发区域为 bounding boxes
+        boxes, scores = self._merge_to_boxes(triggered, z_scores)
+
+        # 构建 cls_pred: 将置信度放在 BRIGHTNESS_EVENT 类别上
+        cls_pred = np.zeros((len(boxes), self.num_cls))
+        for i, score in enumerate(scores):
+            cls_pred[i, self._brightness_event_id] = score
+
+        return boxes, cls_pred.tolist()
+
+    def _compute_cell_means(self, frame: U8Mat) -> np.ndarray:
+        """通过 reshape 向量化计算每个网格单元格的平均亮度。
+
+        将帧截断到能被网格整除的尺寸后，reshape 为 (R, cell_h, C, cell_w)，
+        沿 cell 内维度求均值，一步得到 (R, C) 的结果。
+
+        Args:
+            frame: 灰度帧 (H, W)
+
+        Returns:
+            (R, C) 的 float32 数组
+        """
+        R, C = self.grid_shape
+        trimmed = frame[:self.trimmed_h, :self.trimmed_w]
+        return trimmed.reshape(R, self.cell_h, C,
+                               self.cell_w).mean(axis=(1, 3)).astype(
+                                   np.float32)
+
+    def _merge_to_boxes(
+        self, triggered: np.ndarray, z_scores: np.ndarray
+    ) -> tuple[list[list[int]], list[float]]:
+        """将触发的网格单元格合并为 bounding boxes。
+
+        当触发比例超过 global_ratio 时，判定为全局事件，输出全帧 box。
+        否则使用连通域分析将相邻触发单元格合并为独立的 box。
+
+        Args:
+            triggered: (R, C) bool 数组，标记触发的单元格
+            z_scores: (R, C) float 数组，各单元格的 z-score
+
+        Returns:
+            (boxes, scores) — boxes 为 [x1,y1,x2,y2] 列表，scores 为置信度列表
+        """
+        H, W = self.frame_size
+        num_valid = max(int(np.sum(self.valid_cells)), 1)
+        trigger_ratio = np.sum(triggered) / num_valid
+
+        # 全局事件：超过 global_ratio 比例的有效单元格触发
+        if trigger_ratio > self.b_cfg.global_ratio:
+            max_z = float(np.max(z_scores[triggered]))
+            score = self._z_to_score(max_z)
+            return [[0, 0, W, H]], [score]
+
+        # 局部事件：使用连通域分析合并相邻触发单元格
+        grid_img = triggered.astype(np.uint8) * 255
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            grid_img, connectivity=4)
+
+        boxes: list[list[int]] = []
+        scores: list[float] = []
+        for label_id in range(1, num_labels):
+            component_mask = (labels == label_id)
+            rows, cols = np.where(component_mask)
+            r_min, r_max = int(rows.min()), int(rows.max())
+            c_min, c_max = int(cols.min()), int(cols.max())
+            # 网格坐标转换为像素坐标
+            x1 = c_min * self.cell_w
+            y1 = r_min * self.cell_h
+            x2 = min((c_max + 1) * self.cell_w, W)
+            y2 = min((r_max + 1) * self.cell_h, H)
+            boxes.append([x1, y1, x2, y2])
+            max_z = float(np.max(z_scores[component_mask]))
+            scores.append(self._z_to_score(max_z))
+
+        return boxes, scores
+
+    def _z_to_score(self, z: float) -> float:
+        """将 z-score 通过 sigmoid 映射为 (0.5, 1.0) 区间的置信分数。"""
+        return float(1.0 / (1.0 + np.exp(-(z - self.b_cfg.z_threshold))))
+
+    def visu(self) -> list[BaseVisuAttrs]:
+        R, C = self.grid_shape
+        visu_list: list[BaseVisuAttrs] = []
+
+        # 绘制触发的网格单元格
+        if self.triggered_grid.any():
+            pairs: list[SquareColorPair] = []
+            for r in range(R):
+                for c in range(C):
+                    if self.triggered_grid[r, c]:
+                        y1 = r * self.cell_h
+                        x1 = c * self.cell_w
+                        y2 = min((r + 1) * self.cell_h, self.frame_size[0])
+                        x2 = min((c + 1) * self.cell_w, self.frame_size[1])
+                        pairs.append(
+                            SquareColorPair(dot_pair=([x1, y1], [x2, y2])))
+            if pairs:
+                visu_list.append(
+                    DrawRectVisu("brightness_trigger",
+                                 pair_list=pairs,
+                                 color="red"))
+
+        # 文字信息
+        if self.delta is not None:
+            mean_delta = float(np.mean(self.delta[self.valid_cells]))
+            triggered_n = int(np.sum(self.triggered_grid))
+            total_valid = int(np.sum(self.valid_cells))
+            visu_list.append(
+                TextVisu(
+                    "brightness_info",
+                    position="left-top",
+                    color="cyan",
+                    text_list=[
+                        TextColorPair(
+                            text=
+                            f"Brightness \u0394:{mean_delta:.1f} "
+                            f"Triggered:{triggered_n}/{total_valid}")
+                    ]))
+
         return visu_list

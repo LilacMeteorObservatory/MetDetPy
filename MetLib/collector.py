@@ -54,12 +54,17 @@ class Name2Label(object):
     BUGS = 7
     
     @staticmethod
+    def DROPPED():
+        from .utils import get_num_class
+        return get_num_class() - 3
+
+    @staticmethod
     def OTHERS():
         from .utils import get_num_class
         return get_num_class() - 2
-    
+
     @staticmethod
-    def DROPPED():
+    def BRIGHTNESS_EVENT():
         from .utils import get_num_class
         return get_num_class() - 1
 
@@ -783,7 +788,14 @@ class MetExporter(object):
         # 重构Collector时修复。
         new_final_list: list[SingleMDRecord] = []
         new_drop_list: list[MDTarget] = []
+        brightness_event_name = ID2NAME[Name2Label.BRIGHTNESS_EVENT()]
         for output_dict in final_list:
+            # BRIGHTNESS_EVENT 类别豁免 recheck：该类别由 BrightnessDetector 产生，
+            # 属于 DL recheck 模型的域外分布，强制 recheck 会导致误丢弃。
+            if all(t.category == brightness_event_name
+                   for t in output_dict.target):
+                new_final_list.append(output_dict)
+                continue
             if output_dict.start_frame is None or output_dict.end_frame is None:
                 self.logger.error(f"Invalid output clip: {output_dict}")
                 continue
