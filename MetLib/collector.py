@@ -615,9 +615,10 @@ class MeteorCollector(object):
             return time_prob * speed_prob * len_prob * drct_prob
         else:
             if np.any(np.isnan(met.cate_prob)):
-                self.logger.error(
-                    f"nan detected in cate_prob: {met.cate_prob}")
-                exit()
+                self.logger.warning(
+                    f"NaN detected in cate_prob: {met.cate_prob}. "
+                    f"Dropping this meteor series.")
+                return 0.0
             return met.cate_prob[met.cate] / met.count
 
     def get_met_attr(self, met: MeteorSeries) -> MDTarget:
