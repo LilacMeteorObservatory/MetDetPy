@@ -221,7 +221,8 @@ class SingleMDRecord(DictAble):
             start_time=self.start_time,
             end_time=self.end_time,
             video_size=video_size,
-            target_list=[x.to_simple_target() for x in self.target])
+            target_list=[x.to_simple_target() for x in self.target],
+                              raw_record=self)
 
     def to_image_data(self):
         """
@@ -638,6 +639,7 @@ class VideoFrameData(object):
     target_list: Optional[list[SimpleTarget]] = None
     video_size: Union[list[int], tuple[int, ...], None] = None
     saved_filename: Optional[str] = None
+    raw_record: Optional[SingleMDRecord] = None
 
     def to_labelme(self) -> dict[str, Any]:
         w, h = None, None
