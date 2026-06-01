@@ -203,6 +203,14 @@ class MeteorSeries(object):
         return cast(float, min(std1, std2))
 
     @property
+    def drst_cv(self) -> float:
+        """Circular variance of direction angles. Range [0, 1], 0 = perfectly straight."""
+        if len(self.drct_list) == 0:
+            return 0.0
+        angles = np.array(self.drct_list) * 2
+        return float(1 - abs(np.mean(np.exp(1j * angles))))
+
+    @property
     def cate(self) -> int:
         return np.argmax(self.cate_prob, axis=0)
 
@@ -316,6 +324,7 @@ class MeteorSeries(object):
                         pt2=pt2,
                         center_point_list=self.center_list.get_pts_as_list(),
                         drct_loss=np.round(self.drst_std, 3),
+                        drct_cv=np.round(self.drst_cv, 4),
                         score=-1,
                         real_dist=-1)
 

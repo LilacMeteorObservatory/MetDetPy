@@ -165,6 +165,7 @@ class MDTarget(DictAble):
     pt1: list[int]
     pt2: list[int]
     drct_loss: float
+    drct_cv: float
     score: float
     real_dist: float
     center_point_list: list[list[int]] = dataclasses.field(
