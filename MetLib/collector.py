@@ -708,42 +708,30 @@ class MetExporter(object):
                     self.meteor_list.append(output_dict)
                     self.logger.dropped(output_dict.to_json(full=False))
             else:
-                # ACTIVE_FLAG
-                output_dict: Optional[SingleMDRecord] = None
-                final_list: list[SingleMDRecord] = []
+                # ACTIVE_FLAG: 先逐 target 独立复检，再按时间邻近合并为输出格式
+                confirmed: list[MDTarget] = []
+                dropped: list[MDTarget] = []
+
                 for ms_attr in data:
-                    if output_dict is None:
-                        output_dict = SingleMDRecord.from_target(
-                            ms_attr, self.raw_size)
-                        continue
-                    if output_dict.end_frame is None:
-                        self.logger.error("Invalid end frame got!")
-                        final_list.append(output_dict)
-                        output_dict = None
-                        continue
-                    # TODO: 这个max_interval似乎存在复用的歧义性。后续可以考虑独立开来
-                    if ms_attr.start_frame < output_dict.end_frame + self.max_interval:
-                        if ms_attr.last_activate_frame > output_dict.end_frame:
-                            output_dict.end_frame = ms_attr.last_activate_frame
-                            output_dict.end_time = ms_attr.last_activate_time
-                        output_dict.target.append(ms_attr)
+                    if self.recheck:
+                        result = self.recheck_single_target(ms_attr)
+                        if result is not None:
+                            confirmed.append(result)
+                        else:
+                            # 置信度不足的正样本类别，在输出前重置为 OTHERS
+                            if ms_attr.category in self.positive_cates:
+                                ms_attr.category = ID2NAME[
+                                    Name2Label.OTHERS()]
+                            dropped.append(ms_attr)
                     else:
-                        # 上一片段已经结束（最大间隔超过max_interval）
-                        final_list.append(output_dict)
-                        output_dict = SingleMDRecord.from_target(
-                            ms_attr, self.raw_size)
-                if output_dict is not None:
-                    final_list.append(output_dict)
-                drop_list: list[MDTarget] = []
-                if self.recheck:
-                    final_list, drop_list = self.recheck_progress(final_list)
+                        confirmed.append(ms_attr)
+
+                final_list = self.merge_targets_by_time(confirmed)
                 for met in final_list:
-                    # 坐标修正和序列化
                     met = self.rescale(met)
                     self.meteor_list.append(met)
                     self.logger.meteor(met.to_json(full=False))
-                for ms_attr in drop_list:
-                    # 坐标修正和序列化
+                for ms_attr in dropped:
                     output_dict = SingleMDRecord.from_target(
                         ms_attr, self.raw_size)
                     output_dict = self.rescale(output_dict)
@@ -776,109 +764,92 @@ class MetExporter(object):
                     single_meteor.center_point_list[i], self.rescale_ratio)
         return meteor_dict
 
-    def recheck_progress(
-        self, final_list: list[SingleMDRecord]
-    ) -> tuple[list[SingleMDRecord], list[MDTarget]]:
-        """重校验。
+    def recheck_single_target(self, target: MDTarget) -> Optional[MDTarget]:
+        """对单个 target 执行独立复检。
 
-        Args:
-            final_list (list[dict]): 包含若干个整片段
+        Returns:
+            通过复检的 target（可能更新了 category/score），或 None 表示未通过。
         """
-        # 片段级重校验
-        # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。此处逻辑可能需要重新处置。
-        # 重构Collector时修复。
-        new_final_list: list[SingleMDRecord] = []
-        new_drop_list: list[MDTarget] = []
+        # BRIGHTNESS_EVENT 类别豁免 recheck：该类别由 BrightnessDetector 产生，
+        # 属于 DL recheck 模型的域外分布，强制 recheck 会导致误丢弃。
         brightness_event_name = ID2NAME[Name2Label.BRIGHTNESS_EVENT()]
-        for output_dict in final_list:
-            # BRIGHTNESS_EVENT 类别豁免 recheck：该类别由 BrightnessDetector 产生，
-            # 属于 DL recheck 模型的域外分布，强制 recheck 会导致误丢弃。
-            if all(t.category == brightness_event_name
-                   for t in output_dict.target):
-                new_final_list.append(output_dict)
-                continue
-            if output_dict.start_frame is None or output_dict.end_frame is None:
-                self.logger.error(f"Invalid output clip: {output_dict}")
-                continue
-            assert self.recheck_loader is not None
-            stacked_img = max_stacker(
-                video_loader=self.recheck_loader,
-                start_frame=max(
-                    0, (output_dict.start_frame - RECHECK_PADDING_FRAMES)),
-                end_frame=min(output_dict.end_frame + RECHECK_PADDING_FRAMES,
-                              self.recheck_loader.video_total_frames - 1),
-                logger=self.logger)
-            if stacked_img is None:
-                self.logger.error(
-                    "Failed to get stacked img. This clip will be not checked "
-                    +
-                    "and output as input. If you see this please report to dev team."
-                    + f" Clip start_frame = {output_dict.start_frame}; " +
-                    f"end_frame = {output_dict.end_frame}")
-                new_final_list.append(output_dict)
-                continue
-            bbox_list, score_list = self.recheck_model.forward(stacked_img)
-            # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list，
-            # 未检出box收集到drop_list中。
-            raw_bbox_list = [[*x.pt1, *x.pt2] for x in output_dict.target]
-            matched_pairs = box_matching(bbox_list,
-                                         raw_bbox_list)  # type: ignore
-            fixed_output: list[MDTarget] = []
-            unmatched_proposal_list = [True for _ in output_dict.target]
-            for l, r in matched_pairs:
-                label = np.argmax(score_list[l, :], axis=0)
-                score = score_list[l, label]
-                sure_meteor = output_dict.target[r]
-                sure_meteor.category = ID2NAME.get(label,
-                                                   ID2NAME[Name2Label.OTHERS()])
-                sure_meteor.raw_score = sure_meteor.score
-                sure_meteor.recheck_score = round(score.astype(np.float64),
-                                                  ndigits=3)
-                # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
-                # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
-                # TODO: 前置预测输出多类别分数。
-                if label == Name2Label.METEOR:
-                    mge_score = (sure_meteor.recheck_score +
-                                 sure_meteor.raw_score) / 2
-                else:
-                    mge_score = score.astype(np.float64)
-                sure_meteor.score = np.round(mge_score, 2)
-                # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
-                if (label != Name2Label.METEOR
-                        and label in self.positive_cate_ids) or (
-                            label == Name2Label.METEOR
-                            and sure_meteor.score >= self.det_thre):
-                    # 计算相对亮度值
-                    sure_box = Box.from_pts(sure_meteor.pt1, sure_meteor.pt2)
-                    r_brightness = calc_brightness_with_roi(
-                        stacked_img, sure_box)
-                    sure_meteor.relative_brightness = round(r_brightness,
-                                                            ndigits=3)
-                    sure_meteor.aesthetic_score = round(
-                        sure_meteor.score * sure_meteor.fix_dist *
-                        sure_meteor.relative_brightness,
-                        ndigits=3)
-                    fixed_output.append(sure_meteor)
-                else:
-                    # 流星类被丢弃时需要重新标记为 DROPPED
-                    if label == Name2Label.METEOR:
-                        sure_meteor.category = ID2NAME[Name2Label.DROPPED()]
-                    new_drop_list.append(sure_meteor)
-                unmatched_proposal_list[r] = False
-            # after fix. to be optimized.
-            if len(fixed_output) > 0:
-                # 重新计算准确的起止时间
-                new_final_list.append(
-                    SingleMDRecord.from_target_list(fixed_output,
-                                                    output_dict.video_size))
+        if target.category == brightness_event_name:
+            return target
 
-            # 整理所有未被配对的结果，如果是置信度不足的正样本类别，类别在输出前被重置为OTHERS。
-            for (idx, i) in enumerate(unmatched_proposal_list):
-                if not i:
-                    continue
-                if output_dict.target[idx].category in self.positive_cates:
-                    output_dict.target[idx].category = ID2NAME[
-                        Name2Label.OTHERS()]
-                new_drop_list.append(output_dict.target[idx])
+        assert self.recheck_loader is not None
+        stacked_img = max_stacker(
+            video_loader=self.recheck_loader,
+            start_frame=max(0, target.start_frame - RECHECK_PADDING_FRAMES),
+            end_frame=min(
+                target.last_activate_frame + RECHECK_PADDING_FRAMES,
+                self.recheck_loader.video_total_frames - 1),
+            logger=self.logger)
 
-        return new_final_list, new_drop_list
+        if stacked_img is None:
+            self.logger.error(
+                "Failed to get stacked img. Target will pass without recheck."
+                f" start_frame={target.start_frame};"
+                f" last_activate_frame={target.last_activate_frame}")
+            return target
+
+        bbox_list, score_list = self.recheck_model.forward(stacked_img)
+        target_bbox = [[*target.pt1, *target.pt2]]
+        matched_pairs = box_matching(bbox_list, target_bbox)  # type: ignore
+
+        if len(matched_pairs) == 0:
+            return None
+
+        l, _ = matched_pairs[0]
+        label = np.argmax(score_list[l, :], axis=0)
+        score = score_list[l, label]
+
+        target.category = ID2NAME.get(label, ID2NAME[Name2Label.OTHERS()])
+        target.raw_score = target.score
+        target.recheck_score = round(score.astype(np.float64), ndigits=3)
+
+        # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
+        # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
+        # TODO: 前置预测输出多类别分数。
+        if label == Name2Label.METEOR:
+            mge_score = (target.recheck_score + target.raw_score) / 2
+        else:
+            mge_score = score.astype(np.float64)
+        target.score = np.round(mge_score, 2)
+
+        # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
+        if (label != Name2Label.METEOR
+                and label in self.positive_cate_ids) or (
+                    label == Name2Label.METEOR
+                    and target.score >= self.det_thre):
+            sure_box = Box.from_pts(target.pt1, target.pt2)
+            r_brightness = calc_brightness_with_roi(stacked_img, sure_box)
+            target.relative_brightness = round(r_brightness, ndigits=3)
+            target.aesthetic_score = round(
+                target.score * target.fix_dist * target.relative_brightness,
+                ndigits=3)
+            return target
+        else:
+            # 流星类被丢弃时需要重新标记为 DROPPED
+            if label == Name2Label.METEOR:
+                target.category = ID2NAME[Name2Label.DROPPED()]
+            return None
+
+    def merge_targets_by_time(
+            self, targets: list[MDTarget]) -> list[SingleMDRecord]:
+        """将通过复检的 targets 按时间邻近合并为输出格式。"""
+        if not targets:
+            return []
+        result: list[SingleMDRecord] = []
+        current = SingleMDRecord.from_target(targets[0], self.raw_size)
+        for t in targets[1:]:
+            if (current.end_frame is not None
+                    and t.start_frame < current.end_frame + self.max_interval):
+                if t.last_activate_frame > (current.end_frame or 0):
+                    current.end_frame = t.last_activate_frame
+                    current.end_time = t.last_activate_time
+                current.target.append(t)
+            else:
+                result.append(current)
+                current = SingleMDRecord.from_target(t, self.raw_size)
+        result.append(current)
+        return result
