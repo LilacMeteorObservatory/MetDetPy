@@ -23,7 +23,7 @@ color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
 RECHECK_PADDING_FRAMES = 5
-
+MAX_CONSECUTIVE_FAILURES = 5
 
 class Name2Label(object):
     """类别名称映射到Label的类。
@@ -663,6 +663,7 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
     FLAG_TYPE_ALIAS = Union[Literal["END_FLAG"], Literal["DROP_FLAG"],
                             Literal["ACTIVE_FLAG"]]
+    MAX_CONSECUTIVE_FAILURES = 5
 
     def __init__(self, recheck_cfg: RecheckCfg, runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
@@ -699,59 +700,68 @@ class MetExporter(object):
         """
                  (what input)
         met_obj -> met_dict -> output_dict -> output_json
-
-        Raises:
-            KeyError: _description_
         """
+        consecutive_failures = 0
         flag, data = self.queue.get()
         while flag in [self.ACTIVE_FLAG, self.DROP_FLAG]:
-            if flag == self.DROP_FLAG:
-                for ms_attr in data:
-                    # Drop类标签修正
-                    ms_attr.category = ID2NAME[Name2Label.DROPPED()]
-                    # 坐标修正和序列化
-                    output_dict = SingleMDRecord.from_target(
-                        ms_attr, self.raw_size)
-                    output_dict = self.rescale(output_dict)
-                    self.meteor_list.append(output_dict)
-                    self.logger.dropped(output_dict.to_json(full=False))
-            else:
-                # ACTIVE_FLAG: 先逐 target 独立复检，再按时间邻近合并为输出格式
-                confirmed: list[MDTarget] = []
-                dropped: list[MDTarget] = []
-
-                for ms_attr in data:
-                    if self.recheck:
-                        result = self.recheck_single_target(ms_attr)
-                        if result is not None:
-                            confirmed.append(result)
-                        else:
-                            # 置信度不足的正样本类别，在输出前重置为 OTHERS
-                            if ms_attr.category in self.positive_cates:
-                                ms_attr.category = ID2NAME[
-                                    Name2Label.OTHERS()]
-                            dropped.append(ms_attr)
-                    else:
-                        confirmed.append(ms_attr)
-
-                final_list = self.merge_targets_by_time(confirmed)
-                for met in final_list:
-                    met = self.rescale(met)
-                    self.meteor_list.append(met)
-                    self.logger.meteor(met.to_json(full=False))
-                for ms_attr in dropped:
-                    output_dict = SingleMDRecord.from_target(
-                        ms_attr, self.raw_size)
-                    output_dict = self.rescale(output_dict)
-                    self.meteor_list.append(output_dict)
-                    self.logger.dropped(output_dict.to_json(full=False))
-
-            # get next
+            try:
+                self._process_batch(flag, data)
+                consecutive_failures = 0
+            except Exception as e:
+                consecutive_failures += 1
+                self.logger.error(
+                    f"Exporter batch failed ({consecutive_failures}/"
+                    f"{self.MAX_CONSECUTIVE_FAILURES}): {e}")
+                if consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+                    self.logger.error(
+                        "Exporter loop aborted due to repeated failures.")
+                    break
             flag, data = self.queue.get()
-        if flag != self.END_FLAG:
+        if flag not in [self.END_FLAG, self.ACTIVE_FLAG, self.DROP_FLAG]:
             raise KeyError(
                 f"Unexpected flag received. Except [{self.ACTIVE_FLAG}"
                 f"{self.DROP_FLAG},{self.END_FLAG}], got {flag} instead.")
+
+    def _process_batch(self, flag: str, data: list[MDTarget]):
+        if flag == self.DROP_FLAG:
+            for ms_attr in data:
+                # Drop类标签修正
+                ms_attr.category = ID2NAME[Name2Label.DROPPED()]
+                output_dict = SingleMDRecord.from_target(
+                    ms_attr, self.raw_size)
+                output_dict = self.rescale(output_dict)
+                self.meteor_list.append(output_dict)
+                self.logger.dropped(output_dict.to_json(full=False))
+        else:
+            # ACTIVE_FLAG: 先逐 target 独立复检，再按时间邻近合并为输出格式
+            confirmed: list[MDTarget] = []
+            dropped: list[MDTarget] = []
+
+            for ms_attr in data:
+                if self.recheck:
+                    result = self.recheck_single_target(ms_attr)
+                    if result is not None:
+                        confirmed.append(result)
+                    else:
+                        # 置信度不足的正样本类别，在输出前重置为 OTHERS
+                        if ms_attr.category in self.positive_cates:
+                            ms_attr.category = ID2NAME[
+                                Name2Label.OTHERS()]
+                        dropped.append(ms_attr)
+                else:
+                    confirmed.append(ms_attr)
+
+            final_list = self.merge_targets_by_time(confirmed)
+            for met in final_list:
+                met = self.rescale(met)
+                self.meteor_list.append(met)
+                self.logger.meteor(met.to_json(full=False))
+            for ms_attr in dropped:
+                output_dict = SingleMDRecord.from_target(
+                    ms_attr, self.raw_size)
+                output_dict = self.rescale(output_dict)
+                self.meteor_list.append(output_dict)
+                self.logger.dropped(output_dict.to_json(full=False))
 
     def rescale(self, meteor_dict: SingleMDRecord) -> SingleMDRecord:
         """将复合的meteor_dict中的所有target的起止坐标和距离映射回真实分辨率下。
