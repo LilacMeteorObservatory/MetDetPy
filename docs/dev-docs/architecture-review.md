@@ -3,30 +3,7 @@
 > 审查时间：2026-05-29  
 > 基于版本：V2.4.0 (dev branch, commit 33a6b35)
 
-## 一、架构优势
-
-1. **清晰的线性流水线设计**：`VideoLoader → Detector → Collector → Exporter` 数据单向流动，概念清晰。
-2. **配置驱动 + dacite 反序列化**：JSON配置→dataclass使配置类型化。
-3. **组件可选性设计合理**：Recheck模型可选关闭、多种Detector/Loader/Wrapper可配置切换。
-4. **VideoWrapper抽象层**：屏蔽了OpenCV和PyAV的差异，便于扩展。
-
----
-
 ## 二、关键缺陷清单
-
-### ~~TODO-ARCH-001: ProcessVideoLoader 致命 Bug（P0）~~
-
-**状态**: 已移除  
-**处理方式**: `ProcessVideoLoader` 已从代码库中移除。视频解码后端（OpenCV/PyAV）均为释放 GIL 的 C 扩展调用，线程级 `ThreadVideoLoader` 已足够实现并行解码，进程级隔离无实际性能优势且引入显著 IPC 开销。
-
----
-
-### ~~TODO-ARCH-002: Collector 硬杀进程（P0）~~
-
-**状态**: 已修复  
-**处理方式**: `prob_meteor` 检测到 NaN 时不再调用 `exit()`，改为返回 `0.0`（最低置信度），使该 meteor 自然走入 drop 路径被丢弃。NaN 是单条轨迹的数据污染问题，不影响其他追踪序列，无需终止整个检测流程。
-
----
 
 ### TODO-ARCH-003: Exporter 线程安全（P1）
 
@@ -308,6 +285,8 @@
 | TODO-FEAT-008 | TensorRT/CUDA支持 | onnxruntime TensorRT EP + 模型格式转换 |
 | TODO-FEAT-009 | 焦距配置 | 在 collector 速度/长度判据中引入缩放因子 |
 | TODO-FEAT-010 | 导出得分设置 | 已有 aesthetic_score，需暴露阈值配置 |
+| TODO-FEAT-011 | 自动化蒙版 | - |
+| TODO-FEAT-012 | 深度学习模型更新（数据层） | - |
 
 ---
 
@@ -863,3 +842,22 @@ Phase 3      算法改进（检测器+分类器）
 ```
 
 **关键路径**：模块级测试 → Bug 修复 → 架构重构 → API 化 → 算法改进。推理硬件优化不在关键路径上，可并行处理。
+
+
+--------
+
+## 已经修复或者优化的缺陷
+
+### ~~TODO-ARCH-001: ProcessVideoLoader 致命 Bug（P0）~~
+
+**状态**: 已移除  
+**处理方式**: `ProcessVideoLoader` 已从代码库中移除。视频解码后端（OpenCV/PyAV）均为释放 GIL 的 C 扩展调用，线程级 `ThreadVideoLoader` 已足够实现并行解码，进程级隔离无实际性能优势且引入显著 IPC 开销。
+
+---
+
+### ~~TODO-ARCH-002: Collector 硬杀进程（P0）~~
+
+**状态**: 已修复  
+**处理方式**: `prob_meteor` 检测到 NaN 时不再调用 `exit()`，改为返回 `0.0`（最低置信度），使该 meteor 自然走入 drop 路径被丢弃。NaN 是单条轨迹的数据污染问题，不影响其他追踪序列，无需终止整个检测流程。
+
+---

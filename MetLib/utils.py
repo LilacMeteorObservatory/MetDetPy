@@ -24,11 +24,13 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-_resource_dir_override: Optional[str] = os.environ.get("METDET_RESOURCE_DIR", None)
+_resource_dir_override: Optional[str] = os.environ.get("METDET_RESOURCE_DIR",
+                                                       None)
 ID2NAME: dict[int, str] = {}
 NAME2ID: dict[str, int] = {}
 NUM_CLASS: int = 0
 _id2name_loaded = False
+
 
 def _ensure_class_names_loaded():
     global ID2NAME, NAME2ID, NUM_CLASS, _id2name_loaded
@@ -49,35 +51,46 @@ def _ensure_class_names_loaded():
     NUM_CLASS = len(ID2NAME)
     _id2name_loaded = True
 
+
 def set_resource_dir(resource_dir: Optional[str]):
     global _resource_dir_override
     _resource_dir_override = resource_dir
+
 
 def _get_workspace_path():
     if _resource_dir_override:
         return _resource_dir_override
     base_dir = path.dirname(path.abspath(__file__))
     if getattr(sys, 'frozen', False):
-        exe_dir = path.dirname(sys.argv[0]) if sys.argv and sys.argv[0] else None
+        exe_dir = path.dirname(
+            sys.argv[0]) if sys.argv and sys.argv[0] else None
         if exe_dir and path.isabs(exe_dir) and path.isdir(exe_dir):
             return exe_dir
         return path.dirname(sys.executable)
     return path.split(base_dir)[0]
 
+
 class _LazyPath:
+
     def __init__(self, func):
         self._func = func
+
     def __call__(self):
         return self._func()
+
     def __str__(self):
         return str(self._func())
+
     def __fspath__(self):
         return self._func()
 
+
 WORK_PATH = _LazyPath(_get_workspace_path)
+
 
 def _get_clip_config_path():
     return path.join(str(WORK_PATH), "global", "clip_cfg.json")
+
 
 CLIP_CONFIG_PATH = _LazyPath(_get_clip_config_path)
 
@@ -115,7 +128,9 @@ COLOR_MAP = {
     "purple": (128, 64, 128),
     "red": (0, 0, 255),
     "white": (255, 255, 255),
-    "yellow": (0, 255, 255)
+    "yellow": (0, 255, 255),
+    "cyan": (255, 255, 0),
+    "gray": (128, 128, 128),
 }
 
 PLATFORM_MAPPING = {
@@ -1085,9 +1100,11 @@ def get_id2name() -> dict[int, str]:
     _ensure_class_names_loaded()
     return ID2NAME
 
+
 def get_name2id() -> dict[str, int]:
     _ensure_class_names_loaded()
     return NAME2ID
+
 
 def get_num_class() -> int:
     _ensure_class_names_loaded()

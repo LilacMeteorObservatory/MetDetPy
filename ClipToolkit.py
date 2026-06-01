@@ -60,8 +60,8 @@ BUILTIN_NEGATIVE_CATEGORIES = {"DROPPED", "OTHERS"}
 def adaptive_font_param(img: U8Mat) -> dict[str, int]:
     short_length = min(img.shape[0], img.shape[1])
     return {
-        "font_offset": round(short_length / 2000) + 4,
-        "font_scale": round(short_length / 2000),
+        "font_offset": (short_length / 2000) + 4,
+        "font_scale": (short_length / 2000),
         "font_thickness": int(max(1, short_length // 750))
     }
 
@@ -332,6 +332,8 @@ def image_clip_process(data: list[ImageFrameData], clip_cfg: ClipCfg,
     except Exception as e:
         logger.error(
             f"Fatal error occured: {e.__repr__()}. Process is interrupted.")
+        import traceback
+        logger.error(traceback.format_exc())
     finally:
         logger.stop()
     return
@@ -608,7 +610,6 @@ def main():
                         f"Skip {video_frame.saved_filename} because no valid target in this clip."
                     )
                     continue
-
             if cur_mode == IMAGE_MODE:
                 results = None
                 if denoise_cfg.switch:

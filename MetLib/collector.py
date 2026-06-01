@@ -22,8 +22,9 @@ from .videoloader import VanillaVideoLoader
 color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
-RECHECK_PADDING_FRAMES = 5
+RECHECK_PADDING_SEC = 0.25
 MAX_CONSECUTIVE_FAILURES = 5
+
 
 class Name2Label(object):
     """类别名称映射到Label的类。
@@ -51,7 +52,7 @@ class Name2Label(object):
     RARE_SPRITE = 5
     SPACECRAFT = 6
     BUGS = 7
-    
+
     @staticmethod
     def DROPPED():
         from .utils import get_num_class
@@ -579,9 +580,9 @@ class MeteorCollector(object):
         ret: list[BaseVisuAttrs] = [
             DrawRectVisu("active_meteors", pair_list=active_meteors),
             DrawCircleVisu("active_pts",
-                            dot_list=active_pts,
-                            radius=2,
-                            thickness=-1),
+                           dot_list=active_pts,
+                           radius=2,
+                           thickness=-1),
             TextVisu("score_text", text_list=score_text, color="white"),
             DrawRectVisu("score_bg", pair_list=score_bg, thickness=-1)
         ]
@@ -683,6 +684,7 @@ class MetExporter(object):
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model,
                                             logger=self.logger)
+            self.recheck_padding = int(RECHECK_PADDING_SEC * self.fps)
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = runtime_param.raw_size
         self.rescale_ratio = [
@@ -745,8 +747,7 @@ class MetExporter(object):
                     else:
                         # 置信度不足的正样本类别，在输出前重置为 OTHERS
                         if ms_attr.category in self.positive_cates:
-                            ms_attr.category = ID2NAME[
-                                Name2Label.OTHERS()]
+                            ms_attr.category = ID2NAME[Name2Label.OTHERS()]
                         dropped.append(ms_attr)
                 else:
                     confirmed.append(ms_attr)
@@ -797,10 +798,9 @@ class MetExporter(object):
         assert self.recheck_loader is not None
         stacked_img = max_stacker(
             video_loader=self.recheck_loader,
-            start_frame=max(0, target.start_frame - RECHECK_PADDING_FRAMES),
-            end_frame=min(
-                target.last_activate_frame + RECHECK_PADDING_FRAMES,
-                self.recheck_loader.video_total_frames - 1),
+            start_frame=max(0, target.start_frame - self.recheck_padding),
+            end_frame=min(target.last_activate_frame + self.recheck_padding,
+                          self.recheck_loader.video_total_frames - 1),
             logger=self.logger)
 
         if stacked_img is None:
@@ -835,16 +835,15 @@ class MetExporter(object):
         target.score = np.round(mge_score, 2)
 
         # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
-        if (label != Name2Label.METEOR
-                and label in self.positive_cate_ids) or (
-                    label == Name2Label.METEOR
-                    and target.score >= self.det_thre):
+        if (label != Name2Label.METEOR and label
+                in self.positive_cate_ids) or (label == Name2Label.METEOR and
+                                               target.score >= self.det_thre):
             sure_box = Box.from_pts(target.pt1, target.pt2)
             r_brightness = calc_brightness_with_roi(stacked_img, sure_box)
             target.relative_brightness = round(r_brightness, ndigits=3)
-            target.aesthetic_score = round(
-                target.score * target.fix_dist * target.relative_brightness,
-                ndigits=3)
+            target.aesthetic_score = round(target.score * target.fix_dist *
+                                           target.relative_brightness,
+                                           ndigits=3)
             return target
         else:
             # 流星类被丢弃时需要重新标记为 DROPPED
@@ -852,8 +851,8 @@ class MetExporter(object):
                 target.category = ID2NAME[Name2Label.DROPPED()]
             return None
 
-    def merge_targets_by_time(
-            self, targets: list[MDTarget]) -> list[SingleMDRecord]:
+    def merge_targets_by_time(self,
+                              targets: list[MDTarget]) -> list[SingleMDRecord]:
         """将通过复检的 targets 按时间邻近合并为输出格式。"""
         if not targets:
             return []
