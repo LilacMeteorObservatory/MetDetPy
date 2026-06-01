@@ -22,7 +22,6 @@ from .videoloader import VanillaVideoLoader
 color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
-DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
 RECHECK_PADDING_FRAMES = 5
 
 
@@ -489,7 +488,7 @@ class MeteorCollector(object):
             return
         # 做合并
         num_activate = len(self.active_meteor)
-        cate_ids = cast(list[int], np.argmax(np.array(cates), axis=0))
+        cate_ids = cast(list[int], np.argmax(np.array(cates), axis=1))
         for line_pts, cate_id, cate_prob in zip(lines, cate_ids, cates):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
@@ -603,7 +602,7 @@ class MeteorCollector(object):
 
         # 计分规则：当属于流星时，按照流星规则统计；当不属于流星时，按照所属类别的最大概率统计。
         # TODO: 可能是不完善的。需要观察验证。
-        if met.cate == 0:
+        if met.cate == Name2Label.METEOR:
             # 对短样本实现一定的宽容
             len_prob = self.len_prob_func(met.dist)
             # 排除总时长过长/过短

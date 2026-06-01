@@ -996,16 +996,20 @@ def relative2abs_path(rpath: str):
 
 
 def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
-    """expand cls prediction from [num, cls] to [num, cls+1].
+    """Expand cls prediction from [num, model_cls] to [num, NUM_CLASS].
 
     Args:
-        cls_pred (np.ndarray): _description_
+        cls_pred (np.ndarray): Model output of shape (N, model_cls).
 
     Returns:
-        np.ndarray: _description_
+        np.ndarray: Padded prediction of shape (N, NUM_CLASS).
     """
-    num_pred, _ = cls_pred.shape
-    return np.concatenate([cls_pred, np.zeros((num_pred, 1))], axis=-1)
+    _ensure_class_names_loaded()
+    num_pred, cur_cls = cls_pred.shape
+    pad_cols = NUM_CLASS - cur_cls
+    if pad_cols <= 0:
+        return cls_pred
+    return np.concatenate([cls_pred, np.zeros((num_pred, pad_cols))], axis=-1)
 
 
 def estimate_snr_smooth_residual(image: U8Mat, kernel_size: int = 5) -> float:

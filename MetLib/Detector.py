@@ -383,8 +383,8 @@ class M3Detector(LineDetector):
             linesp_ext, nonline_probs = lineset_nms(linesp_ext)
             self.filtered_line_num = len(linesp_ext)
             cls_pred = np.zeros((self.filtered_line_num, self.num_cls))
-            # -1 为OTHERS 所以实际上需要约定该值为OTHERS。
-            cls_pred[:, -1] = nonline_probs
+            others_col = get_name2id()["OTHERS"]
+            cls_pred[:, others_col] = nonline_probs
             cls_pred[:, 0] = 1 - nonline_probs
         else:
             self.filtered_line_num = 0
