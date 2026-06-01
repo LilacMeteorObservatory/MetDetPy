@@ -22,8 +22,8 @@ from .videoloader import VanillaVideoLoader
 color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
-DEFAULT_POSITIVE_CATES_LIST = ["METEOR", "RED_SPRITE", "RARE_SPRITE"]
-RECHECK_PADDING_FRAMES = 5
+RECHECK_PADDING_SEC = 0.25
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 class Name2Label(object):
@@ -52,7 +52,7 @@ class Name2Label(object):
     RARE_SPRITE = 5
     SPACECRAFT = 6
     BUGS = 7
-    
+
     @staticmethod
     def DROPPED():
         from .utils import get_num_class
@@ -204,6 +204,14 @@ class MeteorSeries(object):
         return cast(float, min(std1, std2))
 
     @property
+    def drst_cv(self) -> float:
+        """Circular variance of direction angles. Range [0, 1], 0 = perfectly straight."""
+        if len(self.drct_list) == 0:
+            return 0.0
+        angles = np.array(self.drct_list) * 2
+        return float(1 - abs(np.mean(np.exp(1j * angles))))
+
+    @property
     def cate(self) -> int:
         return np.argmax(self.cate_prob, axis=0)
 
@@ -317,6 +325,7 @@ class MeteorSeries(object):
                         pt2=pt2,
                         center_point_list=self.center_list.get_pts_as_list(),
                         drct_loss=np.round(self.drst_std, 3),
+                        drct_cv=np.round(self.drst_cv, 4),
                         score=-1,
                         real_dist=-1)
 
@@ -489,7 +498,7 @@ class MeteorCollector(object):
             return
         # 做合并
         num_activate = len(self.active_meteor)
-        cate_ids = cast(list[int], np.argmax(np.array(cates), axis=0))
+        cate_ids = cast(list[int], np.argmax(np.array(cates), axis=1))
         for line_pts, cate_id, cate_prob in zip(lines, cate_ids, cates):
             # 如果某一序列已经开始，则可能是其中间的一部分。
             # 考虑到基本不存在多个流星交接的情况，如果属于某一个，则直接归入即可。
@@ -571,9 +580,9 @@ class MeteorCollector(object):
         ret: list[BaseVisuAttrs] = [
             DrawRectVisu("active_meteors", pair_list=active_meteors),
             DrawCircleVisu("active_pts",
-                            dot_list=active_pts,
-                            radius=2,
-                            thickness=-1),
+                           dot_list=active_pts,
+                           radius=2,
+                           thickness=-1),
             TextVisu("score_text", text_list=score_text, color="white"),
             DrawRectVisu("score_bg", pair_list=score_bg, thickness=-1)
         ]
@@ -603,7 +612,7 @@ class MeteorCollector(object):
 
         # 计分规则：当属于流星时，按照流星规则统计；当不属于流星时，按照所属类别的最大概率统计。
         # TODO: 可能是不完善的。需要观察验证。
-        if met.cate == 0:
+        if met.cate == Name2Label.METEOR:
             # 对短样本实现一定的宽容
             len_prob = self.len_prob_func(met.dist)
             # 排除总时长过长/过短
@@ -615,9 +624,10 @@ class MeteorCollector(object):
             return time_prob * speed_prob * len_prob * drct_prob
         else:
             if np.any(np.isnan(met.cate_prob)):
-                self.logger.error(
-                    f"nan detected in cate_prob: {met.cate_prob}")
-                exit()
+                self.logger.warning(
+                    f"NaN detected in cate_prob: {met.cate_prob}. "
+                    f"Dropping this meteor series.")
+                return 0.0
             return met.cate_prob[met.cate] / met.count
 
     def get_met_attr(self, met: MeteorSeries) -> MDTarget:
@@ -654,6 +664,7 @@ class MetExporter(object):
     ACTIVE_FLAG = "ACTIVE_FLAG"
     FLAG_TYPE_ALIAS = Union[Literal["END_FLAG"], Literal["DROP_FLAG"],
                             Literal["ACTIVE_FLAG"]]
+    MAX_CONSECUTIVE_FAILURES = 5
 
     def __init__(self, recheck_cfg: RecheckCfg, runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
@@ -673,6 +684,7 @@ class MetExporter(object):
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model,
                                             logger=self.logger)
+            self.recheck_padding = int(RECHECK_PADDING_SEC * self.fps)
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = runtime_param.raw_size
         self.rescale_ratio = [
@@ -690,71 +702,67 @@ class MetExporter(object):
         """
                  (what input)
         met_obj -> met_dict -> output_dict -> output_json
-
-        Raises:
-            KeyError: _description_
         """
+        consecutive_failures = 0
         flag, data = self.queue.get()
         while flag in [self.ACTIVE_FLAG, self.DROP_FLAG]:
-            if flag == self.DROP_FLAG:
-                for ms_attr in data:
-                    # Drop类标签修正
-                    ms_attr.category = ID2NAME[Name2Label.DROPPED()]
-                    # 坐标修正和序列化
-                    output_dict = SingleMDRecord.from_target(
-                        ms_attr, self.raw_size)
-                    output_dict = self.rescale(output_dict)
-                    self.meteor_list.append(output_dict)
-                    self.logger.dropped(output_dict.to_json(full=False))
-            else:
-                # ACTIVE_FLAG
-                output_dict: Optional[SingleMDRecord] = None
-                final_list: list[SingleMDRecord] = []
-                for ms_attr in data:
-                    if output_dict is None:
-                        output_dict = SingleMDRecord.from_target(
-                            ms_attr, self.raw_size)
-                        continue
-                    if output_dict.end_frame is None:
-                        self.logger.error("Invalid end frame got!")
-                        final_list.append(output_dict)
-                        output_dict = None
-                        continue
-                    # TODO: 这个max_interval似乎存在复用的歧义性。后续可以考虑独立开来
-                    if ms_attr.start_frame < output_dict.end_frame + self.max_interval:
-                        if ms_attr.last_activate_frame > output_dict.end_frame:
-                            output_dict.end_frame = ms_attr.last_activate_frame
-                            output_dict.end_time = ms_attr.last_activate_time
-                        output_dict.target.append(ms_attr)
-                    else:
-                        # 上一片段已经结束（最大间隔超过max_interval）
-                        final_list.append(output_dict)
-                        output_dict = SingleMDRecord.from_target(
-                            ms_attr, self.raw_size)
-                if output_dict is not None:
-                    final_list.append(output_dict)
-                drop_list: list[MDTarget] = []
-                if self.recheck:
-                    final_list, drop_list = self.recheck_progress(final_list)
-                for met in final_list:
-                    # 坐标修正和序列化
-                    met = self.rescale(met)
-                    self.meteor_list.append(met)
-                    self.logger.meteor(met.to_json(full=False))
-                for ms_attr in drop_list:
-                    # 坐标修正和序列化
-                    output_dict = SingleMDRecord.from_target(
-                        ms_attr, self.raw_size)
-                    output_dict = self.rescale(output_dict)
-                    self.meteor_list.append(output_dict)
-                    self.logger.dropped(output_dict.to_json(full=False))
-
-            # get next
+            try:
+                self._process_batch(flag, data)
+                consecutive_failures = 0
+            except Exception as e:
+                consecutive_failures += 1
+                self.logger.error(
+                    f"Exporter batch failed ({consecutive_failures}/"
+                    f"{self.MAX_CONSECUTIVE_FAILURES}): {e}")
+                if consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+                    self.logger.error(
+                        "Exporter loop aborted due to repeated failures.")
+                    break
             flag, data = self.queue.get()
-        if flag != self.END_FLAG:
+        if flag not in [self.END_FLAG, self.ACTIVE_FLAG, self.DROP_FLAG]:
             raise KeyError(
                 f"Unexpected flag received. Except [{self.ACTIVE_FLAG}"
                 f"{self.DROP_FLAG},{self.END_FLAG}], got {flag} instead.")
+
+    def _process_batch(self, flag: str, data: list[MDTarget]):
+        if flag == self.DROP_FLAG:
+            for ms_attr in data:
+                # Drop类标签修正
+                ms_attr.category = ID2NAME[Name2Label.DROPPED()]
+                output_dict = SingleMDRecord.from_target(
+                    ms_attr, self.raw_size)
+                output_dict = self.rescale(output_dict)
+                self.meteor_list.append(output_dict)
+                self.logger.dropped(output_dict.to_json(full=False))
+        else:
+            # ACTIVE_FLAG: 先逐 target 独立复检，再按时间邻近合并为输出格式
+            confirmed: list[MDTarget] = []
+            dropped: list[MDTarget] = []
+
+            for ms_attr in data:
+                if self.recheck:
+                    result = self.recheck_single_target(ms_attr)
+                    if result is not None:
+                        confirmed.append(result)
+                    else:
+                        # 置信度不足的正样本类别，在输出前重置为 OTHERS
+                        if ms_attr.category in self.positive_cates:
+                            ms_attr.category = ID2NAME[Name2Label.OTHERS()]
+                        dropped.append(ms_attr)
+                else:
+                    confirmed.append(ms_attr)
+
+            final_list = self.merge_targets_by_time(confirmed)
+            for met in final_list:
+                met = self.rescale(met)
+                self.meteor_list.append(met)
+                self.logger.meteor(met.to_json(full=False))
+            for ms_attr in dropped:
+                output_dict = SingleMDRecord.from_target(
+                    ms_attr, self.raw_size)
+                output_dict = self.rescale(output_dict)
+                self.meteor_list.append(output_dict)
+                self.logger.dropped(output_dict.to_json(full=False))
 
     def rescale(self, meteor_dict: SingleMDRecord) -> SingleMDRecord:
         """将复合的meteor_dict中的所有target的起止坐标和距离映射回真实分辨率下。
@@ -775,109 +783,90 @@ class MetExporter(object):
                     single_meteor.center_point_list[i], self.rescale_ratio)
         return meteor_dict
 
-    def recheck_progress(
-        self, final_list: list[SingleMDRecord]
-    ) -> tuple[list[SingleMDRecord], list[MDTarget]]:
-        """重校验。
+    def recheck_single_target(self, target: MDTarget) -> Optional[MDTarget]:
+        """对单个 target 执行独立复检。
 
-        Args:
-            final_list (list[dict]): 包含若干个整片段
+        Returns:
+            通过复检的 target（可能更新了 category/score），或 None 表示未通过。
         """
-        # 片段级重校验
-        # TODO: 存在潜在的可能性，删除中间片段之后前后间隔过长。此处逻辑可能需要重新处置。
-        # 重构Collector时修复。
-        new_final_list: list[SingleMDRecord] = []
-        new_drop_list: list[MDTarget] = []
+        # BRIGHTNESS_EVENT 类别豁免 recheck：该类别由 BrightnessDetector 产生，
+        # 属于 DL recheck 模型的域外分布，强制 recheck 会导致误丢弃。
         brightness_event_name = ID2NAME[Name2Label.BRIGHTNESS_EVENT()]
-        for output_dict in final_list:
-            # BRIGHTNESS_EVENT 类别豁免 recheck：该类别由 BrightnessDetector 产生，
-            # 属于 DL recheck 模型的域外分布，强制 recheck 会导致误丢弃。
-            if all(t.category == brightness_event_name
-                   for t in output_dict.target):
-                new_final_list.append(output_dict)
-                continue
-            if output_dict.start_frame is None or output_dict.end_frame is None:
-                self.logger.error(f"Invalid output clip: {output_dict}")
-                continue
-            assert self.recheck_loader is not None
-            stacked_img = max_stacker(
-                video_loader=self.recheck_loader,
-                start_frame=max(
-                    0, (output_dict.start_frame - RECHECK_PADDING_FRAMES)),
-                end_frame=min(output_dict.end_frame + RECHECK_PADDING_FRAMES,
-                              self.recheck_loader.video_total_frames - 1),
-                logger=self.logger)
-            if stacked_img is None:
-                self.logger.error(
-                    "Failed to get stacked img. This clip will be not checked "
-                    +
-                    "and output as input. If you see this please report to dev team."
-                    + f" Clip start_frame = {output_dict.start_frame}; " +
-                    f"end_frame = {output_dict.end_frame}")
-                new_final_list.append(output_dict)
-                continue
-            bbox_list, score_list = self.recheck_model.forward(stacked_img)
-            # 匹配bbox，修改与类别得分为前置预测得分与模型预测得分的均值，输出为new_final_list，
-            # 未检出box收集到drop_list中。
-            raw_bbox_list = [[*x.pt1, *x.pt2] for x in output_dict.target]
-            matched_pairs = box_matching(bbox_list,
-                                         raw_bbox_list)  # type: ignore
-            fixed_output: list[MDTarget] = []
-            unmatched_proposal_list = [True for _ in output_dict.target]
-            for l, r in matched_pairs:
-                label = np.argmax(score_list[l, :], axis=0)
-                score = score_list[l, label]
-                sure_meteor = output_dict.target[r]
-                sure_meteor.category = ID2NAME.get(label,
-                                                   ID2NAME[Name2Label.OTHERS()])
-                sure_meteor.raw_score = sure_meteor.score
-                sure_meteor.recheck_score = round(score.astype(np.float64),
-                                                  ndigits=3)
-                # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
-                # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
-                # TODO: 前置预测输出多类别分数。
-                if label == Name2Label.METEOR:
-                    mge_score = (sure_meteor.recheck_score +
-                                 sure_meteor.raw_score) / 2
-                else:
-                    mge_score = score.astype(np.float64)
-                sure_meteor.score = np.round(mge_score, 2)
-                # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
-                if (label != Name2Label.METEOR
-                        and label in self.positive_cate_ids) or (
-                            label == Name2Label.METEOR
-                            and sure_meteor.score >= self.det_thre):
-                    # 计算相对亮度值
-                    sure_box = Box.from_pts(sure_meteor.pt1, sure_meteor.pt2)
-                    r_brightness = calc_brightness_with_roi(
-                        stacked_img, sure_box)
-                    sure_meteor.relative_brightness = round(r_brightness,
-                                                            ndigits=3)
-                    sure_meteor.aesthetic_score = round(
-                        sure_meteor.score * sure_meteor.fix_dist *
-                        sure_meteor.relative_brightness,
-                        ndigits=3)
-                    fixed_output.append(sure_meteor)
-                else:
-                    # 流星类被丢弃时需要重新标记为 DROPPED
-                    if label == Name2Label.METEOR:
-                        sure_meteor.category = ID2NAME[Name2Label.DROPPED()]
-                    new_drop_list.append(sure_meteor)
-                unmatched_proposal_list[r] = False
-            # after fix. to be optimized.
-            if len(fixed_output) > 0:
-                # 重新计算准确的起止时间
-                new_final_list.append(
-                    SingleMDRecord.from_target_list(fixed_output,
-                                                    output_dict.video_size))
+        if target.category == brightness_event_name:
+            return target
 
-            # 整理所有未被配对的结果，如果是置信度不足的正样本类别，类别在输出前被重置为OTHERS。
-            for (idx, i) in enumerate(unmatched_proposal_list):
-                if not i:
-                    continue
-                if output_dict.target[idx].category in self.positive_cates:
-                    output_dict.target[idx].category = ID2NAME[
-                        Name2Label.OTHERS()]
-                new_drop_list.append(output_dict.target[idx])
+        assert self.recheck_loader is not None
+        stacked_img = max_stacker(
+            video_loader=self.recheck_loader,
+            start_frame=max(0, target.start_frame - self.recheck_padding),
+            end_frame=min(target.last_activate_frame + self.recheck_padding,
+                          self.recheck_loader.video_total_frames - 1),
+            logger=self.logger)
 
-        return new_final_list, new_drop_list
+        if stacked_img is None:
+            self.logger.error(
+                "Failed to get stacked img. Target will pass without recheck."
+                f" start_frame={target.start_frame};"
+                f" last_activate_frame={target.last_activate_frame}")
+            return target
+
+        bbox_list, score_list = self.recheck_model.forward(stacked_img)
+        target_bbox = [[*target.pt1, *target.pt2]]
+        matched_pairs = box_matching(bbox_list, target_bbox)  # type: ignore
+
+        if len(matched_pairs) == 0:
+            return None
+
+        l, _ = matched_pairs[0]
+        label = np.argmax(score_list[l, :], axis=0)
+        score = score_list[l, label]
+
+        target.category = ID2NAME.get(label, ID2NAME[Name2Label.OTHERS()])
+        target.raw_score = target.score
+        target.recheck_score = round(score.astype(np.float64), ndigits=3)
+
+        # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
+        # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
+        # TODO: 前置预测输出多类别分数。
+        if label == Name2Label.METEOR:
+            mge_score = (target.recheck_score + target.raw_score) / 2
+        else:
+            mge_score = score.astype(np.float64)
+        target.score = np.round(mge_score, 2)
+
+        # label为置信流星，或者为positive_cate_ids中其他类别时，才其加入到正输出中。
+        if (label != Name2Label.METEOR and label
+                in self.positive_cate_ids) or (label == Name2Label.METEOR and
+                                               target.score >= self.det_thre):
+            sure_box = Box.from_pts(target.pt1, target.pt2)
+            r_brightness = calc_brightness_with_roi(stacked_img, sure_box)
+            target.relative_brightness = round(r_brightness, ndigits=3)
+            target.aesthetic_score = round(target.score * target.fix_dist *
+                                           target.relative_brightness,
+                                           ndigits=3)
+            return target
+        else:
+            # 流星类被丢弃时需要重新标记为 DROPPED
+            if label == Name2Label.METEOR:
+                target.category = ID2NAME[Name2Label.DROPPED()]
+            return None
+
+    def merge_targets_by_time(self,
+                              targets: list[MDTarget]) -> list[SingleMDRecord]:
+        """将通过复检的 targets 按时间邻近合并为输出格式。"""
+        if not targets:
+            return []
+        result: list[SingleMDRecord] = []
+        current = SingleMDRecord.from_target(targets[0], self.raw_size)
+        for t in targets[1:]:
+            if (current.end_frame is not None
+                    and t.start_frame < current.end_frame + self.max_interval):
+                if t.last_activate_frame > (current.end_frame or 0):
+                    current.end_frame = t.last_activate_frame
+                    current.end_time = t.last_activate_time
+                current.target.append(t)
+            else:
+                result.append(current)
+                current = SingleMDRecord.from_target(t, self.raw_size)
+        result.append(current)
+        return result

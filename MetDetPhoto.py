@@ -209,7 +209,7 @@ try:
                                 f"{pred[int(np.argmax(pred))]:.2f}"
                                 for pred in preds
                             ],
-                            img_size=list(img.shape)[1:-1],
+                            img_size=list(img.shape)[1::-1],
                             img_filename=img_path))
                     logger.meteor(str(results[-1]))
                 else:
