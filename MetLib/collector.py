@@ -166,10 +166,8 @@ class MeteorSeries(object):
         
         MeteorSeries Property:
             start_frame [int] 起始帧
-            end_frame [int] 运动结束帧
+            last_motion_frame [int] 最后运动帧（目标扩展运动范围的最后时刻）
             last_activate_frame [int] 最后响应帧
-            
-        NOTE: MeteorSeries 的 end_frame 与 MeteorCollector 的 end_frame 语义不同。
         """
         assert len(init_pts) in (
             3, 5
@@ -181,7 +179,7 @@ class MeteorSeries(object):
         self.center_list.extend(np.mean(init_pts, axis=0)[None, :], cur_frame)
         self.drct_list.append(pt_drct(init_pts[0], init_pts[1]))
         self.start_frame = start_frame
-        self.end_frame = cur_frame
+        self.last_motion_frame = cur_frame
         self.last_activate_frame = cur_frame
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
@@ -240,7 +238,7 @@ class MeteorSeries(object):
     def fix_motion_duration(self) -> float:
         """流星序列的真实运动时间（单位为秒）。
         """
-        return (self.end_frame - self.start_frame) / self.fps
+        return (self.last_motion_frame - self.start_frame) / self.fps
 
     @property
     def sort_range(self):
@@ -278,7 +276,7 @@ class MeteorSeries(object):
         Returns:
             _type_: _description_
         """
-        return self.dist / (self.end_frame - self.start_frame + 1e-6)
+        return self.dist / (self.last_motion_frame - self.start_frame + 1e-6)
 
     @property
     def fix_speed(self) -> float:
@@ -307,7 +305,7 @@ class MeteorSeries(object):
 
         return MDTarget(start_time=frame2ts(self.start_frame, self.fps),
                         start_frame=self.start_frame,
-                        end_time=frame2ts(self.end_frame, self.fps),
+                        end_time=frame2ts(self.last_motion_frame, self.fps),
                         last_activate_frame=self.last_activate_frame,
                         last_activate_time=frame2ts(self.last_activate_frame,
                                                     self.fps),
@@ -355,10 +353,10 @@ class MeteorSeries(object):
         assert len(new_box) in (
             3,
             5), f"invalid init_pts length: should be 3 but {len(new_box)} got."
-        # 超出区域时，更新end_frame; 否则仅更新last_activate_frame
+        # 超出区域时，更新last_motion_frame; 否则仅更新last_activate_frame
         for pt in new_box:
             if not ((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2)):
-                self.end_frame = new_frame
+                self.last_motion_frame = new_frame
                 break
         self.last_activate_frame = new_frame
         self.coord_list.extend(new_box, new_frame)
