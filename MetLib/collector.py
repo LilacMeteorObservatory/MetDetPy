@@ -400,17 +400,7 @@ class MeteorCollector(object):
         self.det_thre = collector_cfg.meteor_cfg.det_thre
         self.thre2 = collector_cfg.meteor_cfg.thre2 * runtime_param.exp_frame
         self.runtime_size = runtime_param.runtime_size
-        self.active_meteor = [
-            MeteorSeries(
-                2**16,
-                2**16,
-                np.array([[-100, -100], [-101, -101], [-102, -102]]),
-                np.nan,
-                np.nan,
-                None,  # type: ignore
-                runtime_param.fps,
-                self.runtime_size)
-        ]
+        self.active_meteor: list[MeteorSeries] = []
         self.waiting_meteor: list[MeteorSeries] = []
         self.cur_frame = 0
         self.eframe = runtime_param.exp_frame
@@ -448,17 +438,8 @@ class MeteorCollector(object):
         drop_list: list[MeteorSeries] = []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
-                # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
-                # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
-                if (self.prob_meteor(ms) > self.det_thre /
-                        2) and (self.prob_meteor(ms) != self.det_thre):
-                    # 没有后校验的情况下，UNKNOWN，PLANE_SATELLITE类型不给予输出
-                    if self.met_exporter.recheck or not (ms.cate in [
-                            Name2Label.OTHERS(), Name2Label.PLANE_SATELLITE
-                    ]):
-                        temp_waiting_meteor.append(ms)
-                    else:
-                        drop_list.append(ms)
+                if self._should_keep(ms):
+                    temp_waiting_meteor.append(ms)
                 else:
                     drop_list.append(ms)
         # 维护
@@ -531,8 +512,7 @@ class MeteorCollector(object):
             # 如果不属于已存在的序列，则为其构建新的序列开头
             if is_in_series:
                 continue
-            self.active_meteor.insert(
-                len(self.active_meteor) - 1,
+            self.active_meteor.append(
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
                              self.cur_frame,
                              line,
@@ -589,17 +569,43 @@ class MeteorCollector(object):
 
         return ret
 
-    def clear(self):
-        """将当前时间更新至无穷久以后，清空列表。
-        应当在结束时仅调用一次。
-
-        Raises:
-            StopIteration: _description_
-
-        Returns:
-            _type_: _description_
+    def _should_keep(self, ms: MeteorSeries) -> bool:
+        """判断过期序列是否应保留（进入 waiting）而非丢弃。
+        # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
+        # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
         """
-        self.update(2**16, [], [])
+        if (self.prob_meteor(ms) > self.det_thre /
+                2) and (self.prob_meteor(ms) != self.det_thre):
+            if self.met_exporter.recheck or not (ms.cate in [
+                    Name2Label.OTHERS(), Name2Label.PLANE_SATELLITE
+            ]):
+                return True
+        return False
+
+    def clear(self):
+        """将所有残留的活跃序列做最终判定并导出，然后结束导出线程。
+        应当在结束时仅调用一次。
+        """
+        drop_list: list[MeteorSeries] = []
+        for ms in self.active_meteor:
+            if self._should_keep(ms):
+                self.waiting_meteor.append(ms)
+            else:
+                drop_list.append(ms)
+        self.active_meteor.clear()
+
+        self.met_exporter.export(self.met_exporter.DROP_FLAG,
+                                 [self.get_met_attr(ms) for ms in drop_list])
+
+        if self.waiting_meteor:
+            waiting_meteor = [
+                self.get_met_attr(ms) for ms in self.waiting_meteor
+            ]
+            waiting_meteor.sort(key=lambda ms: ms.start_frame)
+            self.met_exporter.export(self.met_exporter.ACTIVE_FLAG,
+                                     waiting_meteor)
+            self.waiting_meteor.clear()
+
         self.met_exporter.export(self.met_exporter.END_FLAG, [])
         self.met_exporter.export_loop.join()
 
