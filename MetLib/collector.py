@@ -91,11 +91,16 @@ def create_prob_func(range: FloatArray):
     """
     a, b = range
 
-    def get_prob(x: float):
-        if x < a: return x / a
-        if a <= x <= b: return 1
-        if x < 2 * b: return (2 * b - x) / b
-        return 0
+    if np.isinf(b):
+        def get_prob(x: float):
+            if x < a: return x / a
+            return 1
+    else:
+        def get_prob(x: float):
+            if x < a: return x / a
+            if x <= b: return 1
+            if x < 2 * b: return (2 * b - x) / b
+            return 0
 
     return get_prob
 
@@ -184,7 +189,7 @@ class MeteorSeries(object):
         self.max_acti_frame = max_acti_frame
         self.max_acceptable_dist = max_acceptable_dist
         self.count = 1
-        self.cate_prob = cate_prob
+        self.cate_prob = np.array(cate_prob, copy=True)
         self.fps = fps
         self.runtime_length = max(runtime_size)
         self.range = ([2**16, 2**16], [-2**16, -2**16])
@@ -441,10 +446,8 @@ class MeteorCollector(object):
                 else:
                     drop_list.append(ms)
         # 维护
-        for ms in drop_list:
-            self.active_meteor.remove(ms)
-        for ms in temp_waiting_meteor:
-            self.active_meteor.remove(ms)
+        remove_set = set(id(ms) for ms in drop_list + temp_waiting_meteor)
+        self.active_meteor = [ms for ms in self.active_meteor if id(ms) not in remove_set]
 
         # drop的部分不进行合并，直接构建序列
         self.met_exporter.export(self.met_exporter.DROP_FLAG,
