@@ -19,6 +19,9 @@ python MetDetPhoto.py ./images --save-path results.json
 # Clip/stack toolkit (post-processing)
 python ClipToolkit.py results.json --mode video --save-path ./output
 
+# Unit tests
+python -m pytest tests/ -v
+
 # Evaluation (requires annotation file and test video in test/)
 python evaluate.py test/20220413Red.mp4 test/20220413_annotation.json
 
@@ -52,7 +55,7 @@ VideoFile → VideoLoader → Detector → Collector → Exporter → MDRF JSON
   - `MLDetector` (YOLO-based detection, requires color frames)
   - `BrightnessDetector` (whole-frame brightness events)
 
-- **Collector** (`collector.py`): Aggregates per-frame "responses" into motion sequences (tracks), applies motion-based filtering (speed, duration, direction), then optionally invokes a YOLO recheck model for classification.
+- **Collector** (`collector.py`): Two classes — `MeteorCollector` aggregates per-frame "responses" into motion sequences (`MeteorSeries`), applies motion-based filtering (speed, duration, direction), and immediately exports timed-out sequences to `MetExporter`. `MetExporter` runs in a background thread, performs optional YOLO recheck per target, manages a `pending_confirmed` buffer, and assembles temporally-close confirmed targets into clip-level `SingleMDRecord` output. The Collector→Exporter protocol carries `(flag, data, cur_frame, nearest_active_start)` to enable frame-time-based flush decisions without real-time timeouts.
 
 - **Model** (`model.py`): ONNX Runtime inference wrapper for YOLO models. Handles multi-scale prediction, NMS, and provider selection (CPU/CUDA/DirectML/CoreML).
 
@@ -87,7 +90,7 @@ Detection results use the MetDetPy Detection Result Format (MDRF) — a JSON str
 
 - The project is bilingual (Chinese/English) in comments and docs. Code identifiers are in English.
 - Python 3.9+ features are used (type hints with `list[...]`, `tuple[...]`).
-- No formal test suite — testing is done via `evaluate.py` against annotated test videos.
+- Unit tests live in `tests/` and are run with `python -m pytest tests/ -v`. Integration testing is done via `evaluate.py` against annotated test videos in `test/`.
 - Resource files (weights, class names, clip config) are resolved relative to the project root via `relative2abs_path()` in utils, overridable with `--resource-dir` or `METDET_RESOURCE_DIR` env var.
 - Class names are defined in `global/class_name.txt` and loaded lazily.
 - ONNX model weights live in `weights/` (tracked via Git LFS).

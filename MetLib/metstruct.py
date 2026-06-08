@@ -421,6 +421,7 @@ class MeteorCfg(DictAble):
     drct_range: list[float]
     det_thre: float
     thre2: int
+    clip_merge_interval: Optional[float] = None
 
 
 @dataclasses.dataclass

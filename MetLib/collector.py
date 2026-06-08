@@ -404,7 +404,6 @@ class MeteorCollector(object):
         self.thre2 = collector_cfg.meteor_cfg.thre2 * runtime_param.exp_frame
         self.runtime_size = runtime_param.runtime_size
         self.active_meteor: list[MeteorSeries] = []
-        self.waiting_meteor: list[MeteorSeries] = []
         self.cur_frame = 0
         self.eframe = runtime_param.exp_frame
         self.fps = runtime_param.fps
@@ -417,12 +416,17 @@ class MeteorCollector(object):
             collector_cfg.meteor_cfg.drct_range)
         self.logger = logger
 
+        clip_merge_sec = collector_cfg.meteor_cfg.clip_merge_interval
+        clip_merge_interval = (clip_merge_sec * runtime_param.fps
+                               if clip_merge_sec is not None
+                               else self.max_interval)
+
         # Init Exporter
         self.met_exporter = MetExporter(collector_cfg.recheck_cfg,
                                         runtime_param,
                                         video_loader=video_loader,
                                         logger=logger,
-                                        max_interval=self.max_interval,
+                                        clip_merge_interval=clip_merge_interval,
                                         det_thre=self.det_thre)
 
     def update(self, cur_frame: int, lines: IntSeq2D, cates: FloatSeq2D):
@@ -435,46 +439,42 @@ class MeteorCollector(object):
             cur_frame (_type_): _description_
             lines (_type_): _description_
         """
-        # 维护活跃流星序列：将已经超过最长时间检测未响应的潜在流星序列移出，将满足条件的流星放入完成序列。
         self.cur_frame = cur_frame
-        temp_waiting_meteor: list[MeteorSeries] = []
+
+        # 1. 收集超时序列
+        keep_list: list[MeteorSeries] = []
         drop_list: list[MeteorSeries] = []
         for ms in self.active_meteor:
             if self.cur_frame - ms.last_activate_frame >= self.max_interval:
                 if self._should_keep(ms):
-                    temp_waiting_meteor.append(ms)
+                    keep_list.append(ms)
                 else:
                     drop_list.append(ms)
-        # 维护
-        remove_set = set(id(ms) for ms in drop_list + temp_waiting_meteor)
+
+        # 2. 过滤 active_meteor
+        remove_set = set(id(ms) for ms in drop_list + keep_list)
         self.active_meteor = [ms for ms in self.active_meteor if id(ms) not in remove_set]
 
-        # drop的部分不进行合并，直接构建序列
-        self.met_exporter.export(self.met_exporter.DROP_FLAG,
-                                 [self.get_met_attr(ms) for ms in drop_list])
+        # 3. 计算 nearest_active_start（基于过滤后的 active）
+        nearest_active_start = self._calc_nearest_active_start()
 
-        self.waiting_meteor.extend(temp_waiting_meteor)
+        # 4. 发送超时序列
+        exported = False
+        for ms in keep_list:
+            self.met_exporter.export(
+                self.met_exporter.ACTIVE_FLAG,
+                [self.get_met_attr(ms)], cur_frame, nearest_active_start)
+            exported = True
+        for ms in drop_list:
+            self.met_exporter.export(
+                self.met_exporter.DROP_FLAG,
+                [self.get_met_attr(ms)], cur_frame, nearest_active_start)
+            exported = True
 
-        # 整合待导出序列：如果没有活跃的潜在流星，则导出
-        # TODO: 缺省的等待时间和收集距离可能需要调整——也可能不需要。但需要评估。
-        if len(self.waiting_meteor) > 0:
-            no_prob_met = True
-            for ms in self.active_meteor:
-                # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
-                # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
-                if self.prob_meteor(ms) > self.det_thre/2 and \
-                    (ms.start_frame - self.waiting_meteor[-1].last_activate_frame<= self.max_interval):
-                    no_prob_met = False
-                    break
-            if no_prob_met:
-                waiting_meteor = [
-                    self.get_met_attr(ms) for ms in self.waiting_meteor
-                ]
-                # sort meteors in ASC order to avoid time fmt error
-                waiting_meteor.sort(key=lambda ms: ms.start_frame)
-                self.met_exporter.export(self.met_exporter.ACTIVE_FLAG,
-                                         waiting_meteor)
-                self.waiting_meteor.clear()
+        # 5. 心跳：确保 Exporter 感知时间推进
+        if not exported:
+            self.met_exporter.export(
+                self.met_exporter.DROP_FLAG, [], cur_frame, nearest_active_start)
 
         if len(cates) == 0:
             return
@@ -571,9 +571,9 @@ class MeteorCollector(object):
         return ret
 
     def _should_keep(self, ms: MeteorSeries) -> bool:
-        """判断过期序列是否应保留（进入 waiting）而非丢弃。
+        """判断过期序列是否应保留（送入 Exporter 做 recheck）而非直接丢弃。
         # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
-        # TODO: THIS MECHANISM SHOULD BE FIXED WITH HIGH PRIORITY.
+        # TODO: THIS MECHANISM SHOULD BE CONSIDERED WITH HIGH PRIORITY.
         """
         if (self.prob_meteor(ms) > self.det_thre /
                 2) and (self.prob_meteor(ms) != self.det_thre):
@@ -583,31 +583,28 @@ class MeteorCollector(object):
                 return True
         return False
 
+    def _calc_nearest_active_start(self) -> Optional[int]:
+        """返回当前 active_meteor 中"有潜力"序列的最早 start_frame，用于通知 Exporter 是否有潜在的同 clip 候选。"""
+        candidates = [ms.start_frame for ms in self.active_meteor
+                      if self.prob_meteor(ms) > self.det_thre / 2]
+        return min(candidates) if candidates else None
+
     def clear(self):
         """将所有残留的活跃序列做最终判定并导出，然后结束导出线程。
         应当在结束时仅调用一次。
         """
-        drop_list: list[MeteorSeries] = []
         for ms in self.active_meteor:
             if self._should_keep(ms):
-                self.waiting_meteor.append(ms)
+                self.met_exporter.export(
+                    self.met_exporter.ACTIVE_FLAG,
+                    [self.get_met_attr(ms)], self.cur_frame, None)
             else:
-                drop_list.append(ms)
+                self.met_exporter.export(
+                    self.met_exporter.DROP_FLAG,
+                    [self.get_met_attr(ms)], self.cur_frame, None)
         self.active_meteor.clear()
 
-        self.met_exporter.export(self.met_exporter.DROP_FLAG,
-                                 [self.get_met_attr(ms) for ms in drop_list])
-
-        if self.waiting_meteor:
-            waiting_meteor = [
-                self.get_met_attr(ms) for ms in self.waiting_meteor
-            ]
-            waiting_meteor.sort(key=lambda ms: ms.start_frame)
-            self.met_exporter.export(self.met_exporter.ACTIVE_FLAG,
-                                     waiting_meteor)
-            self.waiting_meteor.clear()
-
-        self.met_exporter.export(self.met_exporter.END_FLAG, [])
+        self.met_exporter.export(self.met_exporter.END_FLAG, [], self.cur_frame, None)
         self.met_exporter.export_loop.join()
 
     def prob_meteor(self, met: MeteorSeries) -> float:
@@ -675,16 +672,16 @@ class MetExporter(object):
 
     def __init__(self, recheck_cfg: RecheckCfg, runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
-                 logger: BaseMetLog, max_interval: float,
+                 logger: BaseMetLog, clip_merge_interval: float,
                  det_thre: float) -> None:
-        self.queue: queue.Queue[tuple[str, list[MDTarget]]] = queue.Queue()
+        self.queue: queue.Queue[tuple[str, list[MDTarget], int, Optional[int]]] = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.positive_cates: list[str] = runtime_param.positive_category_list
         self.positive_cate_ids: list[int] = [
             NAME2ID[cate] for cate in self.positive_cates if cate in NAME2ID
         ]
         self.logger = logger
-        self.max_interval = max_interval
+        self.clip_merge_interval = clip_merge_interval
         self.det_thre = det_thre
         self.fps = runtime_param.fps
         if self.recheck:
@@ -701,20 +698,23 @@ class MetExporter(object):
         self.export_loop = threading.Thread(target=self.loop, daemon=True)
         self.export_loop.start()
         self.meteor_list: list[SingleMDRecord] = []
+        self.pending_confirmed: list[MDTarget] = []
+        self.last_seen_frame: int = 0
+        self.nearest_active_start: Optional[int] = None
 
-    def export(self, flag: FLAG_TYPE_ALIAS, data: list[MDTarget]):
-        self.queue.put((flag, data))
+    def export(self, flag: FLAG_TYPE_ALIAS, data: list[MDTarget],
+               cur_frame: int = 0, nearest_active_start: Optional[int] = None):
+        self.queue.put((flag, data, cur_frame, nearest_active_start))
 
     def loop(self):
-        """
-                 (what input)
-        met_obj -> met_dict -> output_dict -> output_json
-        """
         consecutive_failures = 0
-        flag, data = self.queue.get()
+        flag, data, cur_frame, nearest = self.queue.get()
         while flag in [self.ACTIVE_FLAG, self.DROP_FLAG]:
+            self.last_seen_frame = cur_frame
+            self.nearest_active_start = nearest
             try:
-                self._process_batch(flag, data)
+                self._try_flush_pending()
+                self._process_message(flag, data)
                 consecutive_failures = 0
             except Exception as e:
                 consecutive_failures += 1
@@ -725,13 +725,42 @@ class MetExporter(object):
                     self.logger.error(
                         "Exporter loop aborted due to repeated failures.")
                     break
-            flag, data = self.queue.get()
-        if flag not in [self.END_FLAG, self.ACTIVE_FLAG, self.DROP_FLAG]:
+            flag, data, cur_frame, nearest = self.queue.get()
+        # END_FLAG: flush all remaining pending
+        if flag == self.END_FLAG:
+            self._flush_pending()
+        elif flag not in [self.ACTIVE_FLAG, self.DROP_FLAG]:
             raise KeyError(
-                f"Unexpected flag received. Except [{self.ACTIVE_FLAG}"
+                f"Unexpected flag received. Expect [{self.ACTIVE_FLAG},"
                 f"{self.DROP_FLAG},{self.END_FLAG}], got {flag} instead.")
 
-    def _process_batch(self, flag: str, data: list[MDTarget]):
+    def _try_flush_pending(self):
+        """检查 pending 是否满足 flush 条件并执行。"""
+        if not self.pending_confirmed:
+            return
+        last_pending_frame = self.pending_confirmed[-1].last_activate_frame
+        time_exceeded = (self.last_seen_frame - last_pending_frame
+                         > self.clip_merge_interval)
+        no_active_candidate = (
+            self.nearest_active_start is None
+            or self.nearest_active_start - last_pending_frame
+            > self.clip_merge_interval)
+        if time_exceeded and no_active_candidate:
+            self._flush_pending()
+
+    def _flush_pending(self):
+        """将 pending_confirmed 合并输出并清空。"""
+        if not self.pending_confirmed:
+            return
+        self.pending_confirmed.sort(key=lambda t: t.start_frame)
+        final_list = self.merge_targets_by_time(self.pending_confirmed)
+        for met in final_list:
+            met = self.rescale(met)
+            self.meteor_list.append(met)
+            self.logger.meteor(met.to_json(full=False))
+        self.pending_confirmed.clear()
+
+    def _process_message(self, flag: str, data: list[MDTarget]):
         if flag == self.DROP_FLAG:
             for ms_attr in data:
                 # Drop类标签修正
@@ -742,34 +771,23 @@ class MetExporter(object):
                 self.meteor_list.append(output_dict)
                 self.logger.dropped(output_dict.to_json(full=False))
         else:
-            # ACTIVE_FLAG: 先逐 target 独立复检，再按时间邻近合并为输出格式
-            confirmed: list[MDTarget] = []
-            dropped: list[MDTarget] = []
-
+            # ACTIVE_FLAG: 逐 target 独立复检
             for ms_attr in data:
                 if self.recheck:
                     result = self.recheck_single_target(ms_attr)
                     if result is not None:
-                        confirmed.append(result)
+                        self.pending_confirmed.append(result)
                     else:
                         # 置信度不足的正样本类别，在输出前重置为 OTHERS
                         if ms_attr.category in self.positive_cates:
                             ms_attr.category = ID2NAME[Name2Label.OTHERS()]
-                        dropped.append(ms_attr)
+                        output_dict = SingleMDRecord.from_target(
+                            ms_attr, self.raw_size)
+                        output_dict = self.rescale(output_dict)
+                        self.meteor_list.append(output_dict)
+                        self.logger.dropped(output_dict.to_json(full=False))
                 else:
-                    confirmed.append(ms_attr)
-
-            final_list = self.merge_targets_by_time(confirmed)
-            for met in final_list:
-                met = self.rescale(met)
-                self.meteor_list.append(met)
-                self.logger.meteor(met.to_json(full=False))
-            for ms_attr in dropped:
-                output_dict = SingleMDRecord.from_target(
-                    ms_attr, self.raw_size)
-                output_dict = self.rescale(output_dict)
-                self.meteor_list.append(output_dict)
-                self.logger.dropped(output_dict.to_json(full=False))
+                    self.pending_confirmed.append(ms_attr)
 
     def rescale(self, meteor_dict: SingleMDRecord) -> SingleMDRecord:
         """将复合的meteor_dict中的所有target的起止坐标和距离映射回真实分辨率下。
@@ -867,7 +885,7 @@ class MetExporter(object):
         current = SingleMDRecord.from_target(targets[0], self.raw_size)
         for t in targets[1:]:
             if (current.end_frame is not None
-                    and t.start_frame < current.end_frame + self.max_interval):
+                    and t.start_frame < current.end_frame + self.clip_merge_interval):
                 if t.last_activate_frame > (current.end_frame or 0):
                     current.end_frame = t.last_activate_frame
                     current.end_time = t.last_activate_time
