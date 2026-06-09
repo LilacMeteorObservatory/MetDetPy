@@ -228,6 +228,121 @@ class TestRecheckIntegration:
         assert exporter.logger.dropped.call_count == 5
 
 
+class TestDropFlagWithData:
+    """Test DROP_FLAG with non-empty data (label rewrite to 'dropped')."""
+
+    def test_drop_flag_relabels_to_dropped(self):
+        """DROP_FLAG targets get category rewritten to 'dropped' and logged."""
+        exporter = make_exporter(clip_merge_interval=120.0)
+
+        target = make_target(start_frame=10, last_activate_frame=40,
+                             category="meteor")
+        exporter.export(exporter.DROP_FLAG, [target], 50, None)
+
+        wait_for_processing(exporter)
+
+        assert len(exporter.meteor_list) == 1
+        assert exporter.meteor_list[0].target[0].category == "DROPPED"
+        exporter.logger.dropped.assert_called_once()
+
+    def test_drop_flag_multiple_targets(self):
+        """Multiple targets in a single DROP_FLAG message all get relabeled."""
+        exporter = make_exporter(clip_merge_interval=120.0)
+
+        targets = [make_target(start_frame=i * 30, last_activate_frame=i * 30 + 20)
+                   for i in range(3)]
+        exporter.export(exporter.DROP_FLAG, targets, 100, None)
+
+        wait_for_processing(exporter)
+
+        assert len(exporter.meteor_list) == 3
+        for r in exporter.meteor_list:
+            assert r.target[0].category == "DROPPED"
+        assert exporter.logger.dropped.call_count == 3
+
+
+class TestEndFlagFlush:
+    """Test END_FLAG triggers immediate flush of pending_confirmed."""
+
+    def test_end_flag_flushes_pending_without_gap(self):
+        """END_FLAG flushes pending even when time gap hasn't been reached."""
+        exporter = make_exporter(clip_merge_interval=120.0)
+
+        target = make_target(start_frame=10, last_activate_frame=40)
+        # Send target, then immediately END — no heartbeat with large cur_frame
+        exporter.export(exporter.ACTIVE_FLAG, [target], 50, None)
+        # cur_frame=60 is only 20 frames after last_activate=40, well below 120
+        exporter.export(exporter.END_FLAG, [], 60, None)
+        exporter.export_loop.join(timeout=2.0)
+
+        confirmed = [r for r in exporter.meteor_list
+                     if r.target[0].category != "dropped"]
+        assert len(confirmed) == 1
+        assert confirmed[0].target[0].start_frame == 10
+
+    def test_end_flag_merges_close_pending(self):
+        """Multiple close targets in pending are merged on END_FLAG."""
+        exporter = make_exporter(clip_merge_interval=120.0)
+
+        t1 = make_target(start_frame=10, last_activate_frame=40)
+        t2 = make_target(start_frame=80, last_activate_frame=110)
+        exporter.export(exporter.ACTIVE_FLAG, [t1], 50, None)
+        exporter.export(exporter.ACTIVE_FLAG, [t2], 120, None)
+        exporter.export(exporter.END_FLAG, [], 130, None)
+        exporter.export_loop.join(timeout=2.0)
+
+        confirmed = [r for r in exporter.meteor_list
+                     if r.target[0].category != "dropped"]
+        assert len(confirmed) == 1
+        assert len(confirmed[0].target) == 2
+
+
+class TestPendingSort:
+    """Test that pending_confirmed is sorted by start_frame before flush."""
+
+    def test_out_of_order_arrival_sorted_on_flush(self):
+        """Targets arriving in non-start_frame order are sorted before merge."""
+        exporter = make_exporter(clip_merge_interval=120.0)
+
+        # Arrive out of order: start_frame 80 arrives before start_frame 10
+        t_late = make_target(start_frame=80, last_activate_frame=110)
+        t_early = make_target(start_frame=10, last_activate_frame=40)
+        exporter.export(exporter.ACTIVE_FLAG, [t_late], 120, None)
+        exporter.export(exporter.ACTIVE_FLAG, [t_early], 130, None)
+        # Flush via heartbeat
+        exporter.export(exporter.DROP_FLAG, [], 300, None)
+
+        wait_for_processing(exporter)
+
+        confirmed = [r for r in exporter.meteor_list
+                     if r.target[0].category != "dropped"]
+        # Both within interval (80 < 40+120), should merge into 1 record
+        assert len(confirmed) == 1
+        # First target in record should be the earlier one
+        assert confirmed[0].target[0].start_frame == 10
+        assert confirmed[0].target[1].start_frame == 80
+
+    def test_out_of_order_separate_clips(self):
+        """Out-of-order targets with gap > interval produce separate clips after sort."""
+        exporter = make_exporter(clip_merge_interval=60.0)
+
+        # Arrive out of order, but after sort the gap (200-40=160) > 60
+        t_far = make_target(start_frame=200, last_activate_frame=230)
+        t_near = make_target(start_frame=10, last_activate_frame=40)
+        exporter.export(exporter.ACTIVE_FLAG, [t_far], 240, None)
+        exporter.export(exporter.ACTIVE_FLAG, [t_near], 250, None)
+        exporter.export(exporter.DROP_FLAG, [], 400, None)
+
+        wait_for_processing(exporter)
+
+        confirmed = [r for r in exporter.meteor_list
+                     if r.target[0].category != "dropped"]
+        assert len(confirmed) == 2
+        # Sorted: first clip starts at 10, second at 200
+        assert confirmed[0].target[0].start_frame == 10
+        assert confirmed[1].target[0].start_frame == 200
+
+
 class TestConfigCompat:
     """Test backward compatibility with configs missing clip_merge_interval."""
 
