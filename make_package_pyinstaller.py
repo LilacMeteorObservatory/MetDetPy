@@ -286,8 +286,9 @@ else:
     shutil.move(join_path(compile_path, "MetDetPy.dist"), join_path(compile_path, "MetDetPy"))
     print("Done.")
 
-print("Copying static folders...", end="", flush=True)
-src_list = ["config", "weights", "resource", "global"]
+# Copy static folders
+print("Copying static folders:")
+src_list = ["config", "weights", "global"]
 tgt_base = "./dist/MetDetPy" if not onefile_mode else "./dist"
 for src_folder in src_list:
     if os.path.exists(src_folder):

@@ -24,8 +24,13 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-_resource_dir_override: Optional[str] = os.environ.get("METDET_RESOURCE_DIR",
-                                                       None)
+RESOURCE_DIR = (
+    path.dirname(path.abspath(sys.argv[0]))
+    if getattr(sys, 'frozen', False)
+    else path.dirname(path.dirname(path.abspath(__file__)))
+)
+CLIP_CONFIG_PATH = path.join(RESOURCE_DIR, "global", "clip_cfg.json")
+
 ID2NAME: dict[int, str] = {}
 NAME2ID: dict[str, int] = {}
 NUM_CLASS: int = 0
@@ -50,49 +55,6 @@ def _ensure_class_names_loaded():
     NAME2ID["BRIGHTNESS_EVENT"] = MAX_EXISTING_ID + 3
     NUM_CLASS = len(ID2NAME)
     _id2name_loaded = True
-
-
-def set_resource_dir(resource_dir: Optional[str]):
-    global _resource_dir_override
-    _resource_dir_override = resource_dir
-
-
-def _get_workspace_path():
-    if _resource_dir_override:
-        return _resource_dir_override
-    base_dir = path.dirname(path.abspath(__file__))
-    if getattr(sys, 'frozen', False):
-        exe_dir = path.dirname(
-            sys.argv[0]) if sys.argv and sys.argv[0] else None
-        if exe_dir and path.isabs(exe_dir) and path.isdir(exe_dir):
-            return exe_dir
-        return path.dirname(sys.executable)
-    return path.split(base_dir)[0]
-
-
-class _LazyPath:
-
-    def __init__(self, func):
-        self._func = func
-
-    def __call__(self):
-        return self._func()
-
-    def __str__(self):
-        return str(self._func())
-
-    def __fspath__(self):
-        return self._func()
-
-
-WORK_PATH = _LazyPath(_get_workspace_path)
-
-
-def _get_clip_config_path():
-    return path.join(str(WORK_PATH), "global", "clip_cfg.json")
-
-
-CLIP_CONFIG_PATH = _LazyPath(_get_clip_config_path)
 
 logger = get_default_logger()
 
@@ -996,7 +958,7 @@ def box_matching(src_seq: Sequence[list[int]],
     return match_ind
 
 
-def relative2abs_path(rpath: str):
+def relative2abs_path(rpath: str) -> str:
     """Convert a relative path to the corresponding absolute path.
 
     Args:
@@ -1007,7 +969,7 @@ def relative2abs_path(rpath: str):
     """
     if rpath.startswith("./"):
         rpath = rpath[2:]
-    return path.join(str(WORK_PATH), rpath)
+    return path.join(RESOURCE_DIR, rpath)
 
 
 def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:

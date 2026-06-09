@@ -18,7 +18,7 @@ from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
                           SWITCH2BOOL, VERSION, frame2time, frame2ts,
-                          get_num_class, relative2abs_path, set_resource_dir)
+                          get_num_class, relative2abs_path)
 
 
 def detect_video(video_name: str,
@@ -262,12 +262,6 @@ if __name__ == "__main__":
                         help="Path to the config file.",
                         default=None)
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
-    parser.add_argument(
-        '--resource-dir',
-        '-R',
-        help="Path to the resource folder (config/weights/resource/global).",
-        default=None)
-
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
                         type=str,
@@ -350,9 +344,6 @@ if __name__ == "__main__":
                         help="Save detection results as a json file.")
 
     args = parser.parse_args()
-
-    if args.resource_dir:
-        set_resource_dir(args.resource_dir)
 
     if args.cfg is None:
         args.cfg = relative2abs_path("./config/m3det_normal.json")

@@ -10,7 +10,7 @@ import cv2
 
 from .metlog import BaseMetLog, get_useable_logger
 from .metstruct import ExportOption, FFMpegConfig
-from .utils import PLATFORM_MAPPING, U8Mat, frame2ts, transpose_wh, WORK_PATH
+from .utils import PLATFORM_MAPPING, RESOURCE_DIR, U8Mat, frame2ts, transpose_wh
 from .videoloader import VanillaVideoLoader
 
 platform = PLATFORM_MAPPING[sys.platform]
@@ -319,10 +319,10 @@ class FFMpegVideoWriter(BaseVideoWriter):
                 ffmpeg_config.ffprobe_path = os.path.join(
                     input_path, FFPROBE_NAME)
                 return ffmpeg_config
-        if (_chk_ffmpeg_status(os.path.join(WORK_PATH, FFMPEG_NAME))
-                and _chk_ffmpeg_status(os.path.join(WORK_PATH, FFPROBE_NAME))):
-            ffmpeg_config.ffmpeg_path = os.path.join(WORK_PATH, FFMPEG_NAME)
-            ffmpeg_config.ffprobe_path = os.path.join(WORK_PATH, FFPROBE_NAME)
+        if (_chk_ffmpeg_status(os.path.join(RESOURCE_DIR, FFMPEG_NAME))
+                and _chk_ffmpeg_status(os.path.join(RESOURCE_DIR, FFPROBE_NAME))):
+            ffmpeg_config.ffmpeg_path = os.path.join(RESOURCE_DIR, FFMPEG_NAME)
+            ffmpeg_config.ffprobe_path = os.path.join(RESOURCE_DIR, FFPROBE_NAME)
             return ffmpeg_config
         if (_chk_ffmpeg_status(FFMPEG_NAME)
                 and _chk_ffmpeg_status(FFPROBE_NAME)):

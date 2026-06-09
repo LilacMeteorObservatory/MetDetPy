@@ -39,8 +39,8 @@ from MetLib.metstruct import (MDRF, BasicInfo, ClipCfg, ClipRequest,
                               SimpleTarget, VideoFrameData)
 from MetLib.stacker import (all_stacker, max_stacker, mfnr_mix_stacker,
                             simple_denoise_stacker)
-from MetLib.utils import (CLIP_CONFIG_PATH, U8Mat, adjust_ts, frame2ts, pt_len,
-                           set_resource_dir, ts2frame)
+from MetLib.utils import (CLIP_CONFIG_PATH, U8Mat, adjust_ts, frame2ts,
+                          pt_len, ts2frame)
 
 support_image_suffix = ["JPG", "JPEG", "PNG"]
 support_video_suffix = ["AVI", "MP4"]
@@ -445,11 +445,6 @@ def main():
     argparser.add_argument("--debug",
                            action="store_true",
                            help="apply debug mode.")
-    argparser.add_argument("--resource-dir", "-R",
-                           type=str,
-                           help="Path to the resource folder (config/weights/resource/global).",
-                           default=None)
-
     argparser.add_argument("--padding-before",
                            type=float,
                            help="padding time before the clip start (in seconds). "
@@ -462,10 +457,6 @@ def main():
                            default=None)
 
     args = argparser.parse_args()
-    
-    if args.resource_dir:
-        set_resource_dir(args.resource_dir)
-
 
     t0 = time.time()
     # basic option

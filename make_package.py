@@ -278,7 +278,7 @@ else:
     print("Done.")
 
 print("Copying static folders...", end="", flush=True)
-src_list = ["config", "weights", "resource", "global"]
+src_list = ["config", "weights", "global"]
 tgt_base = "./dist/MetDetPy" if not onefile_mode else "./dist"
 for src_folder in src_list:
     copy_tree(src_folder, tgt_base)
