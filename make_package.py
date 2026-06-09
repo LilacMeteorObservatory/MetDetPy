@@ -1,267 +1,79 @@
 # 简易的打包工具
 # 用于将本项目封装为一个（数个）可执行文件。
-# v2.3.0 更新后仅支持nuitka。
 
 import argparse
-import os
-import platform as pf
-import shutil
-import subprocess
 import sys
 import time
-import zipfile
-from pathlib import Path
-from typing import Union
 
-from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
+argparser = argparse.ArgumentParser(
+    description="Package MetDetPy into standalone executables.")
 
-# alias
-join_path = os.path.join
-
-
-def run_cmd(command: list[str]):
-    print("Running:", command)
-    t_start = time.time()
-    ret = subprocess.run(command)
-    t_end = time.time()
-    return ret.returncode, t_end - t_start
-
-
-def nuitka_compile(header: list[str], options: dict[str, Union[bool, str]],
-                   nuitka_pkgs: list[str], target: str):
-    """使用nuitka编译打包的API
-
-    Args:
-        header (str): 启动的指令，如python -m nuitka 或 nuitka （取决于平台）。
-        option_list (dict): 编译选项列表。
-        tgt (str): 待编译目标。
-    """
-    options_list = [
-        key if value == True else f'{key}={value}'
-        for key, value in options.items() if value
-    ]
-
-    merged = header + options_list + nuitka_pkgs + [
-        target,
-    ]
-
-    ret_code, time_cost = run_cmd(merged)
-    print(
-        f"Compiled {target} finished with return code = {ret_code}. Time cost = {time_cost:.2f}s."
-    )
-
-    # 异常提前终止
-    if ret_code != 0:
-        print(
-            f"Fatal compile error occured when compiling {target}. Compile terminated."
-        )
-        exit(-1)
-
-
-def file_to_zip(path_original: str, z: zipfile.ZipFile):
-    '''
-    Copied from https://blog.51cto.com/lanzao/4994053
-     作用：压缩文件到指定压缩包里
-     参数一：压缩文件的位置
-     参数二：压缩后的压缩包
-    '''
-    f_list = list(Path(path_original).glob("**/*"))
-    for f in f_list:
-        z.write(f, str(f)[len(path_original):])
-
-
-def copy_tree(tree_path: str, tgt_path: str):
-    print(f"Copy {tree_path} folder...", end="", flush=True)
-    tgt_dir = f"{tgt_path}/{tree_path}"
-    if os.path.exists(tgt_dir):
-        print("Already exists, skipped.")
-        return
-    shutil.copytree(f"./{tree_path}", tgt_dir)
-    print("Done.")
-
-
-argparser = argparse.ArgumentParser()
-
-argparser.add_argument("--tool",
-                       "-T",
-                       help="compiler. For now only nuitka can be chosen.",
-                       choices=['nuitka'],
-                       default='nuitka',
-                       type=str)
 argparser.add_argument(
-    "--mingw64",
-    action="store_true",
-    help=
-    "Use mingw64 as compiler. This option only works for nuitka under Windows.",
-    default=False)
-argparser.add_argument(
-    "--apply-upx",
-    action="store_true",
-    help="Apply UPX to squeeze the size of executable program.",
+    "--backend",
+    "-B",
+    help="Packaging backend.",
+    choices=["nuitka", "pyinstaller"],
+    default="nuitka",
+    type=str,
 )
+
+# Shared options
 argparser.add_argument(
     "--apply-zip",
     action="store_true",
     help="Generate .zip files after packaging.",
 )
 argparser.add_argument(
-    "--macos-sign-identity",
-    type=str,
-    help="Sign the generated executable files by nuitka.",
-)
-argparser.add_argument(
     "--onefile",
     action="store_true",
-    help="Generate a single executable file (onefile mode). WARNING: onefile mode has issues with static file paths.",
+    help="Generate a single executable file (onefile mode).",
+)
+argparser.add_argument(
+    "--apply-upx",
+    action="store_true",
+    help="Apply UPX to squeeze executable size.",
+)
+
+# Nuitka-specific options
+nuitka_group = argparser.add_argument_group("nuitka options")
+nuitka_group.add_argument(
+    "--mingw64",
+    action="store_true",
+    help="Use mingw64 as compiler (Windows + nuitka only).",
+    default=False,
+)
+nuitka_group.add_argument(
+    "--macos-sign-identity",
+    type=str,
+    help="macOS code signing identity (nuitka only).",
+)
+
+# PyInstaller-specific options
+pyinstaller_group = argparser.add_argument_group("pyinstaller options")
+pyinstaller_group.add_argument(
+    "--windowed",
+    action="store_true",
+    help="Use windowed mode / no console (pyinstaller only).",
+)
+pyinstaller_group.add_argument(
+    "--icon",
+    type=str,
+    help="Icon file path for the executable (pyinstaller only).",
 )
 
 args = argparser.parse_args()
-compile_tool = args.tool
-release_version = VERSION
-apply_upx = args.apply_upx
-apply_zip = args.apply_zip
-onefile_mode = args.onefile
 
-if onefile_mode:
-    print("WARNING: onefile mode may have issues with static file paths.")
-    print("Consider using directory mode (default) instead.")
-
-
-# 根据平台/版本决定确定编译/打包后的程序后缀
-
-platform = PLATFORM_MAPPING[sys.platform]
-exec_suffix = ""
-if (platform == "win"):
-    exec_suffix = ".exe"
-if (platform == "macos"):
-    mac_main_ver = int(pf.mac_ver()[0].split(".")[0])
-    if mac_main_ver >= 13 and compile_tool == "nuitka":
-        exec_suffix = ".bin"
-        platform += "13+"
-
-# 设置工作路径，避免出现相对路径引用错误
-work_path = os.path.dirname(os.path.abspath(__file__))
-compile_path = join_path(work_path, "dist")
-project_dir_path = join_path(compile_path, PROJECT_NAME)
+if args.apply_upx and sys.platform == "darwin":
+    print("WARNING: UPX breaks code signatures on macOS. --apply-upx ignored.")
+    args.apply_upx = False
 
 t0 = time.time()
 
-print("Use nuitka as package tools.")
+if args.backend == "nuitka":
+    from MetLib.packaging.nuitka import build
+elif args.backend == "pyinstaller":
+    from MetLib.packaging.pyinstaller import build
 
-# 检查python版本 必要时启用alias python3
-compile_tool = [sys.executable, "-m", "nuitka"]
-
-# 构建共用的打包选项，根据编译平台选择是否启用mingw64
-nuitka_base: dict[str, Union[bool, str]] = {
-    "--no-pyi-file": True,
-    "--remove-output": True,
-    "--lto": "yes"
-}
-
-exclude_pkgs = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "PIL"]
-
-nuitka_pkgs = [f"--nofollow-import-to={x}" for x in exclude_pkgs]
-
-if platform == "win" and args.mingw64:
-    print("Apply mingw64 as compiler.")
-    nuitka_base["--mingw64"] = True
-
-if platform == "macos":
-    nuitka_base["--macos-app-version"] = VERSION
-    nuitka_base[
-        "--macos-signed-app-name"] = "org.lilacMeteorobservatory.metdetpy"
-    # for macos dev only
-    if args.macos_sign_identity:
-        nuitka_base["--macos-sign-identity"] = args.macos_sign_identity
-
-# upx启用时，利用which获取upx路径
-if apply_upx:
-    upx_cmd = shutil.which("upx")
-    if upx_cmd is not None:
-        nuitka_base["--plugin-enable"] = "upx"
-        nuitka_base["--upx-binary"] = upx_cmd
-
-# 顺序编译三个入口。第一次编译填充 .nuitka_cache，后续编译命中缓存显著加速。
-scripts = ["MetDetPy.py", "ClipToolkit.py", "MetDetPhoto.py"]
-
-for script in scripts:
-    cfg: dict[str, Union[bool, str]] = {
-        "--standalone": True,
-        "--output-dir": compile_path,
-    }
-    if onefile_mode:
-        cfg["--onefile"] = True
-    cfg.update(nuitka_base)
-
-    nuitka_compile(compile_tool,
-                   cfg,
-                   nuitka_pkgs,
-                   target=join_path(work_path, script))
-
-# postprocessing
-if onefile_mode:
-    print("Cleaning up...", end="", flush=True)
-    try:
-        shutil.rmtree(join_path(compile_path, "MetDetPy.dist"))
-    except FileNotFoundError:
-        pass
-    try:
-        shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
-    except FileNotFoundError:
-        pass
-    try:
-        shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
-    except FileNotFoundError:
-        pass
-    print("Done.")
-else:
-    print("Merging...", end="", flush=True)
-    shutil.move(
-        join_path(compile_path, "ClipToolkit.dist",
-                    f"ClipToolkit{exec_suffix}"),
-        join_path(compile_path, "MetDetPy.dist"))
-    shutil.move(
-        join_path(compile_path, "MetDetPhoto.dist",
-                    f"MetDetPhoto{exec_suffix}"),
-        join_path(compile_path, "MetDetPy.dist"))
-    shutil.rmtree(join_path(compile_path, "ClipToolkit.dist"))
-    shutil.rmtree(join_path(compile_path, "MetDetPhoto.dist"))
-    print("Done.")
-    print("Renaming executable files...", end="", flush=True)
-    shutil.move(join_path(compile_path, "MetDetPy.dist"),
-                join_path(compile_path, "MetDetPy"))
-    print("Done.")
-
-print("Copying static folders...", end="", flush=True)
-src_list = ["config", "weights", "global"]
-tgt_base = "./dist/MetDetPy" if not onefile_mode else "./dist"
-for src_folder in src_list:
-    copy_tree(src_folder, tgt_base)
-print("Done.")
-
-# copy necessary py file (from lib)
-import uuid
-
-uuid_tgt = "./dist/MetDetPy" if not onefile_mode else "./dist"
-shutil.copy(uuid.__file__, uuid_tgt)
-
-# copy pyexiv2
-try:
-    import pyexiv2
-    pyexiv_path, init_file = os.path.split(pyexiv2.__file__)
-    pyexiv_tgt = "./dist/MetDetPy/pyexiv2" if not onefile_mode else "./dist/pyexiv2"
-    shutil.rmtree(pyexiv_tgt)
-    shutil.copytree(pyexiv_path, pyexiv_tgt)
-except Exception as e:
-    pass
-
-# package codes with zip(if applied).
-if apply_zip:
-    zip_fname = join_path(compile_path,
-                          f"MetDetPy_{platform}_{release_version}.zip")
-    print(f"Zipping files to {zip_fname} ...", end="", flush=True)
-    with zipfile.ZipFile(zip_fname, mode='w') as zipfile_op:
-        file_to_zip(join_path(compile_path, "MetDetPy"), zipfile_op)
-    print("Done.")
+build(args)
 
 print(f"Package script finished. Total time cost {(time.time()-t0):.2f}s.")
