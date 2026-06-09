@@ -24,9 +24,11 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
+_is_packaged = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+
 RESOURCE_DIR = (
     path.dirname(path.abspath(sys.argv[0]))
-    if getattr(sys, 'frozen', False)
+    if _is_packaged
     else path.dirname(path.dirname(path.abspath(__file__)))
 )
 CLIP_CONFIG_PATH = path.join(RESOURCE_DIR, "global", "clip_cfg.json")
