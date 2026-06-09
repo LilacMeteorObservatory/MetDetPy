@@ -181,67 +181,22 @@ if apply_upx:
         nuitka_base["--plugin-enable"] = "upx"
         nuitka_base["--upx-binary"] = upx_cmd
 
-# 打包编译MetLib库为pyd文件
-# metlib_cfg = {
-#    "--module": True,
-#    "--output-dir": join_path(compile_path, "MetLib")
-# }
-# metlib_cfg.update(nuitka_base)
-# metlib_path = join_path(work_path, "MetLib")
-# metlib_filelist = [
-#    join_path(metlib_path, x) for x in os.listdir(metlib_path)
-#    if x.endswith(".py")
-# ]
-# for filename in metlib_filelist:
-#    if filename.endswith("__init__.py"): continue
-#    nuitka_compile(options=metlib_cfg, target=filename)
+# 顺序编译三个入口。第一次编译填充 .nuitka_cache，后续编译命中缓存显著加速。
+scripts = ["MetDetPy.py", "ClipToolkit.py", "MetDetPhoto.py"]
 
-# nuitka编译的结果产生在dist/MetDetPy.dist路径下
-met_cfg: dict[str, Union[bool, str]] = {
-    "--standalone": True,
-    "--output-dir": compile_path,
-}
-if onefile_mode:
-    met_cfg["--onefile"] = True
+for script in scripts:
+    cfg: dict[str, Union[bool, str]] = {
+        "--standalone": True,
+        "--output-dir": compile_path,
+    }
+    if onefile_mode:
+        cfg["--onefile"] = True
+    cfg.update(nuitka_base)
 
-met_cfg.update(nuitka_base)
-
-# 编译主要检测器MetDetPy.py
-nuitka_compile(compile_tool,
-               met_cfg,
-               nuitka_pkgs,
-               target=join_path(work_path, "MetDetPy.py"))
-
-# 编译视频叠加工具ClipToolkit.py
-# 不能不编译MetLib相关文件，否则会出现非常奇怪的报错（找不到np，但直接调用MetLib所有函数都没问题）
-# 由于该问题暂时没法解决，必须全部编译。
-stack_cfg: dict[str, Union[bool, str]] = {
-    "--standalone": True,
-    "--output-dir": compile_path
-}
-if onefile_mode:
-    stack_cfg["--onefile"] = True
-stack_cfg.update(nuitka_base)
-
-nuitka_compile(compile_tool,
-               stack_cfg,
-               nuitka_pkgs,
-               target=join_path(work_path, "ClipToolkit.py"))
-
-# 编译图像检测器MetDetPhoto.py
-mep_cfg: dict[str, Union[bool, str]] = {
-    "--standalone": True,
-    "--output-dir": compile_path,
-}
-if onefile_mode:
-    mep_cfg["--onefile"] = True
-
-mep_cfg.update(nuitka_base)
-
-nuitka_compile(compile_tool,
-               mep_cfg,
-               nuitka_pkgs,
-               target=join_path(work_path, "MetDetPhoto.py"))
+    nuitka_compile(compile_tool,
+                   cfg,
+                   nuitka_pkgs,
+                   target=join_path(work_path, script))
 
 # postprocessing
 if onefile_mode:
