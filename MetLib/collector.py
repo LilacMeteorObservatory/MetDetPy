@@ -220,15 +220,12 @@ class MeteorSeries(object):
 
     @property
     def duration(self) -> int:
-        """
-        duration 描述了该(流星)片段的完整持续帧数，因此使用 last_activate_frame 而不是 end_frame 进行计算。
-        
-        由于上述原因，在计算速度时，不应直接使用 duration，应使用fix_motion_duration。
+        """片段的持续帧跨度（last_activate_frame - start_frame）。
 
-        Returns:
-            int: 片段的完整持续帧数
+        start_frame 为合并窗口起始估计，非首次观测帧，因此 duration 表示时间跨度而非观测计数。
+        计算速度时应使用 fix_motion_duration。
         """
-        return (self.last_activate_frame - self.start_frame + 1)
+        return self.last_activate_frame - self.start_frame
 
     @property
     def fix_duration(self) -> float:
@@ -479,14 +476,20 @@ class MeteorCollector(object):
         # 4. 发送超时序列
         exported = False
         for ms in keep_list:
+            attr = self.get_met_attr(ms)
+            if attr is None:
+                continue
             self.met_exporter.export(
                 self.met_exporter.ACTIVE_FLAG,
-                [self.get_met_attr(ms)], cur_frame, nearest_active_start)
+                [attr], cur_frame, nearest_active_start)
             exported = True
         for ms in drop_list:
+            attr = self.get_met_attr(ms)
+            if attr is None:
+                continue
             self.met_exporter.export(
                 self.met_exporter.DROP_FLAG,
-                [self.get_met_attr(ms)], cur_frame, nearest_active_start)
+                [attr], cur_frame, nearest_active_start)
             exported = True
 
         # 5. 心跳：确保 Exporter 感知时间推进
@@ -532,7 +535,7 @@ class MeteorCollector(object):
             if is_in_series:
                 continue
             self.active_meteor.append(
-                MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
+                MeteorSeries(max(self.cur_frame - self.eframe, 0),
                              self.cur_frame,
                              line,
                              max_acceptable_dist=self.merge_dist_sqr,
@@ -617,14 +620,17 @@ class MeteorCollector(object):
         应当在结束时仅调用一次。
         """
         for ms in self.active_meteor:
+            attr = self.get_met_attr(ms)
+            if attr is None:
+                continue
             if self._should_keep(ms):
                 self.met_exporter.export(
                     self.met_exporter.ACTIVE_FLAG,
-                    [self.get_met_attr(ms)], self.cur_frame, None)
+                    [attr], self.cur_frame, None)
             else:
                 self.met_exporter.export(
                     self.met_exporter.DROP_FLAG,
-                    [self.get_met_attr(ms)], self.cur_frame, None)
+                    [attr], self.cur_frame, None)
         self.active_meteor.clear()
 
         self.met_exporter.export(self.met_exporter.END_FLAG, [], self.cur_frame, None)
@@ -657,17 +663,19 @@ class MeteorCollector(object):
                 return 0.0
             return met.cate_prob[met.cate] / met.count
 
-    def get_met_attr(self, met: MeteorSeries) -> MDTarget:
+    def get_met_attr(self, met: MeteorSeries) -> Optional[MDTarget]:
         """将met的点集序列转换为属性字典。
 
-        Args:
-            met (_type_): _description_
-
         Returns:
-            dict: _description_
+            Optional[MDTarget]: 转换后结构体；若 score 异常则返回 None（on-error-drop）。
         """
+        score = self.prob_meteor(met)
+        if not np.isfinite(score):
+            self.logger.warning(
+                f"Non-finite score for series at frame {met.start_frame}, dropping.")
+            return None
         met_target = met.get_met_attr()
-        met_target.score = np.round(self.prob_meteor(met), 2)
+        met_target.score = np.round(score, 2)
         return met_target
 
     def frame2ts(self, frame: int) -> str:
