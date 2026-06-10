@@ -48,7 +48,8 @@
                 0.6
             ],
             "det_thre": 0.5,
-            "thre2": 2048
+            "merge_dist_sqr": 2048,
+            "recheck_threshold": 0.25
         },
         "recheck_cfg": {
             "switch": false,

@@ -401,7 +401,21 @@ class MeteorCollector(object):
         self.max_acti_frame = int(collector_cfg.meteor_cfg.max_interval *
                                   runtime_param.fps)
         self.det_thre = collector_cfg.meteor_cfg.det_thre
-        self.thre2 = collector_cfg.meteor_cfg.thre2 * runtime_param.exp_frame
+
+        # merge_dist_sqr: 序列归并的最大距离平方阈值，乘以 exp_frame 做帧合并后距离放大补偿
+        meteor_cfg = collector_cfg.meteor_cfg
+        if meteor_cfg.merge_dist_sqr is not None:
+            base_dist_sqr = meteor_cfg.merge_dist_sqr
+        elif meteor_cfg.thre2 is not None:
+            # deprecated compat path; will be removed in v3.0.0
+            import warnings
+            warnings.warn(
+                "Config field 'thre2' is deprecated, use 'merge_dist_sqr' instead.",
+                DeprecationWarning, stacklevel=2)
+            base_dist_sqr = meteor_cfg.thre2
+        else:
+            raise ValueError("Either 'merge_dist_sqr' or 'thre2' must be specified in meteor_cfg.")
+        self.merge_dist_sqr = base_dist_sqr * runtime_param.exp_frame
         self.runtime_size = runtime_param.runtime_size
         self.active_meteor: list[MeteorSeries] = []
         self.cur_frame = 0
@@ -415,6 +429,10 @@ class MeteorCollector(object):
         self.drct_prob_func = create_prob_func(
             collector_cfg.meteor_cfg.drct_range)
         self.logger = logger
+
+        recheck_thre = collector_cfg.meteor_cfg.recheck_threshold
+        self.recheck_threshold = (recheck_thre if recheck_thre is not None
+                                  else self.det_thre * 0.5)
 
         clip_merge_sec = collector_cfg.meteor_cfg.clip_merge_interval
         clip_merge_interval = (clip_merge_sec * runtime_param.fps
@@ -517,7 +535,7 @@ class MeteorCollector(object):
                 MeteorSeries(max(self.cur_frame - 2 * self.eframe, 0),
                              self.cur_frame,
                              line,
-                             max_acceptable_dist=self.thre2,
+                             max_acceptable_dist=self.merge_dist_sqr,
                              max_acti_frame=self.max_acti_frame,
                              cate_prob=cate_prob,
                              fps=self.fps,
@@ -572,16 +590,21 @@ class MeteorCollector(object):
 
     def _should_keep(self, ms: MeteorSeries) -> bool:
         """判断过期序列是否应保留（送入 Exporter 做 recheck）而非直接丢弃。
-        # TEMP_FIX: ALLOW SCORE > DET_THRE/2 TO BE RECHECK
-        # TODO: THIS MECHANISM SHOULD BE CONSIDERED WITH HIGH PRIORITY.
+
+        三层过滤：
+        1. 单帧响应直接丢弃（高频噪声/卫星闪烁，占比极大）
+        2. 无 recheck 时，不确定类别（OTHERS/PLANE）没有后置验证能力，直接丢弃
+        3. 前置分类器存在误判，recheck_threshold 低于 det_thre 以放宽送检门槛；
+           该阈值为折中：过低则 recheck 计算量过大，过高则漏检前置误判的正样本。
         """
-        if (self.prob_meteor(ms) > self.det_thre /
-                2) and (self.prob_meteor(ms) != self.det_thre):
-            if self.met_exporter.recheck or not (ms.cate in [
-                    Name2Label.OTHERS(), Name2Label.PLANE_SATELLITE
-            ]):
-                return True
-        return False
+        if ms.count <= 1:
+            return False
+
+        if not self.met_exporter.recheck:
+            if ms.cate in [Name2Label.OTHERS(), Name2Label.PLANE_SATELLITE]:
+                return False
+
+        return self.prob_meteor(ms) > self.recheck_threshold
 
     def _calc_nearest_active_start(self) -> Optional[int]:
         """返回当前 active_meteor 中"有潜力"序列的最早 start_frame，用于通知 Exporter 是否有潜在的同 clip 候选。"""
@@ -851,8 +874,7 @@ class MetExporter(object):
         target.recheck_score = round(score.astype(np.float64), ndigits=3)
 
         # 当预测为流星时，求分数均值作为最终得分；否则直接使用模型得分。
-        # TODO: 该逻辑仅在前置分类器为规则分类器时生效。v2.5.0预计引入前置的机器学习分类器。
-        # TODO: 前置预测输出多类别分数。
+        # TODO: 该逻辑仅在前置分类器为规则分类器时生效。未来预计引入前置的机器学习分类器输出多类别分数。
         if label == Name2Label.METEOR:
             mge_score = (target.recheck_score + target.raw_score) / 2
         else:

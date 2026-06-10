@@ -420,8 +420,10 @@ class MeteorCfg(DictAble):
     speed_range: list[float]
     drct_range: list[float]
     det_thre: float
-    thre2: int
+    merge_dist_sqr: Optional[int] = None
+    thre2: Optional[int] = None  # deprecated, use merge_dist_sqr; will be removed in v3.0.0
     clip_merge_interval: Optional[float] = None
+    recheck_threshold: Optional[float] = None
 
 
 @dataclasses.dataclass
