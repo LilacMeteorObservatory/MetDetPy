@@ -639,6 +639,8 @@ class BrightnessDetector(BaseDetector):
             f"valid_cells={int(np.sum(self.valid_cells))}/{R * C}")
 
     def update(self, new_frame: U8Mat) -> None:
+        if len(new_frame.shape) == 3:
+            new_frame = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
         self.cur_frame = new_frame
 
     def detect(self) -> tuple[list[list[int]], list[list[np.float64]]]:

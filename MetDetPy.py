@@ -142,6 +142,17 @@ def detect_video(video_name: str,
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
+        # Init auxiliary detectors
+        aux_detectors: list[BaseDetector] = []
+        for aux_cfg in cfg.aux_detectors:
+            AuxCls = get_detector(aux_cfg.name)
+            aux_detectors.append(AuxCls(window_sec=aux_cfg.window_sec,
+                                        fps=rt_param.eq_fps,
+                                        mask=video_loader.mask,
+                                        num_cls=get_num_class(),
+                                        cfg=aux_cfg.cfg,
+                                        logger=logger))
+
         # Init meteor collector
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
@@ -197,6 +208,11 @@ def detect_video(video_name: str,
 
             detector.update(x)
             lines, cates = detector.detect()
+            for aux in aux_detectors:
+                aux.update(x)
+                aux_lines, aux_cates = aux.detect()
+                lines.extend(aux_lines)
+                cates.extend(aux_cates)
 
             if len(lines) or (((i - start_frame) // rt_param.exp_frame) %
                               rt_param.eq_int_fps == 0):

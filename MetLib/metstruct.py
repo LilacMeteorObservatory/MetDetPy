@@ -444,6 +444,7 @@ class MainDetectCfg(DictAble):
     loader: LoaderCfg
     detector: DetectorCfg
     collector: CollectorCfg
+    aux_detectors: list[DetectorCfg] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
