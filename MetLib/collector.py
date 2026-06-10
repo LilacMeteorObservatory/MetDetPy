@@ -431,6 +431,8 @@ class MeteorCollector(object):
         self.recheck_threshold = (recheck_thre if recheck_thre is not None
                                   else self.det_thre * 0.5)
 
+        self._score_cache: dict[int, tuple[int, float]] = {}
+
         clip_merge_sec = collector_cfg.meteor_cfg.clip_merge_interval
         clip_merge_interval = (clip_merge_sec * runtime_param.fps
                                if clip_merge_sec is not None
@@ -638,11 +640,16 @@ class MeteorCollector(object):
 
     def prob_meteor(self, met: MeteorSeries) -> float:
         # 用于估计met实例属于流星序列的概率。
-        # 拟借助几个指标
-        # 1. 总速度/总长度
-        # 2. 平均响应长度（暂未实现）
-        # 3. 直线拟合情况（暂未实现）
+        # 缓存策略：以 met.count 作为版本号，count 不变则结果不变。
+        key = id(met)
+        cached = self._score_cache.get(key)
+        if cached is not None and cached[0] == met.count:
+            return cached[1]
+        score = self._compute_score(met)
+        self._score_cache[key] = (met.count, score)
+        return score
 
+    def _compute_score(self, met: MeteorSeries) -> float:
         # 计分规则：当属于流星时，按照流星规则统计；当不属于流星时，按照所属类别的最大概率统计。
         # TODO: 可能是不完善的。需要观察验证。
         if met.cate == Name2Label.METEOR:
