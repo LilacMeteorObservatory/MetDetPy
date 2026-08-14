@@ -7,8 +7,8 @@ import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.collector import MeteorCollector
-from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
-                             LineDetector, MLDetector)
+from MetLib.Detector import (BaseDetector, BrightnessDetector, M3Detector,
+                             DiffAreaGuidingDetecor, LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, MainDetectCfg,
@@ -18,7 +18,7 @@ from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
                           SWITCH2BOOL, VERSION, frame2time, frame2ts,
-                          get_num_class, relative2abs_path, set_resource_dir)
+                          get_num_class, relative2abs_path)
 
 
 def detect_video(video_name: str,
@@ -70,10 +70,11 @@ def detect_video(video_name: str,
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
-        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor)):
-            assert grayscale, "Require grayscale ON when using subclass of LineDetector."
+        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor,
+                                     BrightnessDetector)):
+            assert grayscale, "Require grayscale ON when using subclass of LineDetector or BrightnessDetector."
         elif issubclass(DetectorCls, MLDetector):
-            assert not grayscale, "Require grayscale OFF when using subclass of LineDetector."
+            assert not grayscale, "Require grayscale OFF when using MLDetector."
         else:
             raise NotImplementedError("Detector not ready to use.")
 
@@ -141,6 +142,17 @@ def detect_video(video_name: str,
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
+        # Init auxiliary detectors
+        aux_detectors: list[BaseDetector] = []
+        for aux_cfg in cfg.aux_detectors:
+            AuxCls = get_detector(aux_cfg.name)
+            aux_detectors.append(AuxCls(window_sec=aux_cfg.window_sec,
+                                        fps=rt_param.eq_fps,
+                                        mask=video_loader.mask,
+                                        num_cls=get_num_class(),
+                                        cfg=aux_cfg.cfg,
+                                        logger=logger))
+
         # Init meteor collector
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
@@ -196,6 +208,11 @@ def detect_video(video_name: str,
 
             detector.update(x)
             lines, cates = detector.detect()
+            for aux in aux_detectors:
+                aux.update(x)
+                aux_lines, aux_cates = aux.detect()
+                lines.extend(aux_lines)
+                cates.extend(aux_cates)
 
             if len(lines) or (((i - start_frame) // rt_param.exp_frame) %
                               rt_param.eq_int_fps == 0):
@@ -261,12 +278,6 @@ if __name__ == "__main__":
                         help="Path to the config file.",
                         default=None)
     parser.add_argument('--mask', '-M', help="Mask image.", default=None)
-    parser.add_argument(
-        '--resource-dir',
-        '-R',
-        help="Path to the resource folder (config/weights/resource/global).",
-        default=None)
-
     parser.add_argument('--start-time',
                         help="The start time (ms) of the video.",
                         type=str,
@@ -349,9 +360,6 @@ if __name__ == "__main__":
                         help="Save detection results as a json file.")
 
     args = parser.parse_args()
-
-    if args.resource_dir:
-        set_resource_dir(args.resource_dir)
 
     if args.cfg is None:
         args.cfg = relative2abs_path("./config/m3det_normal.json")

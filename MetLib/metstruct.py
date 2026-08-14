@@ -165,6 +165,7 @@ class MDTarget(DictAble):
     pt1: list[int]
     pt2: list[int]
     drct_loss: float
+    drct_cv: float
     score: float
     real_dist: float
     center_point_list: list[list[int]] = dataclasses.field(
@@ -221,7 +222,8 @@ class SingleMDRecord(DictAble):
             start_time=self.start_time,
             end_time=self.end_time,
             video_size=video_size,
-            target_list=[x.to_simple_target() for x in self.target])
+            target_list=[x.to_simple_target() for x in self.target],
+                              raw_record=self)
 
     def to_image_data(self):
         """
@@ -388,10 +390,26 @@ class DLCfg(DictAble):
 
 
 @dataclasses.dataclass
+class BrightnessCoreCfg(DictAble):
+    grid_rows: int
+    grid_cols: int
+    ema_momentum: float
+    z_threshold: float
+    abs_threshold: float
+    global_ratio: float
+    min_cell_valid: float
+
+
+@dataclasses.dataclass
+class BrightnessCfg(DictAble):
+    brightness: BrightnessCoreCfg
+
+
+@dataclasses.dataclass
 class DetectorCfg(DictAble):
     name: str
     window_sec: float
-    cfg: Union[BinaryCfg, DLCfg]
+    cfg: Union[BinaryCfg, DLCfg, BrightnessCfg]
 
 
 @dataclasses.dataclass
@@ -402,7 +420,10 @@ class MeteorCfg(DictAble):
     speed_range: list[float]
     drct_range: list[float]
     det_thre: float
-    thre2: int
+    merge_dist_sqr: Optional[int] = None
+    thre2: Optional[int] = None  # deprecated, use merge_dist_sqr; will be removed in v3.0.0
+    clip_merge_interval: Optional[float] = None
+    recheck_threshold: Optional[float] = None
 
 
 @dataclasses.dataclass
@@ -423,6 +444,7 @@ class MainDetectCfg(DictAble):
     loader: LoaderCfg
     detector: DetectorCfg
     collector: CollectorCfg
+    aux_detectors: list[DetectorCfg] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -622,6 +644,7 @@ class VideoFrameData(object):
     target_list: Optional[list[SimpleTarget]] = None
     video_size: Union[list[int], tuple[int, ...], None] = None
     saved_filename: Optional[str] = None
+    raw_record: Optional[SingleMDRecord] = None
 
     def to_labelme(self) -> dict[str, Any]:
         w, h = None, None

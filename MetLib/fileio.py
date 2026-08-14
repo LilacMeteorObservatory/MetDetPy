@@ -15,9 +15,10 @@ from MetLib.metstruct import RawImgLoadCfg
 
 from .imgproc import Transform, contrast_stretch_uint16, contrast_stretch_uint8, scale2tgt_mean
 from .metlog import BaseMetLog, get_useable_logger
-from .utils import WORK_PATH, U8Mat, transpose_wh
+from .resource import SRGB_ICC_PROFILE
+from .utils import U8Mat, transpose_wh
 
-COLOR_PATH_MAPPING = {"sRGB": os.path.join(WORK_PATH, "resource", "sRGB.icc")}
+ICC_PROFILES = {"sRGB": SRGB_ICC_PROFILE}
 SUPPORT_COMMON_FORMAT = ["jpg", "png", "jpeg", "tiff", "tif", "bmp"]
 SUPPORT_RAW_FORMAT = ["cr2", "cr3", "nef", "arw", "rw2", "raf", "dng"]
 SUPPORT_ALL_IMG_FORMAT = SUPPORT_COMMON_FORMAT + SUPPORT_RAW_FORMAT
@@ -101,24 +102,14 @@ def save_img(img: U8Mat,
     status, buf = cv2.imencode(ext, img, params)
     if not status:
         raise Exception("imencode failed.")
-    if color_space in COLOR_PATH_MAPPING:
+    if color_space in ICC_PROFILES:
         try:
             import pyexiv2
-            color_profile_path = COLOR_PATH_MAPPING[color_space]
-            colorprofile = b""
-            logger.debug(f"Load color space from: {color_profile_path}")
-            if os.path.isfile(color_profile_path):
-                with open(color_profile_path, mode='rb') as f:
-                    colorprofile = f.read()
-                with pyexiv2.ImageData(buf.tobytes()) as image_data:
-                    image_data.modify_icc(colorprofile)
-                    with open(filename, mode='wb') as f:
-                        f.write(image_data.get_bytes())
-                    return
-            else:
-                logger.warning(
-                    f"Failed to load {color_space} config. Save without color space..."
-                )
+            with pyexiv2.ImageData(buf.tobytes()) as image_data:
+                image_data.modify_icc(ICC_PROFILES[color_space])
+                with open(filename, mode='wb') as f:
+                    f.write(image_data.get_bytes())
+                return
 
         except (ImportError, OSError):
             logger.warning(

@@ -1,9 +1,9 @@
 {
     "description": {
-        "preset_name_cn": "M3Det-通用",
-        "preset_name_en": "M3Det-general",
-        "intro_cn": "自适应检测器，适用于多数检测场景。",
-        "intro_en": "Adaptive meteor detector. Suitable for most detection scenarios."
+        "preset_name_cn": "亮度突变检测器",
+        "preset_name_en": "BrightnessDet",
+        "intro_cn": "基于分区亮度跟踪的突变事件检测器，可检出闪电、火流星等大面积亮度突变事件。",
+        "intro_en": "Partition-based brightness tracking detector for large-area brightness surge events like lightning, fireballs, etc."
     },
     "loader": {
         "name": "ThreadVideoLoader",
@@ -17,24 +17,17 @@
         "continue_on_err": false
     },
     "detector": {
-        "name": "M3Detector",
+        "name": "BrightnessDetector",
         "window_sec": 1,
         "cfg": {
-            "binary": {
-                "adaptive_bi_thre": true,
-                "init_value": 7,
-                "sensitivity": "normal",
-                "area": 0.1,
-                "interval": 2
-            },
-            "hough_line": {
-                "threshold": 10,
-                "min_len": 10,
-                "max_gap": 10
-            },
-            "dynamic": {
-                "dy_mask": true,
-                "window_sec": 5
+            "brightness": {
+                "grid_rows": 4,
+                "grid_cols": 4,
+                "ema_momentum": 0.95,
+                "z_threshold": 3.0,
+                "abs_threshold": 15.0,
+                "global_ratio": 0.6,
+                "min_cell_valid": 0.5
             }
         }
     },
@@ -59,7 +52,7 @@
             "recheck_threshold": 0.25
         },
         "recheck_cfg": {
-            "switch": true,
+            "switch": false,
             "model": {
                 "name": "YOLOModel",
                 "weight_path": "./weights/yolov5s_v2.onnx",
@@ -70,13 +63,13 @@
                 "nms_thre": 0.45,
                 "multiscale_pred": 2,
                 "multiscale_partition": 2
-            },
-            "save_path": ""
+            }
         },
         "positive_cfg": {
             "positive_cates": [
                 "METEOR",
-                "RED_SPRITE"
+                "RED_SPRITE",
+                "BRIGHTNESS_EVENT"
             ]
         }
     }

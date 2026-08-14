@@ -170,7 +170,7 @@ Fields:
 
 |Field|Type|Description|Recommended|
 |---|---|---|---|
-|`name`|str|Loader implementation. Options: `"VanillaVideoLoader"`, `"ThreadVideoLoader"`, `"ProcessVideoLoader"`. `"ThreadVideoLoader"` is generally recommended for stability and performance.|`"ThreadVideoLoader"`|
+|`name`|str|Loader implementation. Options: `"VanillaVideoLoader"`, `"ThreadVideoLoader"`. `"ThreadVideoLoader"` is generally recommended for stability and performance.|`"ThreadVideoLoader"`|
 |`wrapper`|str|Underlying video wrapper/backend. Currently supports `"OpenCVVideoWrapper"` and `"PyAVVideoWrapper"`.|`"OpenCVVideoWrapper"`|
 |`resize`|int, array, str|Target resolution for detection. An integer sets the long side length (e.g. `960`) and preserves aspect ratio; a string like `"960:540"` or `"960x540"` or a list `[960,540]` is also accepted.|`960`|
 |`exp_time`|float or str (`"auto"`,`"slow"`,`"real-time"`)|Exposure time per frame in seconds. For classic detectors, `"auto"` lets the program estimate exposure from the clip. Use `"real-time"` when exposures match frame spacing. You may also provide a float value in seconds.|`"auto"` (line detectors) / `0.5` (MLDetector)|
@@ -179,8 +179,7 @@ Fields:
 |`grayscale`|bool|Whether to convert frames to grayscale on load. Must be `true` for line-based detectors; for deep-learning detectors use `false`.|`true` (line) / `false` (ML)|
 
 Notes:
-1. `"ProcessVideoLoader"` is experimental, not fully tested, and is not compatible with macOS — avoid in production.
-2. Why specify exposure time? Some camera outputs have exposure durations that do not match FPS (e.g. 4k60p with 1/20s exposure, frames only change every 3 samples). Supplying the real exposure improves both speed and detection accuracy.
+1. Why specify exposure time? Some camera outputs have exposure durations that do not match FPS (e.g. 4k60p with 1/20s exposure, frames only change every 3 samples). Supplying the real exposure improves both speed and detection accuracy.
 
 ### Detector
 

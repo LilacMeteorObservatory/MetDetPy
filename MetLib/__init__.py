@@ -1,10 +1,9 @@
 from typing import Callable, TypeVar
 
-from .Detector import (BaseDetector, ClassicDetector, DiffAreaGuidingDetecor,
-                       M3Detector, MLDetector)
+from .Detector import (BaseDetector, BrightnessDetector, ClassicDetector,
+                       DiffAreaGuidingDetecor, M3Detector, MLDetector)
 from .model import YOLOModel
-from .videoloader import (ProcessVideoLoader, ThreadVideoLoader,
-                          VanillaVideoLoader)
+from .videoloader import ThreadVideoLoader, VanillaVideoLoader
 from .videowrapper import (BaseVideoWrapper, OpenCVVideoWrapper,
                            PyAVVideoWrapper)
 from .videowriter import (BaseVideoWriter, FFMpegVideoWriter,
@@ -26,13 +25,14 @@ def get_xxx(name: str, all: list[T]) -> Callable[[str], T]:
 
 
 available_loaders: list[type[VanillaVideoLoader]] = [
-    VanillaVideoLoader, ThreadVideoLoader, ProcessVideoLoader
+    VanillaVideoLoader, ThreadVideoLoader
 ]
 available_wrappers: list[type[BaseVideoWrapper]] = [
     OpenCVVideoWrapper, PyAVVideoWrapper
 ]
 available_detectors: list[type[BaseDetector]] = [
-    M3Detector, ClassicDetector, MLDetector, DiffAreaGuidingDetecor
+    M3Detector, ClassicDetector, MLDetector, DiffAreaGuidingDetecor,
+    BrightnessDetector
 ]
 
 available_writers: list[type[BaseVideoWriter]] = [

@@ -32,7 +32,7 @@ from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
 from MetLib.model import YOLOModel
-from MetLib.utils import VERSION, parse_resize_param, pt_offset, relative2abs_path, set_resource_dir, get_id2name
+from MetLib.utils import VERSION, parse_resize_param, pt_offset, relative2abs_path, get_id2name
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
 
@@ -99,10 +99,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("target", help="path to the img or video.")
 parser.add_argument("--mask", help="path to the mask file.")
 parser.add_argument("--model-path", help="/path/to/the/model", default=None)
-parser.add_argument(
-    "--resource-dir",
-    help="Path to the resource folder (config/weights/resource/global).",
-    default=None)
 parser.add_argument("--exclude-noise", action="store_true")
 parser.add_argument("--model-type",
                     help="type of the model. Support YOLO.",
@@ -134,9 +130,6 @@ parser.add_argument("--save-path", "-S", type=str, help="save path for MDRF.")
 parser.add_argument("--debug", "-D", action="store_true", help="debug mode.")
 
 args = parser.parse_args()
-
-if args.resource_dir:
-    set_resource_dir(args.resource_dir)
 
 if args.model_path is None:
     args.model_path = "./weights/yolov5s_v2.onnx"
@@ -209,7 +202,7 @@ try:
                                 f"{pred[int(np.argmax(pred))]:.2f}"
                                 for pred in preds
                             ],
-                            img_size=list(img.shape)[1:-1],
+                            img_size=list(img.shape)[1::-1],
                             img_filename=img_path))
                     logger.meteor(str(results[-1]))
                 else:

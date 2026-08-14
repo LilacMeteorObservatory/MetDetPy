@@ -24,11 +24,20 @@ LIVE_MODE_SPEED_CTRL_CONST = 0.9
 EULER_CONSTANT = 0.5772
 MAX_LOOP_CNT = 10
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-_resource_dir_override: Optional[str] = os.environ.get("METDET_RESOURCE_DIR", None)
+_is_packaged = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+
+RESOURCE_DIR = (
+    path.dirname(path.abspath(sys.argv[0]))
+    if _is_packaged
+    else path.dirname(path.dirname(path.abspath(__file__)))
+)
+CLIP_CONFIG_PATH = path.join(RESOURCE_DIR, "global", "clip_cfg.json")
+
 ID2NAME: dict[int, str] = {}
 NAME2ID: dict[str, int] = {}
 NUM_CLASS: int = 0
 _id2name_loaded = False
+
 
 def _ensure_class_names_loaded():
     global ID2NAME, NAME2ID, NUM_CLASS, _id2name_loaded
@@ -42,42 +51,12 @@ def _ensure_class_names_loaded():
     MAX_EXISTING_ID = max(ID2NAME.keys())
     ID2NAME[MAX_EXISTING_ID + 1] = "DROPPED"
     ID2NAME[MAX_EXISTING_ID + 2] = "OTHERS"
+    ID2NAME[MAX_EXISTING_ID + 3] = "BRIGHTNESS_EVENT"
     NAME2ID["DROPPED"] = MAX_EXISTING_ID + 1
     NAME2ID["OTHERS"] = MAX_EXISTING_ID + 2
+    NAME2ID["BRIGHTNESS_EVENT"] = MAX_EXISTING_ID + 3
     NUM_CLASS = len(ID2NAME)
     _id2name_loaded = True
-
-def set_resource_dir(resource_dir: Optional[str]):
-    global _resource_dir_override
-    _resource_dir_override = resource_dir
-
-def _get_workspace_path():
-    if _resource_dir_override:
-        return _resource_dir_override
-    base_dir = path.dirname(path.abspath(__file__))
-    if getattr(sys, 'frozen', False):
-        exe_dir = path.dirname(sys.argv[0]) if sys.argv and sys.argv[0] else None
-        if exe_dir and path.isabs(exe_dir) and path.isdir(exe_dir):
-            return exe_dir
-        return path.dirname(sys.executable)
-    return path.split(base_dir)[0]
-
-class _LazyPath:
-    def __init__(self, func):
-        self._func = func
-    def __call__(self):
-        return self._func()
-    def __str__(self):
-        return str(self._func())
-    def __fspath__(self):
-        return self._func()
-
-WORK_PATH = _LazyPath(_get_workspace_path)
-
-def _get_clip_config_path():
-    return path.join(str(WORK_PATH), "global", "clip_cfg.json")
-
-CLIP_CONFIG_PATH = _LazyPath(_get_clip_config_path)
 
 logger = get_default_logger()
 
@@ -113,7 +92,9 @@ COLOR_MAP = {
     "purple": (128, 64, 128),
     "red": (0, 0, 255),
     "white": (255, 255, 255),
-    "yellow": (0, 255, 255)
+    "yellow": (0, 255, 255),
+    "cyan": (255, 255, 0),
+    "gray": (128, 128, 128),
 }
 
 PLATFORM_MAPPING = {
@@ -979,7 +960,7 @@ def box_matching(src_seq: Sequence[list[int]],
     return match_ind
 
 
-def relative2abs_path(rpath: str):
+def relative2abs_path(rpath: str) -> str:
     """Convert a relative path to the corresponding absolute path.
 
     Args:
@@ -990,20 +971,24 @@ def relative2abs_path(rpath: str):
     """
     if rpath.startswith("./"):
         rpath = rpath[2:]
-    return path.join(str(WORK_PATH), rpath)
+    return path.join(RESOURCE_DIR, rpath)
 
 
 def expand_cls_pred(cls_pred: NDArray[np.float64]) -> NDArray[np.float64]:
-    """expand cls prediction from [num, cls] to [num, cls+1].
+    """Expand cls prediction from [num, model_cls] to [num, NUM_CLASS].
 
     Args:
-        cls_pred (np.ndarray): _description_
+        cls_pred (np.ndarray): Model output of shape (N, model_cls).
 
     Returns:
-        np.ndarray: _description_
+        np.ndarray: Padded prediction of shape (N, NUM_CLASS).
     """
-    num_pred, _ = cls_pred.shape
-    return np.concatenate([cls_pred, np.zeros((num_pred, 1))], axis=-1)
+    _ensure_class_names_loaded()
+    num_pred, cur_cls = cls_pred.shape
+    pad_cols = NUM_CLASS - cur_cls
+    if pad_cols <= 0:
+        return cls_pred
+    return np.concatenate([cls_pred, np.zeros((num_pred, pad_cols))], axis=-1)
 
 
 def estimate_snr_smooth_residual(image: U8Mat, kernel_size: int = 5) -> float:
@@ -1079,9 +1064,11 @@ def get_id2name() -> dict[int, str]:
     _ensure_class_names_loaded()
     return ID2NAME
 
+
 def get_name2id() -> dict[str, int]:
     _ensure_class_names_loaded()
     return NAME2ID
+
 
 def get_num_class() -> int:
     _ensure_class_names_loaded()

@@ -172,7 +172,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|--------|
-|name|str|所使用的`loader`的名称。目前可选`"VanillaVideoLoader"`,`"ThreadVideoLoader"`和`ProcessVideoLoader`。一般情况下，推荐使用稳定且运行速度较快的`"ThreadVideoLoader"`。|`"ThreadVideoLoader"`|
+|name|str|所使用的`loader`的名称。目前可选`"VanillaVideoLoader"`和`"ThreadVideoLoader"`。一般情况下，推荐使用稳定且运行速度较快的`"ThreadVideoLoader"`。|`"ThreadVideoLoader"`|
 |wrapper|str|底层加载视频使用的`wrapper`。目前支持基于OpenCV的`"OpenCVVideoWrapper"` 及基于PyAV的 `"PyAVVideoWrapper"`。|`"OpenCVVideoWrapper"`|
 |resize|int, array, str|指定检测使用的分辨率。较低的分辨率下程序运行更快，较高的分辨率则有助于检测到更暗弱和短的流星。可以设置一个整数以仅指定长边长度（如`960`），程序会自适应不同长宽比的视频（推荐）；该设置也支持同时指定宽高（使用以`:`或者`x`分隔两个数字的字符串，如`"960:540"`，`"960x540"`；或直接使用列表，如`[960,540]`）|`960`|
 |exp_time|float, str(`"auto"`, `"slow"`, `"real-time"`)|指定单帧的曝光时间。使用传统检测器时，推荐使用`"auto"`，程序会根据片段估算实际曝光时间（会在启动前花费一小段时间）。如果确定视频帧率与曝光时间匹配，则可以使用`"real-time"`。如果希望指定具体数值，可以填入单位为s的浮点数（小数）。|`"auto"`（直线检测器）/`0.5`（深度学习检测器）|
@@ -181,8 +181,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |grayscale|bool|描述是否将视频转换为灰度图像进行加载。对于基于直线检测的检测器，该项必须为`true`；对于基于深度学习的检测器，目前必须选择`false`。|`true`（直线检测器）/`false`（深度学习检测器）|
 
 ⚠️ 
-1.  `"name": "ProcessVideoLoader"`属于实验性的功能，尚未经过完善的测试与调整。其无法在macOS设备上使用，也不推荐在生产环境中配置。
-2. Q: 为什么要填写曝光时间？ A: 存在实际曝光时间与帧率不匹配的情况（例如，部分相机可以输出曝光时间为1/20s的4k60p的视频，视频每3帧变化一次，而非每帧间均有差异）。在这种情况下，使用实际的曝光时间可以改善运行速度和识别的准确率。
+1. Q: 为什么要填写曝光时间？ A: 存在实际曝光时间与帧率不匹配的情况（例如，部分相机可以输出曝光时间为1/20s的4k60p的视频，视频每3帧变化一次，而非每帧间均有差异）。在这种情况下，使用实际的曝光时间可以改善运行速度和识别的准确率。
 
 
 ### 检测器/Detector

@@ -22,9 +22,6 @@ from queue import Queue
 from typing import Any, Literal, Optional, Type, Union
 
 import numpy as np
-from multiprocess import Process  # type: ignore
-from multiprocess import Queue as MQueue  # type: ignore
-from multiprocess import RawArray, freeze_support  # type: ignore
 
 from .fileio import load_mask
 from .imgproc import Transform
@@ -42,7 +39,6 @@ SLOW_EXP_TIME = 1 / 4
 GET_TIMEOUT = 10
 PUT_TIMEOUT = 10
 FAILED_FLAG = "failed"
-freeze_support()
 
 
 class BaseVideoLoader(metaclass=ABCMeta):
@@ -629,168 +625,6 @@ class ThreadVideoLoader(VanillaVideoLoader):
     @property
     def stopped(self) -> bool:
         return self.read_stopped and self.queue.empty()
-
-
-class ProcessVideoLoader(VanillaVideoLoader):
-    """ 
-    # ProcessVideoLoader
-    This class is used to load the video from the file with an independent subthread.  
-    ProcessVideoLoader can partly solve I/O blocking and provide speedup.
-
-    ## Args:
-        video_wrapper (Type[BaseVideoWrapper]): the type of videowrapper.
-        video_name (str): the filename of the video.
-        mask_name (Optional[str]): the filename of the mask. The default is None.
-        resize_option (Union[int, list, str, None]): resize option from input. The default is None.
-        start_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
-        end_time (Optional[str]): the start time string of the video (like "HH:MM:SS" or "6000"(ms)). The default is None.
-        grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
-        exp_option (Union[int, float, str]): resize option from input. The default is "auto".
-        exp_upper_bound (Optional[float]): upper bound of the exposure time. The default is None.
-        merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
-        maxsize (int): the maxsize of the video buffer queue. The default is 32.
-        **kwargs: compatibility design to support other arguments. 
-            ThreadVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
-    
-    ## Usage
-
-    All of VideoLoader (take T=VideoLoader(args,kwargs) as an example) classes should be designed and 
-    utilized following these instructions:
-    
-    1. Call .start() method before using it. eg. : T.start()
-    2. Pop 1 frame from its queue with the .pop() method. 
-    3. when its video reaches the EOF or an exception is raised, its .stop() method should be triggered. 
-       Then T.stopped will be set to True to ensure other parts of the program be terminated normally.
-    """
-
-    def __init__(self,
-                 video_wrapper: Type[BaseVideoWrapper],
-                 video_name: str,
-                 mask_name: Optional[str] = None,
-                 resize_option: Union[int, list[int], str, None] = None,
-                 hwaccel: Optional[str] = None,
-                 start_time: Optional[str] = None,
-                 end_time: Optional[str] = None,
-                 grayscale: bool = False,
-                 debayer: bool = False,
-                 debayer_pattern: str = "BGGR",
-                 exp_option: Union[int, float, str] = "auto",
-                 exp_upper_bound: Optional[float] = None,
-                 merge_func: str = "not_merge",
-                 continue_on_err: bool = False,
-                 maxsize: int = 32,
-                 **kwargs: Any) -> None:
-        self.maxsize = maxsize
-        self.notify_queue: Any = MQueue(maxsize=self.maxsize - 1)
-        super().__init__(video_wrapper, video_name, mask_name, resize_option,
-                         hwaccel, start_time, end_time, grayscale, debayer,
-                         debayer_pattern, exp_option, exp_upper_bound,
-                         merge_func, continue_on_err, **kwargs)
-
-    def start(self):
-        w, h = self.runtime_size
-        c = 1 if self.grayscale else 3
-        self.read_stopped = False
-        self.clear_queue()
-        self.status = True
-        self.buffer: Any = RawArray(
-            np.dtype("uint8").char, self.maxsize * w * h * c)
-        self.buffer_shape = (self.maxsize, h,
-                             w) if self.grayscale else (self.maxsize, h, w, 3)
-        del self.video
-        self.subprocess: Any = Process(target=self.videoloop, daemon=True)
-        self.subprocess.start()
-        # a hack way
-        self.video = self.video_wrapper(self.video_name, hwaccel=self.hwaccel)
-
-    def clear_queue(self):
-        while self.notify_queue.qsize() > 0:
-            self.notify_queue.get()
-
-    def pop(self):
-        """消费者调起接口。
-
-        Raises:
-            Exception: Trigged when fails to read a frame.
-
-        Returns:
-            Optional[NDArray]: A frame or nothing.
-        """
-        if self.stopped:
-            # this is abnormal. so the video file will be released manuly here.
-            self.video.release()
-            self.subprocess.join()
-            raise Exception(
-                f"Attempt to read frame(s) from an ended {self.__class__.__name__} object."
-            )
-        np_buffer = np.frombuffer(self.buffer,
-                                  dtype=np.uint8).reshape(self.buffer_shape)
-        ret: list[Any] = []
-        try:
-            for _ in range(self.exp_frame):
-                if self.stopped: break
-                x = self.notify_queue.get(timeout=GET_TIMEOUT)
-                if x == "STOPPED":
-                    self.read_stopped = True
-                    break
-                ret.append(x)
-        except queue.Empty:
-            # handle the condition when there is no frame to read due to manual stop trigger or other exception.
-            if self.read_stopped:
-                self.logger.info("Acceptable queue.Empty exception occured.")
-
-        if len(ret) == 0:
-            return None
-        return self.merge_func(np_buffer[ret])
-
-    def videoloop(self):
-        self.video = self.video_wrapper(self.video_name, hwaccel=self.hwaccel)
-        self.video.set_to(self.start_frame)
-
-        np_buffer = np.frombuffer(self.buffer,
-                                  dtype=np.uint8).reshape(self.buffer_shape)
-        self.cur_pos = 0
-        try:
-            for i in range(self.iterations):
-                if self.read_stopped or not self.status:
-                    if not self.continue_on_err:
-                        break
-                self.status, self.cur_frame = self.video.read()
-                # Load frame failed.
-                # if continue_on_err is set, just skip this frame.
-                if not self.status or self.cur_frame is None:
-                    self.logger.warning(
-                        f"Load frame failed at {self.start_frame + i}")
-                    if not self.continue_on_err:
-                        self.stop()
-                        break
-                    else:
-                        continue
-                self.cur_frame = self.preprocess.exec_transform(self.cur_frame)
-                np_buffer[self.cur_pos] = self.cur_frame
-                self.cur_pos = (self.cur_pos + 1) % self.maxsize
-                self.notify_queue.put(self.cur_pos, timeout=PUT_TIMEOUT)
-
-        except Exception as e:
-            raise e
-        finally:
-            self.stop()
-
-    def stop(self):
-        if not self.read_stopped:
-            super().stop()
-            self.stop()
-            try:
-                self.notify_queue.put("STOPPED", timeout=PUT_TIMEOUT)
-            except queue.Full:
-                pass
-
-    def release(self):
-        super().release()
-
-    @property
-    def stopped(self) -> bool:
-        return self.read_stopped and self.notify_queue.qsize == 0
 
 
 def _rf_est_kernel(video_loader: BaseVideoLoader):
