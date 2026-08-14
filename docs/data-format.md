@@ -160,6 +160,7 @@ Keys in an MDRF and their meanings:
 | pt1 | `list[int]` | Start point coordinates. |
 | pt2 | `list[int]` | End point coordinates. |
 | drct_loss | `float` | Direction variance of the motion. |
+| drct_cv | `Optional[float]` | Circular variance of the motion direction. Historical MDRF records may omit this field; they are loaded as `None`. |
 | score | `float` | Final confidence score for the target (range [0,1]). |
 | real_dist | `float` | Real length in original resolution (pixels). |
 | raw_score | `Optional[float]` | Raw confidence estimated by the main detector (range [0,1]). `None` if the result wasn't detected by the main detector. |

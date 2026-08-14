@@ -90,7 +90,9 @@ class MeteorCfg {
     speed_range: list[float]
     drct_range: list[float]
     det_thre: float
-    thre2: int
+    merge_dist_sqr: Optional[int]
+    clip_merge_interval: Optional[float]
+    recheck_threshold: Optional[float]
 }
 
 class RecheckCfg {
@@ -345,7 +347,8 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             0.6
         ],
         "det_thre": 0.5,
-        "thre2": 2048
+        "merge_dist_sqr": 2048,
+        "recheck_threshold": 0.25
     },
     "recheck_cfg": {
         "switch": true,
@@ -359,8 +362,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "nms_thre": 0.45,
             "multiscale_pred":2,
             "multiscale_partition":2
-        },
-        "save_path":""
+        }
     },
     "positive_cfg": {
         "positive_cates": [
@@ -385,7 +387,11 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |speed_range|array|描述流星的允许速度范围。超过或者没有到达阈值的响应将会被排除。该数值的计算方式为：(流星的移动距离(px)/流星的运动时间(s))/(视频长边长度(px)) * 100。可以将该数值理解为流星每秒在画面中移动的距离比例(%)，如[3,12]代表预期捕获每秒在画面中移动距离为3%-12%的目标。单位：$s^{-1}$。|[3, 12]|
 |drct_range|array|描述流星的直线程度范围。越接近0，该流星越接近理想直线。该值通过计算所有响应的方向向量集合的方差得到。|[0,0.6]|
 |det_thre|float|描述正样本流星的阈值，超过该得分的流星被认为是正样本流星。取值为[0,1]。|0.5|
-|thre2|int|描述若干响应之间允许的最长距离平方。如果检测结果存在多个离散响应，可以尝试增大该值。⚠️ 该值目前仍然以运行时分辨率为基准。当使用差异过大的分辨率时，可能会影响效果。|2048|
+|merge_dist_sqr|int|描述若干响应之间允许的最长距离平方。如果轨迹存在多个离散响应，可以尝试增大该值。该值以运行时分辨率为基准，分辨率差异过大时可能影响效果。|2048|
+|recheck_threshold|float，可选|序列送入模型重校验所需的最低前置得分。省略时使用 `det_thre` 的一半。|0.25|
+|clip_merge_interval|float，可选|将已确认目标合并到同一导出片段所允许的最大时间间隔，单位为秒。省略时使用 `max_interval`。|与 `max_interval` 相同|
+
+旧字段 `thre2` 仍可作为兼容兜底读取，但已经弃用；新配置应使用 `merge_dist_sqr`。
 
 ⚠️ 目前流星筛选配置的过滤采取宽容性设计：当超出上述设置范围时，得分不会直接突变置零，而是逐渐衰减到0。
 

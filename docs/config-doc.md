@@ -88,7 +88,9 @@ class MeteorCfg {
     speed_range: list[float]
     drct_range: list[float]
     det_thre: float
-    thre2: int
+    merge_dist_sqr: Optional[int]
+    clip_merge_interval: Optional[float]
+    recheck_threshold: Optional[float]
 }
 
 class RecheckCfg {
@@ -337,7 +339,8 @@ The `collector` controls filtering/collection rules and recheck (re-verification
         "speed_range": [3, 12],
         "drct_range": [0, 0.6],
         "det_thre": 0.5,
-        "thre2": 2048
+        "merge_dist_sqr": 2048,
+        "recheck_threshold": 0.25
     },
     "recheck_cfg": {
         "switch": true,
@@ -351,8 +354,7 @@ The `collector` controls filtering/collection rules and recheck (re-verification
             "nms_thre": 0.45,
             "multiscale_pred": 2,
             "multiscale_partition": 2
-        },
-        "save_path": ""
+        }
     },
     "positive_cfg": {
         "positive_cates": ["METEOR", "RED_SPRITE"]
@@ -374,7 +376,11 @@ Set filters for length, interval, duration, speed, linearity and score threshold
 |`speed_range`|array|Allowed speed range. Calculated as: (distance(px)/time(s)) / (long_side(px)) * 100 — i.e. percentage of long-side per second. Example `[3,12]` means 3%–12% per second.|[3,12]|
 |`drct_range`|array|Allowed linearity variance. Closer to 0 means more straight.|[0,0.6]|
 |`det_thre`|float|Score threshold to consider a meteor as positive (0–1).|0.5|
-|`thre2`|int|Max allowed squared distance between responses for grouping. Increase if trajectory has multiple discrete responses. ⚠️ This uses runtime resolution as reference; large changes in resolution can affect results.|2048|
+|`merge_dist_sqr`|int|Max allowed squared distance between responses for grouping. Increase if a trajectory has multiple discrete responses. This uses runtime resolution as reference; large resolution changes can affect results.|2048|
+|`recheck_threshold`|float, optional|Minimum preliminary score for sending a sequence to model recheck. Defaults to half of `det_thre` when omitted.|0.25|
+|`clip_merge_interval`|float, optional|Maximum time gap in seconds for merging confirmed targets into one exported clip. Defaults to `max_interval` when omitted.|same as `max_interval`|
+
+The legacy field `thre2` is still accepted for backward compatibility but is deprecated; new configurations should use `merge_dist_sqr`.
 
 ⚠️ Filters are designed to be tolerant: scores decay gradually outside bounds rather than abruptly becoming zero.
 
@@ -386,7 +392,6 @@ Recheck (introduced in v2.0.0) runs an additional verification step using the ti
 |---|---|---|---|
 |`switch`|bool|Enable recheck.|true|
 |`model`|-|See the Model section.|-|
-|`save_path`|str|Path to save recheck images. Empty means do not save.|`""`|
 
 #### Positive configuration (`positive_cfg`)
 

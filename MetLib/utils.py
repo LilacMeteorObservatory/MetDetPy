@@ -17,7 +17,7 @@ from .metlog import get_default_logger
 from .metstruct import Box
 
 PROJECT_NAME = "MetDetPy"
-VERSION = "V2.4.0"
+VERSION = "V2.5.0-alpha"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9

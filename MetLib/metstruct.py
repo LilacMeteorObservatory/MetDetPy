@@ -165,9 +165,11 @@ class MDTarget(DictAble):
     pt1: list[int]
     pt2: list[int]
     drct_loss: float
-    drct_cv: float
     score: float
     real_dist: float
+    # Added after MDRF v2.4. Keep optional for backward-compatible loading of
+    # historical records that do not contain circular direction variance.
+    drct_cv: Optional[float] = None
     center_point_list: list[list[int]] = dataclasses.field(
         default_factory=lambda: [])
     raw_score: Optional[float] = None
@@ -444,7 +446,6 @@ class MainDetectCfg(DictAble):
     loader: LoaderCfg
     detector: DetectorCfg
     collector: CollectorCfg
-    aux_detectors: list[DetectorCfg] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

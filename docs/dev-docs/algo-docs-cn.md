@@ -90,18 +90,21 @@ MetDetPy主框架中默认会将从视频加载器获取的帧和时间戳作为
 当前的 `MetVisu` 采用纯运行时渲染：`display_a_frame(base_img, data_list)` 直接依据传入的 `data_list` 绘制。
 
 #### data_list
-`data_list` 是 `list[BaseVisuAttrs]`：渲染顺序保持为 `img` → `draw` → `text`，在同一类别内会按 `data_list` 的出现顺序绘制。
+`data_list` 是 `list[BaseVisuAttrs]`：渲染顺序保持为 `img` → `chart` → `draw` → `text`，在同一类别内会按 `data_list` 的出现顺序绘制。
 
 对象字段说明（以代码中的类型命名为准）：
 * `ImgVisuAttrs`（img）：`name`、`img`、可选 `weight`/`color`
+* `TimeSeriesChartVisu`（chart）：`name`、本帧的 `current_value`，以及可选的图表位置、尺寸、历史点数、Y 轴范围、标签和颜色
 * `DrawRectVisu` / `DrawCircleVisu`（draw）：`name`、矩形用 `pair_list`、圆点用 `dot_list`，可选 `thickness`/`radius`/颜色
 * `TextVisu`（text）：`name`、`text_list`；`TextColorPair` 的 `position/color` 可以不填，会沿用 `TextVisu` 的默认值（`TextVisu.position` 支持使用 `POSITION_MAP` 的字符串 key）
+
+`TimeSeriesChartVisu` 是每帧传入的轻量更新对象。`OpenCVMetVisu` 以 `name` 为键保存对应的 `TimeSeriesChartHandle` 和历史缓冲区；同名图表后续只需传入新的 `current_value`。`corner`、`chart_w`、`chart_h` 和 `max_points` 在首次注册时确定，后续可动态调整 `y_min`、`y_max`、`label`、`line_color` 和 `bg_alpha`。
 
 #### visu()
 
 `visu()` 方法返回 `list[BaseVisuAttrs]`，描述“这一帧要画什么”。
 
-渲染器会按 `data_list` 的类别顺序 `img` → `draw` → `text`，以及同一类别内的出现顺序来绘制。固定位置文字允许多条，但默认会绘制到同一坐标从而可能发生重叠；需要错开时请为每个 `TextColorPair` 显式提供 `position`。
+渲染器会按 `data_list` 的类别顺序 `img` → `chart` → `draw` → `text`，以及同一类别内的出现顺序来绘制。使用同一个 `POSITION_MAP` 固定位置的多条文字会按照 `font_gap` 自动错开；为 `TextColorPair` 显式提供 `position` 时则使用指定坐标。
 
 
 

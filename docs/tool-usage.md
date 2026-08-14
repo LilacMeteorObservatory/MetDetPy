@@ -64,51 +64,38 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--d
 
 ## make_package
 
-We provide two packaging scripts to freeze MetDetPy programs into stand-alone executables:
-
-1. **[make_package.py](../make_package.py)** - Uses `nuitka` for compilation
-2. **[make_package_pyinstaller.py](../make_package_pyinstaller.py)** - Uses `pyinstaller` for packaging
-
-Choose the one that best fits your needs.
-
-### Using Nuitka (make_package.py)
-
-When using `nuitka`, ensure at least one C/C++ compiler is available on your computer.
+Use [make_package.py](../make_package.py) to freeze the MetDetPy programs with
+either Nuitka or PyInstaller. Nuitka is the default backend.
 
 ```sh
-python make_package.py [--mingw64] [--apply-upx] [--apply-zip]
-     [--onefile]
-```
-
-* `--mingw64`: use the mingw64 compiler. Only works on Windows.
-
-* `--apply-upx`: apply UPX to squeeze the size of the executable program.
-
-* `--apply-zip`: generate zip package when compilation is finished.
-
-* `--onefile`: generate a single executable file (onefile mode). When using this mode, you need to ensure that the static resource folders (`config/`, `weights/`, `resource/`, `global/`) are placed next to the executable file, or use the `--resource-dir` / `-R` option to specify their location at runtime.
-
-### Using PyInstaller (make_package_pyinstaller.py)
-
-```sh
-python make_package_pyinstaller.py [--apply-zip] [--onefile]
+python make_package.py [--backend {nuitka,pyinstaller}]
+     [--apply-upx] [--apply-zip] [--onefile]
+     [--mingw64] [--macos-sign-identity IDENTITY]
      [--windowed] [--icon ICON_PATH]
 ```
 
-* `--apply-zip`: generate zip package when packaging is finished.
+* `--backend`: select `nuitka` or `pyinstaller`. Defaults to `nuitka`.
 
-* `--onefile`: generate a single executable file (onefile mode).
+* `--apply-upx`: apply UPX to squeeze the size of the executable program.
 
-* `--windowed`: use windowed mode (no console) for GUI applications.
+* `--apply-zip`: generate a ZIP package after packaging.
 
-* `--icon`: path to an icon file for the executable.
+* `--onefile`: generate one executable per program instead of a directory bundle.
+
+* `--mingw64`: use the MinGW64 compiler with the Nuitka backend on Windows.
+
+* `--macos-sign-identity`: macOS signing identity for the Nuitka backend.
+
+* `--windowed`: use windowed mode with the PyInstaller backend.
+
+* `--icon`: executable icon used by the PyInstaller backend.
 
 ### Common Notes
 
-The target executable file and its zip package version (if applied) will be generated in the [dist](./dist/) directory.
+Executables and the optional ZIP package are generated in the [dist](../dist/) directory.
 
 **Notice:**
 
-1. It is suggested to use `Python>=3.9` and `nuitka>=2.0.0` when using `nuitka`. For `pyinstaller`, ensure `pyinstaller>=6.0`.
+1. When using Nuitka, install `nuitka>=2.0.0` and an available C/C++ compiler. For PyInstaller, install `pyinstaller>=6.0`.
 2. Due to the nature of Python packaging, these tools cannot generate cross-platform executables; build the executable on the target platform.
 3. If `matplotlib` or `scipy` exists in the environment, they may be included in the packaged output. To reduce package size, prepare a clean environment or avoid installing heavy optional dependencies.

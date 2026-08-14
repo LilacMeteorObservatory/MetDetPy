@@ -80,6 +80,50 @@ Note:
 2. 飞行器/大面积时间不容易被后验检测器检出。
 3. 改善报错信息（尤其是配置文件）
 
+## Version 2.5.0
+
+✅ New Feature(s)
+* `MetDetPy`
+    * 视频加载配置新增硬件解码选项，可将支持的硬件加速参数传递给视频解码后端。
+    * 检测结果新增 `drct_cv` 字段，以圆方差描述目标运动方向的稳定程度。
+* `ClipToolkit`
+    * 新增 `--padding-before` 和 `--padding-after`，可以在目标片段前后保留指定时长的画面。
+    * 视频导出支持使用类别、得分和长度过滤规则，并可通过 `--enable-filter-rules` 或 `--disable-filter-rules` 覆盖配置文件开关。
+* 可视化组件
+    * 新增 `TimeSeriesChartVisu`，支持在调试画面中持续绘制指定指标的时序曲线。
+* 打包工具
+    * 将 Nuitka 和 PyInstaller 统一到 `make_package.py`，可通过 `--backend` 选择打包后端。
+    * 完善 onefile 模式支持；打包脚本会把 `config/`、`weights/` 和 `global/` 自动复制到可执行文件旁。
+
+✅ Improvement
+* 将模型复检从片段级调整为目标级，同一片段中的目标可以分别复检、分类和保留；同时增加复检前后留白与独立阈值配置。
+* 重构流星序列收集与导出流程，由 Exporter 统一处理确认队列、片段边界和相邻片段合并，减少边界状态重复维护。
+* 增加 `clip_merge_interval`，允许单独控制已确认目标合并为同一输出片段的时间间隔。
+* 流星评分缓存改为跟随 `MeteorSeries` 对象生命周期，避免全局缓存残留及对象 ID 复用造成的错误命中。
+* 优化 PyAV 对可变帧率视频、帧缓存和重复解码帧的处理，并为异常低帧率增加提示。
+* sRGB ICC 配置改为内置资源，导出图片不再依赖外部 `resource/sRGB.icc` 文件。
+* 简化视频加载器实现，移除未使用且稳定性较差的 `ProcessVideoLoader`。
+
+✅ BugFix
+* 修复检测起始帧、结束帧、片段边界和视频尾部目标可能出现的偏移、遗漏或重复输出问题。
+* 修复模型复检失败后的目标排序、复检时长计算和裁剪画面显示问题。
+* 修复视频加载线程结束哨兵及异常退出路径可能造成的等待或强制退出问题。
+* 修复 `ClipToolkit` 前后留白的时间边界，以及视频模式下过滤规则未正确作用于单个目标的问题。
+* 修复 `MetDetPhoto` 部分图像尺寸记录和类别名称映射问题。
+* 修复 onefile 模式的资源相对路径、输出目录、Windows spec 路径、ZIP 内容为空，以及多个独立 EXE 错误共享依赖的问题。
+
+⚠️ Compatibility Notes
+* 历史 MDRF 文件可以缺少 `drct_cv`；读取时该字段使用 `null`，不影响旧数据加载。
+* 配置项 `thre2` 更名为 `merge_dist_sqr`。旧字段仍可兼容读取，但已经弃用；新增的 `recheck_threshold` 和 `clip_merge_interval` 均为可选项。
+* onefile 发行包会从可执行文件所在目录查找资源。`--resource-dir` 已移除，发行时请保持 `config/`、`weights/`、`global/` 与可执行文件位于同一目录层级。
+* 原独立的 `make_package_pyinstaller.py` 已移除，请改用 `make_package.py --backend pyinstaller`。
+
+✅ Documents and Tests
+* 重组并补充中英文工具、配置和 MDRF 数据格式文档。
+* 增加收集器、Exporter、旧数据兼容、时序图和 onefile 打包稳定性测试。
+
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.4.0...v2.5.0
+
 ## Version 2.4.0
 
 ✅ New Feature(s)

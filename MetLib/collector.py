@@ -190,6 +190,8 @@ class MeteorSeries(object):
         self.max_acceptable_dist = max_acceptable_dist
         self.count = 1
         self.cate_prob = np.array(cate_prob, copy=True)
+        self._score_cache_count = -1
+        self._score_cache_value = 0.0
         self.fps = fps
         self.runtime_length = max(runtime_size)
         self.range = ([2**16, 2**16], [-2**16, -2**16])
@@ -431,8 +433,6 @@ class MeteorCollector(object):
         self.recheck_threshold = (recheck_thre if recheck_thre is not None
                                   else self.det_thre * 0.5)
 
-        self._score_cache: dict[int, tuple[int, float]] = {}
-
         clip_merge_sec = collector_cfg.meteor_cfg.clip_merge_interval
         clip_merge_interval = (clip_merge_sec * runtime_param.fps
                                if clip_merge_sec is not None
@@ -640,13 +640,12 @@ class MeteorCollector(object):
 
     def prob_meteor(self, met: MeteorSeries) -> float:
         # 用于估计met实例属于流星序列的概率。
-        # 缓存策略：以 met.count 作为版本号，count 不变则结果不变。
-        key = id(met)
-        cached = self._score_cache.get(key)
-        if cached is not None and cached[0] == met.count:
-            return cached[1]
+        # 缓存策略：缓存跟随 MeteorSeries 生命周期，count 不变则结果不变。
+        if met._score_cache_count == met.count:
+            return met._score_cache_value
         score = self._compute_score(met)
-        self._score_cache[key] = (met.count, score)
+        met._score_cache_count = met.count
+        met._score_cache_value = score
         return score
 
     def _compute_score(self, met: MeteorSeries) -> float:
