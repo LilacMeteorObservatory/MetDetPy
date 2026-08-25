@@ -15,6 +15,8 @@ def crop_with_box(img: U8Mat, roi: Box):
 
 
 def calc_roi_gradient(img: U8Mat, mask: Optional[NDArray[np.bool_]] = None):
+    if img.size == 0:
+        return float('nan')
     if img.ndim == 3 and img.shape[-1] == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)  # dI/dx

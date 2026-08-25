@@ -550,7 +550,8 @@ class MLDetector(BaseDetector):
         for i, result_list in enumerate(self.result_pos):
             roi_img = crop_with_box(self.stack.max, Box.from_list(result_list))
             gradient_drct = calc_roi_gradient(roi_img)
-            if (int(gradient_drct // (np.pi / 2)) % 2 == 1):
+            if np.isfinite(gradient_drct) and (int(gradient_drct //
+                                                   (np.pi / 2)) % 2 == 1):
                 self.result_pos[i, [1, 3]] = self.result_pos[i, [3, 1]]
         return self.result_pos, expand_cls_pred(self.result_cls)
 
@@ -611,8 +612,8 @@ class BrightnessDetector(BaseDetector):
 
         # 计算每个单元格的 mask 有效像素比例，低于阈值则标记为无效
         trimmed_mask = mask[:self.trimmed_h, :self.trimmed_w]
-        cell_mask_means = trimmed_mask.reshape(
-            R, self.cell_h, C, self.cell_w).mean(axis=(1, 3))
+        cell_mask_means = trimmed_mask.reshape(R, self.cell_h, C,
+                                               self.cell_w).mean(axis=(1, 3))
         self.valid_cells = (cell_mask_means / 255.0
                             > self.b_cfg.min_cell_valid)
 
@@ -694,12 +695,12 @@ class BrightnessDetector(BaseDetector):
         R, C = self.grid_shape
         trimmed = frame[:self.trimmed_h, :self.trimmed_w]
         return trimmed.reshape(R, self.cell_h, C,
-                               self.cell_w).mean(axis=(1, 3)).astype(
-                                   np.float32)
+                               self.cell_w).mean(axis=(1,
+                                                       3)).astype(np.float32)
 
     def _merge_to_boxes(
-        self, triggered: np.ndarray, z_scores: np.ndarray
-    ) -> tuple[list[list[int]], list[float]]:
+            self, triggered: np.ndarray,
+            z_scores: np.ndarray) -> tuple[list[list[int]], list[float]]:
         """将触发的网格单元格合并为 bounding boxes。
 
         当触发比例超过 global_ratio 时，判定为全局事件，输出全帧 box。
@@ -777,15 +778,13 @@ class BrightnessDetector(BaseDetector):
             triggered_n = int(np.sum(self.triggered_grid))
             total_valid = int(np.sum(self.valid_cells))
             visu_list.append(
-                TextVisu(
-                    "brightness_info",
-                    position="left-top",
-                    color="cyan",
-                    text_list=[
-                        TextColorPair(
-                            text=
-                            f"Brightness \u0394:{mean_delta:.1f} "
-                            f"Triggered:{triggered_n}/{total_valid}")
-                    ]))
+                TextVisu("brightness_info",
+                         position="left-top",
+                         color="cyan",
+                         text_list=[
+                             TextColorPair(
+                                 text=f"Brightness \u0394:{mean_delta:.1f} "
+                                 f"Triggered:{triggered_n}/{total_valid}")
+                         ]))
 
         return visu_list
