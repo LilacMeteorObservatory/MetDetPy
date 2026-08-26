@@ -286,14 +286,14 @@ class ClassicDetector(LineDetector):
                                       minLineLength=self.hough_cfg.min_len,
                                       maxLineGap=self.hough_cfg.max_gap)
 
-        self.linesp_ext: Sequence[
+        self.linesp: Sequence[
             list[int]] = [] if self.linesp is None else self.linesp[:, 0, :]
         # TODO:
         # 1. Classic Detector的可视化接口尚未实现
         # 2. ClassicDetector的输出统一为METEOR判定。可能需要考虑逻辑是否会变更。
-        cls_pred = np.zeros((len(self.linesp_ext), self.num_cls))
+        cls_pred = np.zeros((len(self.linesp), self.num_cls))
         cls_pred[:, 0] = 1
-        return self.linesp_ext, cls_pred
+        return self.linesp, cls_pred
 
     def visu(self):
         raise NotImplementedError
@@ -350,14 +350,18 @@ class M3Detector(LineDetector):
                                  threshold=self.hough_cfg.threshold,
                                  minLineLength=self.hough_cfg.min_len,
                                  maxLineGap=gap)
-        linesp_ext = np.array([]) if linesp is None else linesp[:, 0, :]
+        if linesp is None:
+            linesp = np.array([])
+        elif np.array(linesp).ndim == 3:
+            linesp = linesp[:, 0, :]
+        linesp = np.array([]) if linesp is None else linesp
 
         # 如果产生的响应数目非常多，忽略该帧
         # TODO: 会造成无法响应面积式的现象。需要调整。
         # 下调了阈值以提升面积召回。更合理的版本：
-        self.lines_num = len(linesp_ext)
+        self.lines_num = len(linesp)
         if self.lines_num > NUM_LINES_TOOMUCH:
-            linesp_ext = np.array([])
+            linesp = np.array([])
 
         # 后处理：对于直线进行质量评定，过滤掉中空比例较大的直线
         # 这一步骤会造成一些暗弱流星的丢失。
@@ -375,13 +379,13 @@ class M3Detector(LineDetector):
 
         # 由line预测的结果都划分为不确定（-1），在后处理器中决定类别。
         # TODO: 重整类别格式，前置NMS
-        self.linesp_ext = linesp_ext
+        self.linesp = linesp
         self.dst = dst
         # NMS
         # Another TODO: 不确定是否会产生额外的性能开销。
-        if len(linesp_ext) > 0:
-            linesp_ext, nonline_probs = lineset_nms(linesp_ext)
-            self.filtered_line_num = len(linesp_ext)
+        if len(linesp) > 0:
+            linesp, nonline_probs = lineset_nms(linesp)
+            self.filtered_line_num = len(linesp)
             cls_pred = np.zeros((self.filtered_line_num, self.num_cls))
             others_col = get_name2id()["OTHERS"]
             cls_pred[:, others_col] = nonline_probs
@@ -389,7 +393,7 @@ class M3Detector(LineDetector):
         else:
             self.filtered_line_num = 0
             cls_pred = np.zeros((0, self.num_cls))
-        return linesp_ext, cls_pred
+        return linesp, cls_pred
 
     def visu(self):
         """ 返回可视化时的所需实际参数。
