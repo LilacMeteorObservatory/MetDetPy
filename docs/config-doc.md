@@ -37,6 +37,7 @@ class ModelCfg {
     name: str
     weight_path: str
     dtype: str
+    input_color_order: str
     nms: bool
     warmup: bool
     pos_thre: float
@@ -225,9 +226,10 @@ Example (deep-learning detector):
             "name": "YOLOModel",
             "weight_path": "./weights/yolov5s.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45
         }
     }
@@ -348,9 +350,10 @@ The `collector` controls filtering/collection rules and recheck (re-verification
             "name": "YOLOModel",
             "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45,
             "multiscale_pred": 2,
             "multiscale_partition": 2
@@ -412,9 +415,10 @@ Example:
     "name":"YOLOModel",
     "weight_path": "./weights/yolov5s.onnx",
     "dtype": "float32",
+    "input_color_order": "rgb",
     "nms": true,
     "warmup": true,
-    "pos_thre": 0.25,
+    "pos_thre": 0.10,
     "nms_thre": 0.45,
     "multiscale_pred":2,
     "multiscale_partition":2
@@ -426,9 +430,10 @@ Example:
 |`name`|str|Model type; currently only YOLO format (`"YOLOModel"`) is implemented.|`"YOLOModel"`|
 |`weight_path`|str|Path to model weights (relative to project or absolute). A YOLOv5s `.onnx` is included. The label file is `../global/class_name.txt`.|`"./weights/yolov5s.onnx"`|
 |`dtype`|str|Input dtype. Use correct dtype for quantized models. Supported: `"float32"`, `"float16"`.|`"float32"`|
+|`input_color_order`|str|Channel order expected by the model weights. Images supplied to `forward` use BGR and are converted when this is `"rgb"`.|`"rgb"`|
 |`nms`|bool|Whether to run NMS. Set `false` if the model already includes NMS to speed up inference.|`true`|
 |`warmup`|bool|Whether to run a warmup pass before real inference.|`true`|
-|`pos_thre`|float|Positive sample score threshold (0–1).|0.25|
+|`pos_thre`|float|Positive sample score threshold (0–1).|0.1|
 |`nms_thre`|float|NMS IoU threshold.|0.45|
 |`multiscale_pred`|int|Run multi-scale detection when >0. Larger values increase compute and false positives; typically 1 or 2.|1 / 2|
 |`multiscale_partition`|int|Partition number per dimension for multi-scale detection. Typical value: 2.|2|

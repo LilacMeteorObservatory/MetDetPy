@@ -39,6 +39,7 @@ class ModelCfg {
     name: str
     weight_path: str
     dtype: str
+    input_color_order: str
     nms: bool
     warmup: bool
     pos_thre: float
@@ -226,9 +227,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "name":"YOLOModel",
             "weight_path": "./weights/yolov5s.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45
         }
     }
@@ -356,9 +358,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "name":"YOLOModel",
             "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45,
             "multiscale_pred":2,
             "multiscale_partition":2
@@ -423,9 +426,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     "name":"YOLOModel",
     "weight_path": "./weights/yolov5s.onnx",
     "dtype": "float32",
+    "input_color_order": "rgb",
     "nms": true,
     "warmup": true,
-    "pos_thre": 0.25,
+    "pos_thre": 0.10,
     "nms_thre": 0.45,
     "multiscale_pred":2,
     "multiscale_partition":2
@@ -437,9 +441,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |name|str|使用的深度学习模型类型，这将决定程序如何处理输入输出。目前仅实现了YOLO格式的模型`"YOLOModel"`。|`"YOLOModel"`|
 |weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
 |dtype|str|描述网络的输入数据格式。当使用量化模型时，需在此处配置格式，否则程序可能无法正常运行。目前支持全精度（`"float32"`），半精度（`"float16"`）。|`"float32"`|
+|input_color_order|str|模型权重所期望的通道顺序。传给 `forward` 的图像固定为 BGR；配置为 `"rgb"` 时模型会自动转换。|`"rgb"`|
 |nms|bool|是否需要执行非最大值抑制NMS。如果构建的网络已附带NMS，则选择`false`以提升运行速度。|`true`|
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
-|pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.25|
+|pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.1|
 |nms_thre|float|去重时使用的阈值。|0.45|
 |multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
 |multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|

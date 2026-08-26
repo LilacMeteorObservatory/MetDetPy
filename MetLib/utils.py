@@ -1073,3 +1073,26 @@ def get_name2id() -> dict[str, int]:
 def get_num_class() -> int:
     _ensure_class_names_loaded()
     return NUM_CLASS
+
+
+def exclude_predictions_by_name(
+        boxes: NDArray[Any], probabilities: NDArray[Any],
+        excluded_names: Sequence[str]
+) -> tuple[NDArray[Any], NDArray[Any]]:
+    """Remove predictions whose winning class name is excluded.
+
+    Keeping boxes and probability rows together here avoids the two arrays
+    becoming misaligned when a caller serializes the filtered detections.
+    """
+    if len(boxes) != len(probabilities):
+        raise ValueError("boxes and probabilities must have the same length")
+    if len(probabilities) == 0:
+        return boxes, probabilities
+
+    _ensure_class_names_loaded()
+    excluded = set(excluded_names)
+    selected = np.array([
+        index for index, probability in enumerate(probabilities)
+        if ID2NAME.get(int(np.argmax(probability))) not in excluded
+    ], dtype=np.intp)
+    return boxes[selected], probabilities[selected]

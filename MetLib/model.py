@@ -17,8 +17,8 @@ logger = get_default_logger()
 
 DEFAULT_STR = "default"
 PARTITION_MIN_OVERLAP = 0.2
-MULTISCALE_NMS_OVERLAP_THRE = 0.1
 LOCK_TIMEOUT = 5.0
+SUPPORTED_INPUT_COLOR_ORDERS = {"rgb", "bgr"}
 
 DEVICE_MAPPING: dict[str, list[str]] = {
     "cpu": ["CPUExecutionProvider"],
@@ -39,6 +39,47 @@ WINDOWS_DLL_CHK_LIST = [
         "msvcp140.dll",
         "ucrtbase.dll"
     ]
+
+
+def _cxcywh_to_tlwh(boxes: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Convert YOLO center-based boxes to top-left ``(x, y, w, h)``."""
+    converted = np.asarray(boxes, dtype=np.float32).copy()
+    converted[:, 0] -= converted[:, 2] / 2
+    converted[:, 1] -= converted[:, 3] / 2
+    return converted
+
+
+def _xyxy_to_tlwh(boxes: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Convert corner-based boxes to top-left ``(x, y, w, h)``."""
+    converted = np.asarray(boxes, dtype=np.float32).copy()
+    converted[:, 2] -= converted[:, 0]
+    converted[:, 3] -= converted[:, 1]
+    return converted
+
+
+def _class_aware_nms(boxes_tlwh: NDArray[np.float64],
+                     class_scores: NDArray[np.float64],
+                     score_threshold: float,
+                     nms_threshold: float) -> NDArray[np.intp]:
+    """Run class-aware OpenCV NMS on top-left xywh boxes."""
+    if len(boxes_tlwh) != len(class_scores):
+        raise ValueError("boxes_tlwh and class_scores must have the same length")
+    if len(boxes_tlwh) == 0:
+        return np.empty(0, dtype=np.intp)
+    if class_scores.ndim != 2 or class_scores.shape[1] == 0:
+        raise ValueError("class_scores must have shape (n, num_classes)")
+
+    class_ids = np.argmax(class_scores, axis=1)
+    scores = np.max(class_scores, axis=1)
+    selected = cv2.dnn.NMSBoxesBatched(
+        bboxes=boxes_tlwh.tolist(),
+        scores=scores.tolist(),
+        class_ids=class_ids.tolist(),
+        score_threshold=score_threshold,
+        nms_threshold=nms_threshold)
+    selected = np.asarray(selected, dtype=np.intp).reshape(-1)
+    return selected[np.argsort(scores[selected])[::-1]]
+
 
 class Backend(metaclass=ABCMeta):
 
@@ -173,12 +214,13 @@ class YOLOModel(object):
                  dtype: str,
                  nms: bool = False,
                  warmup: bool = True,
-                 pos_thre: float = 0.25,
+                 pos_thre: float = 0.10,
                  nms_thre: float = 0.45,
                  multiscale_pred: int = 1,
                  multiscale_partition: int = 2,
                  hw_tolerance: float = 0.2,
                  providers_key: Optional[str] = None,
+                 input_color_order: str = "rgb",
                  logger: BaseMetLog = logger) -> None:
         r"""Init a YOLOModel that handles YOLO-like inputs and outputs.
 
@@ -188,7 +230,8 @@ class YOLOModel(object):
             nms (bool, optional): whether to execute non-maximum suppression (NMS) for model outputs.
                 If the model is not exported with nms, set to True. Defaults to False.
             warmup (bool, optional): warmup to model before batch processing. Defaults to True.
-            pos_thre (float, optional): positive confidence threshold for positive samples. Defaults to 0.25.
+            pos_thre (float, optional): minimum raw ``objectness * class_probability``
+                score used by NMS to keep positive samples. Defaults to 0.10.
             nms_thre (float, optional): NMS threshold when merging predictions. Defaults to 0.45.
             multiscale_pred (int, optional): the number of prediction scales, shoule be an integer>=0. 
                 Different multiscale_pred scales performs as follows:
@@ -204,6 +247,10 @@ class YOLOModel(object):
             hw_tolerance (float, optional): The max allowed scaling ratio. When running with multiscale mode,
                 if diff height-width ratio is larger than excepted, image division will be applied.
             providers_key (str, optional): model provider. Defaults to None -> "default".
+            input_color_order (str, optional): channel order expected by the
+                model weights. Public ``forward`` inputs are always BGR.
+                Supported values are ``"rgb"`` and ``"bgr"``. Defaults to
+                ``"rgb"``.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
         """
         self.weight_path = weight_path
@@ -217,6 +264,15 @@ class YOLOModel(object):
         self.multiscale_pred = multiscale_pred
         self.multiscale_partition = multiscale_partition
         self.hw_tolerance = hw_tolerance
+        if not isinstance(input_color_order, str):
+            raise ValueError(
+                f"Model input color order must be a string, got "
+                f"{type(input_color_order).__name__}.")
+        self.input_color_order = input_color_order.lower()
+        if self.input_color_order not in SUPPORTED_INPUT_COLOR_ORDERS:
+            raise ValueError(
+                f"Unsupported model input color order: {input_color_order!r}. "
+                f"Expected one of {sorted(SUPPORTED_INPUT_COLOR_ORDERS)}.")
         if providers_key is None:
             providers_key = DEFAULT_STR
 
@@ -270,15 +326,21 @@ class YOLOModel(object):
         x = (x.transpose(2, 0, 1))[None, ...]
         results = self.backend.forward(x)[0][0]
 
-        # for yolo results, [0:4] for pos(xywh), 4 for conf, [5:] for cls_score.
-        xywh2xyxy(results[:, :4], inplace=True)
+        # YOLO output: [0:4] is center-based xywh, 4 is objectness and [5:]
+        # contains per-class scores.
+        objectness = results[:, 4]
+        joint_scores: NDArray[np.float64] = np.einsum(
+            "ab,a->ab", results[:, 5:], objectness)
         if self.nms:
-            # 只选取统计 conf>thre 及 cls>thre 的结果(done with NMSBoxes)
-            res = cv2.dnn.NMSBoxes(bboxes=results[:, :4],
-                                   scores=results[:, 4],
-                                   score_threshold=self.pos_thre,
-                                   nms_threshold=self.nms_thre)
-            results = results[list(res)]
+            boxes_tlwh = _cxcywh_to_tlwh(results[:, :4])
+            selected = _class_aware_nms(boxes_tlwh, joint_scores,
+                                        self.pos_thre, self.nms_thre)
+            results = results[selected]
+            joint_scores = joint_scores[selected]
+
+        # The rest of the pipeline uses corner-based boxes for scaling,
+        # per-tile offsets and final output.
+        xywh2xyxy(results[:, :4], inplace=True)
 
         # resize back if necessary
         if self.resize:
@@ -288,11 +350,7 @@ class YOLOModel(object):
             results[:, 3] *= self.scale_h
         # 整数化坐标，类别输出概率矩阵
         result_pos: NDArray[np.int_] = np.array(results[:, :4], dtype=int)
-        # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
-        # TODO: 通过优化模型取缔这个tricky的设置。
-        result_cls: NDArray[np.float64] = np.sqrt(
-            np.einsum("ab,a->ab", results[:, 5:], results[:, 4]))
-        return result_pos, result_cls
+        return result_pos, joint_scores
 
     def forward(self, x: U8Mat):
         """forward function that supports multiscale inference.
@@ -312,13 +370,24 @@ class YOLOModel(object):
             x.shape) == 3, "input x must be a 3-dim array!"
         h, w, c = x.shape
         assert h > 0 and w > 0 and c == self.c, f"input array shapemust be valid, got {x.shape}."
+        assert x.dtype == np.uint8, f"input array must be uint8, got {x.dtype}."
+
+        # Public image inputs follow the project's OpenCV BGR convention.
+        # Convert once before any multi-scale partitioning when the model was
+        # trained with RGB inputs.
+        if self.input_color_order == "rgb":
+            x = x[..., ::-1]
+        elif self.input_color_order != "bgr":
+            raise ValueError(
+                f"Unsupported model input color order: {self.input_color_order!r}.")
 
         # 预处理：转换为dtype并归一化[0,1]范围。
         # TODO: 未兼容INT8场合。
-        x = x.astype(self.dtype) / 255
+        x = np.ascontiguousarray(x, dtype=self.dtype) / 255
 
         if self.multiscale_pred == 0:
-            return self._forward(x)
+            result_pos, joint_scores = self._forward(x)
+            return result_pos, np.sqrt(joint_scores)
 
         transpose_flag = False
         input_hw_ratio = h / w
@@ -347,7 +416,7 @@ class YOLOModel(object):
 
         # 根据 rep 情况 分检测用 patch_index_list
         result_pos: list[NDArray[np.int_]] = []
-        result_cls: list[NDArray[np.float64]] = []
+        result_joint_scores: list[NDArray[np.float64]] = []
         try:
             for scale in range(self.multiscale_pred):
                 if scale > 0:
@@ -364,40 +433,42 @@ class YOLOModel(object):
                     for j in range(w_rep):
                         clip_img = x[i * h_stride:i * h_stride + h_size,
                                      j * w_stride:j * w_stride + w_size]
-                        clip_pos, clip_cls = self._forward(clip_img)
+                        clip_pos, clip_joint_scores = self._forward(clip_img)
                         clip_pos[:, 1] += i * h_stride
                         clip_pos[:, 3] += i * h_stride
                         clip_pos[:, 0] += j * w_stride
                         clip_pos[:, 2] += j * w_stride
                         result_pos.append(clip_pos)
-                        result_cls.append(clip_cls)
+                        result_joint_scores.append(clip_joint_scores)
         except Exception as e:
             # 异常跳过
             logger.error(
                 f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
                 f"Results of this frame could be lost...")
-            if len(result_pos) == 0 or len(result_cls) == 0:
+            if len(result_pos) == 0 or len(result_joint_scores) == 0:
                 return np.zeros((0, 4), dtype=np.int_), np.zeros(
                     (0, NUM_CLASS), dtype=np.float64)
-            return np.concatenate(result_pos,
-                                  axis=0), np.concatenate(result_cls, axis=0)
+            return (np.concatenate(result_pos, axis=0),
+                    np.sqrt(np.concatenate(result_joint_scores, axis=0)))
         concat_result_pos = np.concatenate(result_pos, axis=0)
-        concat_result_cls = np.concatenate(result_cls, axis=0)
+        concat_joint_scores = np.concatenate(result_joint_scores, axis=0)
 
-        # 重整后 NMS
-        res = cv2.dnn.NMSBoxes(
-            bboxes=concat_result_pos[:, :4],  # type: ignore
-            scores=np.max(concat_result_cls, axis=-1),
-            score_threshold=self.pos_thre,
-            nms_threshold=MULTISCALE_NMS_OVERLAP_THRE)
-        concat_result_pos = concat_result_pos[list(res)]
-        concat_result_cls = concat_result_cls[list(res)]
+        # Merge tiles with the same coordinate, score and class semantics used
+        # by the per-tile NMS. Reuse the configurable IoU threshold rather than
+        # a hard-coded aggressive threshold.
+        boxes_tlwh = _xyxy_to_tlwh(concat_result_pos)
+        selected = _class_aware_nms(boxes_tlwh, concat_joint_scores,
+                                    self.pos_thre, self.nms_thre)
+        concat_result_pos = concat_result_pos[selected]
+        concat_joint_scores = concat_joint_scores[selected]
 
         # 输出前将结果转置回来
         if transpose_flag:
             concat_result_pos = concat_result_pos[:, [1, 0, 3, 2]]
 
-        return concat_result_pos, concat_result_cls
+        # prob以修正分数，得分会很低，因此使用sqrt()的得分修正公式。
+        # TODO: 通过优化模型取缔这个tricky的设置。
+        return concat_result_pos, np.sqrt(concat_joint_scores)
 
 check_windows_dll(WINDOWS_DLL_CHK_LIST)
 available_models = {cls.__name__: cls for cls in [YOLOModel]}
@@ -431,4 +502,5 @@ def init_model(cfg: ModelCfg, logger: BaseMetLog):
                  multiscale_pred=cfg.multiscale_pred,
                  multiscale_partition=cfg.multiscale_partition,
                  providers_key=cfg.providers_key,
+                 input_color_order=cfg.input_color_order,
                  logger=logger)

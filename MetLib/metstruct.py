@@ -6,7 +6,7 @@ metstruct 定义 MetDetPy 使用的结构化数据和相关解析方法。
 import dataclasses
 import datetime
 import json
-from typing import Any, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from dacite import from_dict
 import numpy as np
@@ -355,6 +355,7 @@ class ModelCfg(DictAble):
     multiscale_pred: int
     multiscale_partition: int
     providers_key: Optional[str] = "default"
+    input_color_order: Literal["rgb", "bgr"] = "rgb"
 
 
 @dataclasses.dataclass

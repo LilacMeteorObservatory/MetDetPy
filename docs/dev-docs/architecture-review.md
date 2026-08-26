@@ -225,8 +225,8 @@
 | ID | 问题 | 影响 |
 |----|------|------|
 | TODO-ALGO-017 | stride/size 公式不保证完全覆盖图像边缘，右下角像素可能遗漏 | 边缘目标漏检（低概率） |
-| TODO-ALGO-018 | 双重 NMS：tile 内 NMS（IoU=0.45）+ 跨 tile NMS（IoU=0.1 极激进）| 近距平行流星可能被合并为一条 |
 | TODO-ALGO-019 | 分数计算 `sqrt(conf * cls_prob)` 非标准几何均值，小值放大效应 | 阈值边界附近行为难以预测 |
+| TODO-ALGO-028 | `yolov5s_v2.onnx` 元数据含 `id=8: others`，但 `class_name.txt` 仅定义 0–7，运行时会把 id 8 映射为 `DROPPED` | `OTHERS` 样本少且通常不是期望目标，暂不处理，降为低优先级 |
 
 #### 线程安全
 
@@ -859,5 +859,13 @@ Phase 3      算法改进（检测器+分类器）
 
 **状态**: 已修复  
 **处理方式**: `prob_meteor` 检测到 NaN 时不再调用 `exit()`，改为返回 `0.0`（最低置信度），使该 meteor 自然走入 drop 路径被丢弃。NaN 是单条轨迹的数据污染问题，不影响其他追踪序列，无需终止整个检测流程。
+
+---
+
+### ~~TODO-ALGO-018: 多尺度双重 NMS 语义不一致~~
+
+**状态**: 已修复
+
+**处理方式**: 单 tile 与跨 tile NMS 统一使用 class-aware 实现；单 tile 直接将 YOLO 的中心点 `cxcywh` 转为 OpenCV 左上角 `tlwh`，NMS 后再将保留框转为 `xyxy`，跨 tile 则由 `xyxy` 转为 `tlwh`。两级 NMS 均直接以未开方的 `objectness × class` 联合分数执行候选过滤与排序，并使用同一个 `pos_thre`；`sqrt` 仅在最终 API 返回时执行，不影响候选集合或 NMS。跨 tile 合并复用可配置的 `nms_thre`，不再硬编码 IoU=0.1。联合分数阈值将在静态图像回归测试后重新标定。
 
 ---

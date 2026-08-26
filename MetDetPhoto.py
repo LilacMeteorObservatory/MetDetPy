@@ -32,7 +32,8 @@ from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
 from MetLib.model import YOLOModel
-from MetLib.utils import VERSION, parse_resize_param, pt_offset, relative2abs_path, get_id2name
+from MetLib.utils import (VERSION, exclude_predictions_by_name, get_id2name,
+                          parse_resize_param, pt_offset, relative2abs_path)
 from MetLib.videoloader import ThreadVideoLoader
 from MetLib.videowrapper import OpenCVVideoWrapper
 
@@ -191,6 +192,9 @@ try:
                     if visual_manager.manual_stop:
                         logger.info('Manual interrupt signal detected.')
                         break
+                if args.exclude_noise:
+                    boxes, preds = exclude_predictions_by_name(
+                        boxes, preds, EXCLUDE_LIST)
                 if len(boxes) > 0:
                     results.append(
                         SingleImgRecord(
@@ -234,6 +238,9 @@ try:
                                            resolution=visu_resolution,
                                            flag=args.visu)
             boxes, preds = model.forward(img)
+            if args.exclude_noise:
+                boxes, preds = exclude_predictions_by_name(
+                    boxes, preds, EXCLUDE_LIST)
             results = [
                 SingleImgRecord(
                     boxes=[list(map(int, x)) for x in boxes],
@@ -244,7 +251,6 @@ try:
                     img_filename=input_path)
             ]
             logger.info(str(results))
-            #preds = [ID2NAME[int(np.argmax(pred))] for pred in preds]
             if args.visu:
                 visu_info = construct_visu_info(boxes,
                                                 preds,
@@ -278,15 +284,10 @@ try:
                     if visual_manager.manual_stop:
                         logger.info('Manual interrupt signal detected.')
                         break
-                # TODO: fix this in the future.
-                preds = [ID2NAME[int(np.argmax(pred))] for pred in probs]
                 if args.exclude_noise:
-                    selected_id = [
-                        i for i, pred in enumerate(preds)
-                        if pred not in EXCLUDE_LIST
-                    ]
-                    boxes = [boxes[i] for i in selected_id]
-                    preds = [preds[i] for i in selected_id]
+                    boxes, probs = exclude_predictions_by_name(
+                        boxes, probs, EXCLUDE_LIST)
+                preds = [ID2NAME[int(np.argmax(pred))] for pred in probs]
                 if len(boxes) > 0:
                     results.append(
                         SingleImgRecord(
