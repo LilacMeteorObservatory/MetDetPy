@@ -12,11 +12,13 @@ from MetDetPy import detect_video
 from MetLib.fileio import save_path_handler
 from MetLib.metstruct import (MDRF, BasicInfo, MainDetectCfg, MDTarget,
                               MockVideoObject, SingleMDRecord)
-from MetLib.utils import (NAME2ID, NUM_CLASS, calculate_area_iou, met2xyxy,
-                          relative2abs_path)
+from MetLib.utils import (calculate_area_iou, met2xyxy, relative2abs_path,
+                          get_name2id, get_num_class)
 from MetLib.videowrapper import OpenCVVideoWrapper
 
 T = TypeVar("T")
+NAME2ID = get_name2id()
+NUM_CLASS = get_num_class()
 
 
 def scale(x: list[int], scaler: list[float]):
@@ -217,7 +219,6 @@ def compare(video: OpenCVVideoWrapper,
     tp, fp = 0, 0
     gt_id = 0
     end_flag = False
-
     confusion_matrix = np.zeros((NUM_CLASS + 1, NUM_CLASS + 1), dtype=np.int16)
 
     matched_pair_list: list[tuple[int, int]] = []
