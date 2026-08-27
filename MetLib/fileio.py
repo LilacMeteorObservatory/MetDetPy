@@ -13,7 +13,8 @@ from numpy.typing import NDArray
 
 from MetLib.metstruct import RawImgLoadCfg
 
-from .imgproc import Transform, contrast_stretch_uint16, contrast_stretch_uint8, scale2tgt_mean
+from .imgproc import (contrast_stretch_uint16, contrast_stretch_uint8,
+                      scale2tgt_mean)
 from .metlog import BaseMetLog, get_useable_logger
 from .resource import SRGB_ICC_PROFILE
 from .utils import U8Mat, transpose_wh
@@ -122,11 +123,27 @@ def save_img(img: U8Mat,
         f.write(buf.tobytes())
 
 
-def load_8bit_image(filename: str):
-    img = cv2.imdecode(np.fromfile(filename, dtype=np.uint8),
-                       cv2.IMREAD_UNCHANGED)
+def _decode_image(filename: str, flags: int):
+    """Decode an image while retaining support for non-ASCII paths."""
+    img = cv2.imdecode(np.fromfile(filename, dtype=np.uint8), flags)
     if img is None:
         raise Exception(f"Failed to load image: {filename}.")
+    return img
+
+
+def load_8bit_image(filename: str) -> U8Mat:
+    """Load a conventional image as an 8-bit, three-channel BGR array.
+
+    Model inference and annotated-image rendering both rely on this stable
+    contract. Alpha-preserving decoding is intentionally kept private to the
+    mask loader below.
+    """
+    flags = cv2.IMREAD_COLOR | getattr(cv2, "IMREAD_IGNORE_ORIENTATION", 0)
+    img = _decode_image(filename, flags)
+    if img.dtype != np.uint8 or img.ndim != 3 or img.shape[2] != 3:
+        raise ValueError(
+            f"Expected a uint8 BGR image, got shape={img.shape}, dtype={img.dtype}."
+        )
     return img
 
 
@@ -265,19 +282,40 @@ def load_mask(mask_fname: Optional[str] = None,
             return np.ones(transpose_wh(opencv_resize), dtype=np.uint8)
         else:
             return np.ones(transpose_wh(opencv_resize + [3]), dtype=np.uint8)
-    mask = load_8bit_image(mask_fname)
-    mask_transformer = Transform()
+    mask = _decode_image(mask_fname, cv2.IMREAD_UNCHANGED)
+    inverse = False
+
+    if mask.ndim == 2:
+        gray_mask = mask
+    elif mask.ndim == 3 and mask.shape[2] in (2, 4):
+        # with alpha
+        gray_mask = mask[..., -1]
+        inverse = True
+    elif mask.ndim == 3 and mask.shape[2] == 3:
+        gray_mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    else:
+        raise ValueError(
+            f"Unsupported mask layout: shape={mask.shape}, dtype={mask.dtype}.")
+
     if opencv_resize:
-        mask_transformer.opencv_resize(opencv_resize)
-    if is_ext_with(mask_fname, ".jpg"):
-        mask_transformer.opencv_BGR2GRAY()
-        mask_transformer.opencv_binary(128, 1)
-    elif is_ext_with(mask_fname, ".png"):
-        # 对于png，仅取透明度层，且逻辑取反
-        mask = mask[:, :, -1]
-        mask_transformer.opencv_binary(128, 1, inv=True)
+        gray_mask = cv2.resize(gray_mask,
+                               opencv_resize,
+                               interpolation=cv2.INTER_LINEAR)
 
-    if not grayscale:
-        mask_transformer.expand_3rd_channel(3)
+    if np.issubdtype(gray_mask.dtype, np.integer):
+        threshold = np.iinfo(gray_mask.dtype).max / 2
+    elif np.issubdtype(gray_mask.dtype, np.floating):
+        finite_values = gray_mask[np.isfinite(gray_mask)]
+        if finite_values.size == 0:
+            raise ValueError("Mask contains no finite values.")
+        threshold = (float(finite_values.min()) +
+                     float(finite_values.max())) / 2
+    else:
+        raise ValueError(f"Unsupported mask dtype: {gray_mask.dtype}.")
 
-    return mask_transformer.exec_transform(mask)
+    threshold_type = cv2.THRESH_BINARY_INV if inverse else cv2.THRESH_BINARY
+    _, binary_mask = cv2.threshold(gray_mask, threshold, 1, threshold_type)
+    binary_mask = binary_mask.astype(np.uint8)
+    if grayscale:
+        return binary_mask
+    return np.repeat(binary_mask[:, :, None], 3, axis=2)

@@ -39,6 +39,7 @@ class ModelCfg {
     name: str
     weight_path: str
     dtype: str
+    input_color_order: str
     nms: bool
     warmup: bool
     pos_thre: float
@@ -90,7 +91,9 @@ class MeteorCfg {
     speed_range: list[float]
     drct_range: list[float]
     det_thre: float
-    thre2: int
+    merge_dist_sqr: Optional[int]
+    clip_merge_interval: Optional[float]
+    recheck_threshold: Optional[float]
 }
 
 class RecheckCfg {
@@ -224,9 +227,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "name":"YOLOModel",
             "weight_path": "./weights/yolov5s.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45
         }
     }
@@ -345,7 +349,8 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             0.6
         ],
         "det_thre": 0.5,
-        "thre2": 2048
+        "merge_dist_sqr": 2048,
+        "recheck_threshold": 0.25
     },
     "recheck_cfg": {
         "switch": true,
@@ -353,14 +358,14 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "name":"YOLOModel",
             "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
+            "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.25,
+            "pos_thre": 0.10,
             "nms_thre": 0.45,
             "multiscale_pred":2,
             "multiscale_partition":2
-        },
-        "save_path":""
+        }
     },
     "positive_cfg": {
         "positive_cates": [
@@ -385,7 +390,11 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |speed_range|array|描述流星的允许速度范围。超过或者没有到达阈值的响应将会被排除。该数值的计算方式为：(流星的移动距离(px)/流星的运动时间(s))/(视频长边长度(px)) * 100。可以将该数值理解为流星每秒在画面中移动的距离比例(%)，如[3,12]代表预期捕获每秒在画面中移动距离为3%-12%的目标。单位：$s^{-1}$。|[3, 12]|
 |drct_range|array|描述流星的直线程度范围。越接近0，该流星越接近理想直线。该值通过计算所有响应的方向向量集合的方差得到。|[0,0.6]|
 |det_thre|float|描述正样本流星的阈值，超过该得分的流星被认为是正样本流星。取值为[0,1]。|0.5|
-|thre2|int|描述若干响应之间允许的最长距离平方。如果检测结果存在多个离散响应，可以尝试增大该值。⚠️ 该值目前仍然以运行时分辨率为基准。当使用差异过大的分辨率时，可能会影响效果。|2048|
+|merge_dist_sqr|int|描述若干响应之间允许的最长距离平方。如果轨迹存在多个离散响应，可以尝试增大该值。该值以运行时分辨率为基准，分辨率差异过大时可能影响效果。|2048|
+|recheck_threshold|float，可选|序列送入模型重校验所需的最低前置得分。省略时使用 `det_thre` 的一半。|0.25|
+|clip_merge_interval|float，可选|将已确认目标合并到同一导出片段所允许的最大时间间隔，单位为秒。省略时使用 `max_interval`。|与 `max_interval` 相同|
+
+旧字段 `thre2` 仍可作为兼容兜底读取，但已经弃用；新配置应使用 `merge_dist_sqr`。
 
 ⚠️ 目前流星筛选配置的过滤采取宽容性设计：当超出上述设置范围时，得分不会直接突变置零，而是逐渐衰减到0。
 
@@ -417,9 +426,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     "name":"YOLOModel",
     "weight_path": "./weights/yolov5s.onnx",
     "dtype": "float32",
+    "input_color_order": "rgb",
     "nms": true,
     "warmup": true,
-    "pos_thre": 0.25,
+    "pos_thre": 0.10,
     "nms_thre": 0.45,
     "multiscale_pred":2,
     "multiscale_partition":2
@@ -431,9 +441,10 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |name|str|使用的深度学习模型类型，这将决定程序如何处理输入输出。目前仅实现了YOLO格式的模型`"YOLOModel"`。|`"YOLOModel"`|
 |weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
 |dtype|str|描述网络的输入数据格式。当使用量化模型时，需在此处配置格式，否则程序可能无法正常运行。目前支持全精度（`"float32"`），半精度（`"float16"`）。|`"float32"`|
+|input_color_order|str|模型权重所期望的通道顺序。传给 `forward` 的图像固定为 BGR；配置为 `"rgb"` 时模型会自动转换。|`"rgb"`|
 |nms|bool|是否需要执行非最大值抑制NMS。如果构建的网络已附带NMS，则选择`false`以提升运行速度。|`true`|
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
-|pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.25|
+|pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.1|
 |nms_thre|float|去重时使用的阈值。|0.45|
 |multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
 |multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|

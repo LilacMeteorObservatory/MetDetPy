@@ -7,8 +7,8 @@ import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
 from MetLib.collector import MeteorCollector
-from MetLib.Detector import (BaseDetector, BrightnessDetector, M3Detector,
-                             DiffAreaGuidingDetecor, LineDetector, MLDetector)
+from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
+                             LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, MainDetectCfg,
@@ -70,9 +70,8 @@ def detect_video(video_name: str,
         merge_func = cfg.loader.merge_func
         grayscale = cfg.loader.grayscale
         start_time, end_time = time_range
-        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor,
-                                     BrightnessDetector)):
-            assert grayscale, "Require grayscale ON when using subclass of LineDetector or BrightnessDetector."
+        if issubclass(DetectorCls, (LineDetector, DiffAreaGuidingDetecor)):
+            assert grayscale, "Require grayscale ON when using subclass of LineDetector."
         elif issubclass(DetectorCls, MLDetector):
             assert not grayscale, "Require grayscale OFF when using MLDetector."
         else:
@@ -142,17 +141,6 @@ def detect_video(video_name: str,
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
-        # Init auxiliary detectors
-        aux_detectors: list[BaseDetector] = []
-        for aux_cfg in cfg.aux_detectors:
-            AuxCls = get_detector(aux_cfg.name)
-            aux_detectors.append(AuxCls(window_sec=aux_cfg.window_sec,
-                                        fps=rt_param.eq_fps,
-                                        mask=video_loader.mask,
-                                        num_cls=get_num_class(),
-                                        cfg=aux_cfg.cfg,
-                                        logger=logger))
-
         # Init meteor collector
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
@@ -208,11 +196,6 @@ def detect_video(video_name: str,
 
             detector.update(x)
             lines, cates = detector.detect()
-            for aux in aux_detectors:
-                aux.update(x)
-                aux_lines, aux_cates = aux.detect()
-                lines.extend(aux_lines)
-                cates.extend(aux_cates)
 
             if len(lines) or (((i - start_frame) // rt_param.exp_frame) %
                               rt_param.eq_int_fps == 0):
@@ -254,6 +237,9 @@ def detect_video(video_name: str,
         meteor_collector.clear()
         visual_manager.stop()
         logger.info("Time cost: %.4fs." % (time.time() - t1))
+        logger.info(
+            "Recheck model call count = "
+            f"{meteor_collector.met_exporter.recheck_model_call_count}.")
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
         if live_mode:
             logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")

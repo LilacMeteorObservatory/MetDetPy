@@ -60,51 +60,38 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 
 ## make_package
 
-我们提供了两个打包脚本将MetDetPy打包为独立的可执行程序：
-
-1. **[make_package.py](../make_package.py)** - 使用 `nuitka` 进行编译
-2. **[make_package_pyinstaller.py](../make_package_pyinstaller.py)** - 使用 `pyinstaller` 进行打包
-
-你可以根据需要选择合适的脚本。
-
-### 使用 Nuitka（make_package.py）
-
-当使用 `nuitka` 时，请确保在您的设备上有至少一个C/C++编译器可用。
+使用 [make_package.py](../make_package.py) 可以通过 Nuitka 或 PyInstaller
+将 MetDetPy 打包为独立可执行程序。默认使用 Nuitka 后端。
 
 ```sh
-python make_package.py [--mingw64] [--apply-upx] [--apply-zip]
-     [--onefile]
-```
-
-* `--mingw64`: 使用MinGW64作为编译器。该选项仅在Windows上生效。
-
-* `--apply-upx`: 启用UPX以压缩可执行程序的大小。
-
-* `--apply-zip`: 打包完成时同时生成Zip压缩包。
-
-* `--onefile`: 生成单文件可执行程序（onefile模式）。使用此模式时，需要确保静态资源文件夹（`config/`、`weights/`、`resource/`、`global/`）放置在可执行文件旁边，或在运行时使用 `--resource-dir` / `-R` 选项指定其位置。
-
-### 使用 PyInstaller（make_package_pyinstaller.py）
-
-```sh
-python make_package_pyinstaller.py [--apply-zip] [--onefile]
+python make_package.py [--backend {nuitka,pyinstaller}]
+     [--apply-upx] [--apply-zip] [--onefile]
+     [--mingw64] [--macos-sign-identity IDENTITY]
      [--windowed] [--icon ICON_PATH]
 ```
 
-* `--apply-zip`: 打包完成时同时生成Zip压缩包。
+* `--backend`：选择 `nuitka` 或 `pyinstaller`，默认为 `nuitka`。
 
-* `--onefile`: 生成单文件可执行程序（onefile模式）。
+* `--apply-upx`：启用 UPX 以压缩可执行程序。
 
-* `--windowed`: 使用窗口模式（无控制台）运行GUI应用程序。
+* `--apply-zip`：打包完成后生成 ZIP 压缩包。
 
-* `--icon`: 指定可执行文件的图标路径。
+* `--onefile`：每个程序生成一个可执行文件，而不是目录式程序包。
+
+* `--mingw64`：Nuitka 后端在 Windows 上使用 MinGW64 编译器。
+
+* `--macos-sign-identity`：Nuitka 后端使用的 macOS 签名身份。
+
+* `--windowed`：PyInstaller 后端使用无控制台窗口模式。
+
+* `--icon`：PyInstaller 后端使用的可执行文件图标。
 
 ### 通用说明
 
-目标可执行程序的目录会生成在 [dist](../dist/) 目录下。
+可执行程序和可选的 ZIP 压缩包会生成在 [dist](../dist/) 目录下。
 
 注意：
 
-1. 建议使用 `Python>=3.9`, 且安装 `nuitka>=2.0.0`。使用 `pyinstaller` 时请确保 `pyinstaller>=6.0`。
+1. 使用 Nuitka 时需要安装 `nuitka>=2.0.0` 并准备可用的 C/C++ 编译器；使用 PyInstaller 时请安装 `pyinstaller>=6.0`。
 2. 由于Python的特性，这些工具均无法跨平台打包生成可执行文件。你只能打包当前平台的可执行程序。
 3. 如果你的环境中存在 `matplotlib` 或 `scipy`，它们可能会被打包进去。如果想要减小打包体积，请准备一个干净的环境或避免安装这些重量级依赖。

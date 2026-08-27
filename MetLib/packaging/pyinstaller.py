@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+from typing import Optional
 
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
 from .common import run_cmd, post_process
@@ -30,10 +31,11 @@ EXCLUDES = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "pkg_resources"]
 
 
 def create_merged_spec(work_path: str, onefile: bool, console: bool,
-                       icon_path: str = None, upx: bool = False) -> str:
+                       icon_path: Optional[str] = None,
+                       upx: bool = False) -> str:
     hidden_imports_str = str(HIDDEN_IMPORTS)
     excludes_str = str(EXCLUDES)
-    icon_line = f"    icon='{icon_path}'," if icon_path else ""
+    icon_line = f"    icon={icon_path!r}," if icon_path else ""
 
     # collect_all preamble for native packages PyInstaller can't auto-trace
     collect_preamble = """
@@ -44,10 +46,11 @@ _pyexiv2_datas, _pyexiv2_binaries, _pyexiv2_hiddenimports = collect_all('pyexiv2
 
     analysis_blocks = []
     for script_name, script_base in SCRIPTS:
+        script_path = join_path(work_path, script_name)
         analysis_blocks.append(f"""
 {script_base}_a = Analysis(
-    ['{join_path(work_path, script_name)}'],
-    pathex=['{work_path}'],
+    [{script_path!r}],
+    pathex=[{work_path!r}],
     binaries=_pyexiv2_binaries,
     datas=_pyexiv2_datas,
     hiddenimports={hidden_imports_str} + _pyexiv2_hiddenimports,
@@ -115,7 +118,6 @@ _pyexiv2_datas, _pyexiv2_binaries, _pyexiv2_hiddenimports = collect_all('pyexiv2
 {collect_preamble}
 {"".join(analysis_blocks)}
 
-MERGE({merge_args})
 {"".join(exe_blocks_onefile)}
 """
     else:
@@ -162,7 +164,11 @@ def build(args):
 
     upx = args.apply_upx
     spec_file = create_merged_spec(work_path, onefile_mode, console, icon_path, upx)
-    cmd = [sys.executable, "-m", "PyInstaller", spec_file]
+    build_root = join_path(work_path, "build")
+    cmd = [sys.executable, "-m", "PyInstaller",
+           "--distpath", compile_path,
+           "--workpath", build_root,
+           spec_file]
     ret_code, time_cost = run_cmd(cmd)
     print(f"Build finished with return code = {ret_code}. "
           f"Time cost = {time_cost:.2f}s.")
@@ -174,9 +180,11 @@ def build(args):
     print("Cleaning up build artifacts...", end="", flush=True)
     if os.path.exists(spec_file):
         os.remove(spec_file)
-    build_root = join_path(work_path, "build")
     if os.path.exists(build_root):
         shutil.rmtree(build_root)
     print("Done.")
 
-    post_process(compile_path, onefile_mode, args.apply_zip)
+    post_process(compile_path,
+                 onefile_mode,
+                 args.apply_zip,
+                 source_root=work_path)

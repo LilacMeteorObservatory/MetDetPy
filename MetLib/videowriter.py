@@ -332,12 +332,11 @@ class FFMpegVideoWriter(BaseVideoWriter):
         raise FileNotFoundError("FFMpeg or FFProbe is unavilable.")
 
     @classmethod
-    def _get_audio_args(cls, ffprobe_exe: str, src: str, tgt: str):
+    def _probe_audio_codec(cls, ffprobe_exe: str, src: str) -> Optional[str]:
         """
         Probe first audio stream codec name from src using ffprobe.
         Returns codec_name string (e.g. 'pcm_s16le', 'aac', 'mp3', 'opus', ...) or None if no audio.
         """
-        codec = None
         try:
             proc = subprocess.run([
                 ffprobe_exe, '-v', 'error', '-select_streams', 'a:0',
@@ -347,12 +346,19 @@ class FFMpegVideoWriter(BaseVideoWriter):
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
                                   text=True,
+                                  encoding='utf-8',
+                                  errors='replace',
                                   check=False)
             codec_str = proc.stdout.strip()
             if codec_str != "":
-                codec = codec_str.splitlines()[0].strip()
+                return codec_str.splitlines()[0].strip()
         except Exception:
             pass
+        return None
+
+    @classmethod
+    def _get_audio_args(cls, ffprobe_exe: str, src: str, tgt: str):
+        codec = cls._probe_audio_codec(ffprobe_exe, src)
 
         audio_args = ['-c:a', 'copy']
         if codec is not None:
@@ -389,7 +395,9 @@ class FFMpegVideoWriter(BaseVideoWriter):
                 res = subprocess.run(cmd_probe,
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
-                                     text=True)
+                                     text=True,
+                                     encoding='utf-8',
+                                     errors='replace')
                 lines = res.stdout.splitlines()
                 parts = [[
                     p.strip() for p in line.split(",") if p.strip() != ""
@@ -446,7 +454,9 @@ class FFMpegVideoWriter(BaseVideoWriter):
             p = subprocess.run(ff_cmd,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE,
-                               text=True)
+                               text=True,
+                               encoding='utf-8',
+                               errors='replace')
             if p.returncode != 0:
                 logger.error(
                     f"ffmpeg transcode failed (rc={p.returncode}). stderr: {p.stderr}"
@@ -520,7 +530,9 @@ class FFMpegVideoWriter(BaseVideoWriter):
             p = subprocess.run(ff_cmd,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE,
-                               text=True)
+                               text=True,
+                               encoding='utf-8',
+                               errors='replace')
             if p.returncode != 0:
                 logger.error(
                     f"ffmpeg failed (rc={p.returncode}). stderr: {p.stderr}")
@@ -562,30 +574,48 @@ class FFMpegVideoWriter(BaseVideoWriter):
             # start timestamp string for ffmpeg (frame2ts returns hh:mm:ss.xxx)
             start_ts = frame2ts(start_frame, video_loader.fps)
 
-            # get input audio encodec
-            audio_args = cls._get_audio_args(config.ffprobe_path,
-                                                src=video_loader.video_name,
-                                                tgt=video_path)
-            
-            # Map video from tmp (input 0) and audio from source (input 1)
-            # Use optional audio map '1:a:0?' to tolerate missing audio track
-            # Seek and trim the source audio as input options for input 1
-            # Place -ss and -t before the second '-i' so they apply to that input
-            ff_cmd = [
-                config.ffmpeg_path, '-i', tmpf, '-ss', f"{start_ts}", '-t',
-                f"{duration:.3f}", '-i', src, '-map', '0:v:0', '-map',
-                '1:a:0?', '-c:v', config.video_encoder, '-preset',
-                config.preset, '-crf',
-                str(config.crf), '-pix_fmt', config.pix_fmt, *audio_args,
-                '-avoid_negative_ts', '1', '-y', video_path
+            audio_codec = cls._probe_audio_codec(config.ffprobe_path, src)
+            duration_arg = f"{duration:.6f}"
+            video_args = [
+                '-c:v', config.video_encoder, '-preset', config.preset, '-crf',
+                str(config.crf), '-pix_fmt', config.pix_fmt
             ]
+
+            if audio_codec is None:
+                logger.warning(
+                    "No audio stream found in source video; exporting video only."
+                )
+                ff_cmd = [
+                    config.ffmpeg_path, '-i', tmpf, '-map', '0:v:0', '-vf',
+                    'setpts=PTS-STARTPTS', *video_args, '-an', '-t',
+                    duration_arg, '-y', video_path
+                ]
+            else:
+                output_ext = video_path.lower().rsplit('.', 1)[-1]
+                audio_encoder = CONTAINER_AUDIO_ACCEPT[output_ext][0]
+                # Seeking a stream-copied audio track preserves its source PTS.
+                # Reset both timelines and encode the filtered audio so the
+                # output always starts at zero and ends with the requested clip.
+                filter_complex = (
+                    '[0:v:0]setpts=PTS-STARTPTS[v];'
+                    f'[1:a:0]atrim=duration={duration_arg},'
+                    'asetpts=PTS-STARTPTS[a]')
+                ff_cmd = [
+                    config.ffmpeg_path, '-i', tmpf, '-ss', f"{start_ts}",
+                    '-t', duration_arg, '-i', src, '-filter_complex',
+                    filter_complex, '-map', '[v]', '-map', '[a]', *video_args,
+                    '-c:a', audio_encoder, '-b:a', '192k', '-shortest', '-t',
+                    duration_arg, '-y', video_path
+                ]
 
             try:
                 logger.info(f"Running ffmpeg command: {' '.join(ff_cmd)}")
                 p = subprocess.run(ff_cmd,
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
-                                   text=True)
+                                   text=True,
+                                   encoding='utf-8',
+                                   errors='replace')
                 if p.returncode != 0:
                     logger.error(
                         f"ffmpeg failed (rc={p.returncode}). stderr: {p.stderr}"

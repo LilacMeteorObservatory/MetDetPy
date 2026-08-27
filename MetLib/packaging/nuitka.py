@@ -121,4 +121,7 @@ def build(args):
                     join_path(compile_path, "MetDetPy"))
         print("Done.")
 
-    post_process(compile_path, onefile_mode, args.apply_zip)
+    post_process(compile_path,
+                 onefile_mode,
+                 args.apply_zip,
+                 source_root=work_path)

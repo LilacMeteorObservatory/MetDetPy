@@ -168,7 +168,6 @@ python ClipToolkit.py target [json] [--cfg CFG] [--start-time START_TIME] [--end
                               [--enable-filter-rules | --disable-filter-rules]
                               [--padding-before PADDING_BEFORE] [--padding-after PADDING_AFTER]
                               [--debug]
-                              [--resource-dir RESOURCE_DIR]
 ```
 
 ### 位置参数
@@ -232,12 +231,6 @@ python ClipToolkit.py target [json] [--cfg CFG] [--start-time START_TIME] [--end
 | 参数 | 说明 |
 |------|------|
 | `--debug` | 启用调试模式，打印更详细的日志信息 |
-
-#### 资源目录参数（打包为onefile后运行时配置）
-
-| 参数 | 说明 |
-|------|------|
-| `--resource-dir`, `-R` | 资源文件夹路径，应包含 `config/`、`weights/`、`resource/` 和 `global/` 子文件夹。指定后从该目录读取静态文件而非默认位置 |
 
 ---
 

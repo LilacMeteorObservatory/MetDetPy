@@ -18,7 +18,8 @@ from .utils import frame2time, time2frame
 from .metlog import get_default_logger
 
 logger = get_default_logger()
-MAX_OFFSET_TOLERANCE_SEC = 0.5
+PTS_JITTER_TOLERANCE_FRAMES = 0.5
+PTS_GAP_WARNING_SEC = 0.5
 
 
 class BaseVideoWrapper(metaclass=ABCMeta):
@@ -189,22 +190,54 @@ class PyAVVideoWrapper(BaseVideoWrapper):
         self.video = self.container.streams.video[0]
         self.video.thread_type = "FRAME"
         self.video_frame_cache: list[av.VideoFrame] = []
+        # CFR output timeline. Input frames are positioned only by their PTS.
+        self._target_fps = self._select_target_fps()
+        self._num_frames = self._calc_output_frame_count()
         # 逻辑帧计数器，用于追踪实际帧位置
         self._cur_frame_idx = 0
         self._last_frame_data = None
-        self.tolerance_frame_num = int(MAX_OFFSET_TOLERANCE_SEC * self.fps)
+        self._last_frame_time_sec: Optional[float] = None
+        self._eof = False
+
+    def _select_target_fps(self) -> float:
+        """Select the nominal CFR used by downstream consumers.
+
+        ``average_rate`` is affected by timestamp gaps and is therefore a bad
+        choice for resampling. FFmpeg's guessed/base rate better describes the
+        nominal cadence. ``average_rate`` remains the final compatibility
+        fallback for unusual streams.
+        """
+        for rate_name in ("guessed_rate", "base_rate", "average_rate"):
+            rate = getattr(self.video, rate_name, None)
+            if rate is not None and float(rate) > 0:
+                return float(rate)
+        return 0.0
+
+    def _stream_duration_sec(self) -> float:
+        if self.video.duration is not None and self.video.time_base is not None:
+            return float(self.video.duration * self.video.time_base)
+        if self.container.duration is not None:
+            return self.container.duration / 1e6
+        return 0.0
+
+    def _calc_output_frame_count(self) -> int:
+        """Return the length of the CFR output timeline, including PTS gaps."""
+        duration = self._stream_duration_sec()
+        if duration > 0 and self._target_fps > 0:
+            return int(round(duration * self._target_fps))
+        return int(self.video.frames or 0)
 
     @property
     def num_frames_by_container(self):
         # serve as a provision.
-        if self.container.duration is None:
+        duration = self._stream_duration_sec()
+        if duration <= 0 or self.fps <= 0:
             return 0
-        return int(self.container.duration / 1e6 * self.fps)
+        return int(round(duration * self.fps))
 
     @property
     def fps(self):
-        # base_rate?
-        return float(self.video.average_rate) if self.video.average_rate else 0
+        return self._target_fps
 
     @property
     def backend_name(self):
@@ -212,66 +245,132 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
     @property
     def num_frames(self):
-        return self.video.frames if self.video.frames != 0 else self.num_frames_by_container
+        return self._num_frames
 
     @property
     def size(self):
         return [int(self.video.width), int(self.video.height)]
 
-    def read(self):
-        try:
-            while True:
-                if not self.video_frame_cache:
-                    # 尝试从容器中解码新帧
-                    for packet in self.container.demux(self.video):
-                        frames: list[
-                            av.VideoFrame] = packet.decode()  # type: ignore
-                        if frames:
-                            self.video_frame_cache.extend(frames)
-                            break
-                    else:
-                        # End of stream or no more frames can be decoded
-                        return False, None
+    def _frame_time_sec(self, frame: av.VideoFrame) -> Optional[float]:
+        if frame.pts is None or self.video.time_base is None:
+            return None
+        start_pts = self.video.start_time or 0
+        return float((frame.pts - start_pts) * self.video.time_base)
 
-                next_frame = self.video_frame_cache[0]
-                if next_frame.pts is None:
-                    self._last_frame_data = self.video_frame_cache.pop(
-                        0).to_ndarray(format='bgr24')
-                    self._cur_frame_idx += 1
-                    return True, self._last_frame_data
-                actual_frame_idx = self.pts2frame(next_frame.pts)
-                # 可能存在解码帧索引滞后的情况，尤其是当视频编码存在问题时，此时尝试丢帧。
-                if self._cur_frame_idx > actual_frame_idx and (
-                        self._cur_frame_idx -
-                        actual_frame_idx) > self.tolerance_frame_num:
-                    logger.debug(
-                        f"Decoded frame index {actual_frame_idx} is behind the expected index {self._cur_frame_idx}. "
-                        f"Trying to skip this frame.")
-                    self.video_frame_cache.pop(0)
-                    continue
+    @property
+    def _jitter_tolerance_sec(self) -> float:
+        if self.fps <= 0:
+            return 0.0
+        return PTS_JITTER_TOLERANCE_FRAMES / self.fps
+
+    def _decode_next_batch(self) -> bool:
+        if self.video_frame_cache:
+            return True
+        if self._eof:
+            return False
+
+        for frames in self._decoded_frame_batches():
+            self.video_frame_cache.extend(frames)
+            return True
+        self._eof = True
+        return False
+
+    def _decoded_frame_batches(self):
+        """Yield decoded frame batches and treat decoder flush EOF normally."""
+        try:
+            for packet in self.container.demux(self.video):
+                frames: list[av.VideoFrame] = packet.decode()  # type: ignore
+                if frames:
+                    yield frames
+        except av.error.EOFError:
+            # Some codecs report the final decoder flush as AVERROR_EOF.
+            return
+
+    def _record_input_time(self, frame_time_sec: float) -> None:
+        if self._last_frame_time_sec is not None:
+            gap = frame_time_sec - self._last_frame_time_sec
+            if gap > PTS_GAP_WARNING_SEC:
+                logger.debug(
+                    f"Video PTS gap detected: {gap:.3f}s between "
+                    f"{self._last_frame_time_sec:.3f}s and "
+                    f"{frame_time_sec:.3f}s.")
+        self._last_frame_time_sec = frame_time_sec
+
+    def _is_stale_frame_time(self, frame_time_sec: float,
+                             reference_time_sec: Optional[float]) -> bool:
+        return (reference_time_sec is not None and
+                frame_time_sec < reference_time_sec -
+                self._jitter_tolerance_sec)
+
+    @staticmethod
+    def _log_stale_frame(frame_time_sec: float,
+                         reference_time_sec: float) -> None:
+        logger.debug(
+            f"Non-monotonic video PTS detected: {frame_time_sec:.3f}s is "
+            f"behind {reference_time_sec:.3f}s; skipping the stale frame.")
+
+    def _consume_until(
+            self, target_time_sec: float) -> Optional[av.VideoFrame]:
+        """Consume input frames through a CFR target time.
+
+        The latest eligible frame is returned. The first frame beyond the
+        target remains cached for the next output slot or post-seek read.
+        """
+        selected_frame: Optional[av.VideoFrame] = None
+
+        while self._decode_next_batch():
+            # 预读 next_time_sec 用于判断是否需要继续解码下一帧作为候选帧
+            next_frame = self.video_frame_cache[0]
+            next_time_sec = self._frame_time_sec(next_frame)
+
+            # Streams without usable PTS fall back to sequential decoding.
+            if next_time_sec is None:
+                selected_frame = self.video_frame_cache.pop(0)
                 break
 
-            # 如果实际索引超前，则补帧
-            if self._cur_frame_idx < actual_frame_idx and (
-                    actual_frame_idx -
-                    self._cur_frame_idx) > self.tolerance_frame_num:
-                logger.debug(
-                    f"Decoded frame idx {actual_frame_idx} is front of the expected index {self._cur_frame_idx}. "
-                )
-                if self._last_frame_data is not None:
-                    self._cur_frame_idx += 1
-                    return True, self._last_frame_data
-                else:
-                    self._cur_frame_idx = actual_frame_idx
+            reference_time_sec = self._last_frame_time_sec
+            if self._is_stale_frame_time(next_time_sec,
+                                         reference_time_sec):
+                self.video_frame_cache.pop(0)
+                assert reference_time_sec is not None
+                self._log_stale_frame(next_time_sec, reference_time_sec)
+                continue
 
-            self._last_frame_data = self.video_frame_cache.pop(0).to_ndarray(
-                format='bgr24')
+            if next_time_sec > target_time_sec + self._jitter_tolerance_sec:
+                break
+
+            selected_frame = self.video_frame_cache.pop(0)
+            self._record_input_time(next_time_sec)
+
+        return selected_frame
+
+    def read(self):
+        """Read one frame from the CFR output timeline.
+
+        Input frames are selected by PTS. When the input is sparse or contains
+        a timestamp gap, the latest frame is held. When multiple input frames
+        fall into one output slot, only the latest one is returned.
+        """
+        try:
+            if self._cur_frame_idx >= self.num_frames:
+                return False, None
+            if self.fps <= 0:
+                return False, None
+
+            output_time_sec = self._cur_frame_idx / self.fps
+            selected_frame = self._consume_until(output_time_sec)
+
+            if selected_frame is not None:
+                self._last_frame_data = selected_frame.to_ndarray(format='bgr24')
+
+            if self._last_frame_data is None:
+                return False, None
+
             self._cur_frame_idx += 1
-
             return True, self._last_frame_data
 
         except Exception as e:
-            logger.error(f"{e.__repr__()} encountered when reading"
+            logger.error(f"{e.__repr__()} encountered when reading "
                          f"video frame with {self.__class__.__name__}.")
             return False, None
 
@@ -281,55 +380,68 @@ class PyAVVideoWrapper(BaseVideoWrapper):
     def set_to(self, frame_num: int):
         """设置当前指针位置。
         """
-        if self.video.time_base is None:
+        if self.video.time_base is None or self.fps <= 0:
             raise av.error.ValueError(
                 code=-1,
                 message="Invalid time_base value: None",
             )
-        # backward seeking makes sure cur frame is before the target.
-        # seems seek using us instead of ms.
-        self.container.seek(frame2time(frame_num, self.fps) * 1000,
-                            any_frame=False,
-                            backward=True)
-        # 2-stage seeking, decoding until find the frame_num.
-        for packet in self.container.demux(video=0):
-            for decoded_frame in packet.decode():
-                cur_frame = self.pts2frame(decoded_frame.pts)
-                if cur_frame >= frame_num:
-                    # reset & flush video_frame_cache
-                    self._cur_frame_idx = frame_num
-                    self._last_frame_data = None
-                    self.video_frame_cache = []
-                    return True
-        # reset & flush video_frame_cache
+        if frame_num < 0 or frame_num > self.num_frames:
+            return False
+
         self._cur_frame_idx = frame_num
         self._last_frame_data = None
+        self._last_frame_time_sec = None
         self.video_frame_cache = []
-        return True
+        self._eof = False
+
+        if frame_num == self.num_frames:
+            return True
+
+        target_time_sec = frame_num / self.fps
+        stream_start_sec = float(
+            (self.video.start_time or 0) * self.video.time_base)
+        self.container.seek(int(round((stream_start_sec + target_time_sec) * 1e6)),
+                            any_frame=False,
+                            backward=True)
+
+        selected_frame = self._consume_until(target_time_sec)
+        if selected_frame is not None:
+            self._last_frame_data = selected_frame.to_ndarray(format='bgr24')
+
+        if self.video_frame_cache and self._last_frame_time_sec is not None:
+            next_time_sec = self._frame_time_sec(self.video_frame_cache[0])
+            if (next_time_sec is not None and
+                    next_time_sec - self._last_frame_time_sec >
+                    PTS_GAP_WARNING_SEC):
+                logger.debug(
+                    f"Target {target_time_sec:.3f}s lies in a video PTS gap "
+                    f"from {self._last_frame_time_sec:.3f}s to "
+                    f"{next_time_sec:.3f}s; holding the previous frame.")
+
+        return self._last_frame_data is not None
 
     def force_set_to(self, frame_num: int) -> bool:
-        self.container.seek(0, any_frame=False, backward=True)
-        # demux without decoding to fast seek
-        for packet in self.container.demux(video=0):
-            for decoded_frame in packet.decode():
-                cur_frame = self.pts2frame(decoded_frame.pts)
-                if cur_frame >= frame_num:
-                    return True
+        if not self.set_to(0):
+            return False
+        for _ in range(frame_num):
+            status, _ = self.read()
+            if not status:
+                return False
         return True
 
     def get_video_pos(self) -> int:
-        while True:
-            frame = self.container.demux(video=0).__next__().decode()
-            if len(frame) == 0:
-                continue
-            return self.pts2frame(frame[0].pts)
+        return self._cur_frame_idx
 
     def pts2frame(self, pts: int):
-        if self.video.time_base is None:
+        if self.video.time_base is None or self.fps <= 0:
             return -1
-        return int(pts * float(self.video.time_base) * self.fps)
+        start_pts = self.video.start_time or 0
+        return int(round((pts - start_pts) * float(self.video.time_base) *
+                         self.fps))
 
     def frame2pts(self, frame_num: int):
-        if self.video.time_base is None:
+        if self.video.time_base is None or self.fps <= 0:
             return -1
-        return int(frame_num / self.fps / self.video.time_base)
+        start_pts = self.video.start_time or 0
+        return start_pts + int(round(frame_num / self.fps /
+                                     float(self.video.time_base)))

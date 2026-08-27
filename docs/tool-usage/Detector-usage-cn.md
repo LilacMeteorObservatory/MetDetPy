@@ -73,7 +73,6 @@ python MetDetPy.py target [--cfg CFG] [--mask MASK] [--start-time START_TIME] [-
                [--resize RESIZE] [--adaptive-thre ADAPTIVE_THRE] [--bi-thre BI_THRE | --sensitivity SENSITIVITY]
                [--recheck RECHECK] [--save-rechecked-img SAVE_RECHECKED_IMG]
                [--provider {cpu,default,coreml,dml,cuda}] [--live-mode {on,off}] [--save-path SAVE-PATH]
-               [--resource-dir RESOURCE_DIR]
 ```
 
 #### 主要参数
@@ -138,7 +137,6 @@ python MetDetPhoto.py target [--mask MASK]
                              [--exclude-noise] [--debayer] [--debayer-pattern DEBAYER_PATTERN]
                              [--visu] [--visu-resolution VISU_RESOLUTION]
                              [--save-path SAVE_PATH]
-                             [--resource-dir RESOURCE_DIR]
 ```
 
 #### 参数说明

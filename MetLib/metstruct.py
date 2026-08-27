@@ -6,7 +6,7 @@ metstruct 定义 MetDetPy 使用的结构化数据和相关解析方法。
 import dataclasses
 import datetime
 import json
-from typing import Any, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from dacite import from_dict
 import numpy as np
@@ -165,9 +165,11 @@ class MDTarget(DictAble):
     pt1: list[int]
     pt2: list[int]
     drct_loss: float
-    drct_cv: float
     score: float
     real_dist: float
+    # Added after MDRF v2.4. Keep optional for backward-compatible loading of
+    # historical records that do not contain circular direction variance.
+    drct_cv: Optional[float] = None
     center_point_list: list[list[int]] = dataclasses.field(
         default_factory=lambda: [])
     raw_score: Optional[float] = None
@@ -200,6 +202,7 @@ class SingleMDRecord(DictAble):
     # TODO: 需要检查什么情况下会缺失这两个属性（理论上不应该缺失...）
     start_frame: Optional[int] = None
     end_frame: Optional[int] = None
+    filename: Optional[str] = None
 
     def to_video_data(self,
                       fps: Optional[float] = None,
@@ -223,7 +226,8 @@ class SingleMDRecord(DictAble):
             end_time=self.end_time,
             video_size=video_size,
             target_list=[x.to_simple_target() for x in self.target],
-                              raw_record=self)
+            raw_record=self,
+            saved_filename=self.filename)
 
     def to_image_data(self):
         """
@@ -353,6 +357,7 @@ class ModelCfg(DictAble):
     multiscale_pred: int
     multiscale_partition: int
     providers_key: Optional[str] = "default"
+    input_color_order: Literal["rgb", "bgr"] = "rgb"
 
 
 @dataclasses.dataclass
@@ -444,7 +449,6 @@ class MainDetectCfg(DictAble):
     loader: LoaderCfg
     detector: DetectorCfg
     collector: CollectorCfg
-    aux_detectors: list[DetectorCfg] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

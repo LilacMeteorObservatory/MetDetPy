@@ -40,7 +40,8 @@ def parse_color(color: Union[ColorTuple, str]):
         if color in COLOR_MAP:
             color = COLOR_MAP[color]
         else:
-            raise KeyError(f"color \"{color}\"not found in predefined color map.")
+            raise KeyError(
+                f"color \"{color}\" not found in predefined color map.")
     assert len(color) == 3, "invalid color"
     return color
 

@@ -168,7 +168,6 @@ python ClipToolkit.py target [json] [--cfg CFG] [--start-time START_TIME] [--end
                               [--enable-filter-rules | --disable-filter-rules]
                               [--padding-before PADDING_BEFORE] [--padding-after PADDING_AFTER]
                               [--debug]
-                              [--resource-dir RESOURCE_DIR]
 ```
 
 ### Positional Arguments
@@ -232,12 +231,6 @@ python ClipToolkit.py target [json] [--cfg CFG] [--start-time START_TIME] [--end
 | Parameter | Description |
 |------|------|
 | `--debug` | Enable debug mode, print more detailed log information |
-
-#### Resource Directory Parameters (configuration when packaged as onefile)
-
-| Parameter | Description |
-|------|------|
-| `--resource-dir`, `-R` | Resource folder path, should contain `config/`, `weights/`, `resource/` and `global/` subfolders. After specifying, static files will be read from this directory instead of default location |
 
 ---
 
