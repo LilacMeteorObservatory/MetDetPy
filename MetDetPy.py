@@ -237,6 +237,9 @@ def detect_video(video_name: str,
         meteor_collector.clear()
         visual_manager.stop()
         logger.info("Time cost: %.4fs." % (time.time() - t1))
+        logger.info(
+            "Recheck model call count = "
+            f"{meteor_collector.met_exporter.recheck_model_call_count}.")
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
         if live_mode:
             logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
