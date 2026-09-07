@@ -11,8 +11,8 @@ from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
 from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
-from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, MainDetectCfg,
-                              ModelCfg, RuntimeParams)
+from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, DLCfg, MainDetectCfg,
+                              RuntimeParams)
 from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
@@ -49,8 +49,8 @@ def detect_video(video_name: str,
     """
     filled_provider_key = provider_key if provider_key else DEFAULT_STR
     cfg.collector.recheck_cfg.model.providers_key = filled_provider_key
-    if isinstance(cfg.detector.cfg, ModelCfg):
-        cfg.detector.cfg.providers_key = filled_provider_key
+    if isinstance(cfg.detector.cfg, DLCfg):
+        cfg.detector.cfg.model.providers_key = filled_provider_key
 
     # set output mode
     set_default_logger(debug_mode, work_mode)
@@ -240,6 +240,14 @@ def detect_video(video_name: str,
         logger.info(
             "Recheck model call count = "
             f"{meteor_collector.met_exporter.recheck_model_call_count}.")
+        recheck_read_failure_count = (
+            recheck_loader.read_failure_count
+            if recheck_loader is not None else 0)
+        logger.info(
+            "Video read failure count: "
+            f"main={video_loader.read_failure_count}; "
+            f"recheck={recheck_read_failure_count}; "
+            f"total={video_loader.read_failure_count + recheck_read_failure_count}.")
         logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
         if live_mode:
             logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
