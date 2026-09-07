@@ -279,15 +279,17 @@ class ClassicDetector(LineDetector):
         dst = cv2.dilate(dst, self.cv_op)
 
         # 对0,1帧直线检测
-        self.linesp = cv2.HoughLinesP(dst,
-                                      rho=1,
-                                      theta=PI,
-                                      threshold=self.hough_cfg.threshold,
-                                      minLineLength=self.hough_cfg.min_len,
-                                      maxLineGap=self.hough_cfg.max_gap)
-
-        self.linesp: Sequence[
-            list[int]] = [] if self.linesp is None else self.linesp[:, 0, :]
+        linesp = cv2.HoughLinesP(dst,
+                                 rho=1,
+                                 theta=PI,
+                                 threshold=self.hough_cfg.threshold,
+                                 minLineLength=self.hough_cfg.min_len,
+                                 maxLineGap=self.hough_cfg.max_gap)
+        if linesp is None:
+            linesp = np.array([])
+        elif np.array(linesp).ndim == 3:
+            linesp = linesp[:, 0, :]
+        self.linesp: Sequence[list[int]] = linesp
         # TODO:
         # 1. Classic Detector的可视化接口尚未实现
         # 2. ClassicDetector的输出统一为METEOR判定。可能需要考虑逻辑是否会变更。
