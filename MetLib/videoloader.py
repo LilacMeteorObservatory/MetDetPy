@@ -271,6 +271,7 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.debayer = debayer
         self.debayer_pattern = debayer_pattern
         self.continue_on_err = continue_on_err
+        self.read_failure_count = 0
 
         # load video and mask
         self.video = video_wrapper(video_name, hwaccel=hwaccel)
@@ -366,6 +367,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                 frame_list.append(
                     self.preprocess.exec_transform(self.cur_frame))
             else:
+                self.read_failure_count += 1
                 self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
                 if not self.continue_on_err:
@@ -546,6 +548,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                          hwaccel, start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
                          merge_func, continue_on_err, **kwargs)
+        self.thread: Optional[threading.Thread] = None
 
     def clear_queue(self):
         """clear queue.
@@ -558,8 +561,9 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.read_stopped = False
         self.status = True
         self.video.set_to(self.start_frame)
-        self.thread = threading.Thread(target=self.videoloop, args=())
-        self.thread.setDaemon(True)
+        self.thread = threading.Thread(target=self.videoloop,
+                                       name="MetDetPy-VideoLoader",
+                                       daemon=False)
         self.thread.start()
 
     def pop(self):
@@ -600,6 +604,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                         self.cur_frame)
                     self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
                 else:
+                    self.read_failure_count += 1
                     self.logger.warning(
                         f"Load frame failed at {self.start_frame + i}")
                     if not self.continue_on_err:
@@ -618,9 +623,17 @@ class ThreadVideoLoader(VanillaVideoLoader):
             super().stop()
 
     def release(self):
-        super().release()
-        if self.queue.not_empty:
-            self.clear_queue()
+        self.stop()
+        # Free queue capacity first so a producer blocked in queue.put() can
+        # observe the stop flag and leave its loop.
+        self.clear_queue()
+        if (self.thread is not None and self.thread.is_alive()
+                and self.thread is not threading.current_thread()):
+            self.thread.join()
+        # The producer may have completed one final put while release() was
+        # clearing the queue. It is safe to discard it after the join.
+        self.clear_queue()
+        self.video.release()
 
     @property
     def stopped(self) -> bool:

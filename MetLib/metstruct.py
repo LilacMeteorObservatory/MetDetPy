@@ -202,7 +202,6 @@ class SingleMDRecord(DictAble):
     # TODO: 需要检查什么情况下会缺失这两个属性（理论上不应该缺失...）
     start_frame: Optional[int] = None
     end_frame: Optional[int] = None
-    filename: Optional[str] = None
 
     def to_video_data(self,
                       fps: Optional[float] = None,
@@ -226,8 +225,7 @@ class SingleMDRecord(DictAble):
             end_time=self.end_time,
             video_size=video_size,
             target_list=[x.to_simple_target() for x in self.target],
-            raw_record=self,
-            saved_filename=self.filename)
+            raw_record=self)
 
     def to_image_data(self):
         """

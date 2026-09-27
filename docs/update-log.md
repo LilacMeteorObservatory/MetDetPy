@@ -100,7 +100,7 @@ Note:
 * 重构流星序列收集与导出流程，由 Exporter 统一处理确认队列、片段边界和相邻片段合并，减少边界状态重复维护。
 * 增加 `clip_merge_interval`，允许单独控制已确认目标合并为同一输出片段的时间间隔。
 * 流星评分缓存改为跟随 `MeteorSeries` 对象生命周期，避免全局缓存残留及对象 ID 复用造成的错误命中。
-* 优化 PyAV 对可变帧率视频、帧缓存和重复解码帧的处理，并为异常低帧率增加提示。
+* 优化 PyAV 对可变帧率视频、帧缓存和重复解码帧的处理，改为按输入 PTS 重采样到稳定 CFR 时间线，并为异常低帧率增加提示。
 * sRGB ICC 配置改为内置资源，导出图片不再依赖外部 `resource/sRGB.icc` 文件。
 * 简化视频加载器实现，移除未使用且稳定性较差的 `ProcessVideoLoader`。
 
@@ -110,19 +110,25 @@ Note:
 * 修复视频加载线程结束哨兵及异常退出路径可能造成的等待或强制退出问题。
 * 修复 `ClipToolkit` 前后留白的时间边界，以及视频模式下过滤规则未正确作用于单个目标的问题。
 * 修复 `MetDetPhoto` 部分图像尺寸记录和类别名称映射问题。
+* 修复空 ROI 和梯度方向为非法值时的检测框方向修正崩溃问题。
+* 修复模型推理时的通道顺序和输入规范，修复NMS阶段的合并阈值，更改为类别NMS
 * 修复 onefile 模式的资源相对路径、输出目录、Windows spec 路径、ZIP 内容为空，以及多个独立 EXE 错误共享依赖的问题。
 
-⚠️ Compatibility Notes
+⚠️ Compatibility and Performance Notes
 * 历史 MDRF 文件可以缺少 `drct_cv`；读取时该字段使用 `null`，不影响旧数据加载。
 * 配置项 `thre2` 更名为 `merge_dist_sqr`。旧字段仍可兼容读取，但已经弃用；新增的 `recheck_threshold` 和 `clip_merge_interval` 均为可选项。
-* onefile 发行包会从可执行文件所在目录查找资源。`--resource-dir` 已移除，发行时请保持 `config/`、`weights/`、`global/` 与可执行文件位于同一目录层级。
+* onefile 发行包会从可执行文件所在目录查找资源。`--resource-dir` 已移除。
 * 原独立的 `make_package_pyinstaller.py` 已移除，请改用 `make_package.py --backend pyinstaller`。
+* YOLO 原始 NMS 阈值语义和默认值已变化，升级自定义配置时建议重新校准 `pos_thre`。
+* 单响应进入 recheck 可能会显著增加模型调用次数和完整视频运行时间。
+
 
 ✅ Documents and Tests
 * 重组并补充中英文工具、配置和 MDRF 数据格式文档。
+* 新增图片输入与 YOLO、ROI 梯度、PyAV PTS/seek、音视频混流以及整体稳定性回归测试。
 * 增加收集器、Exporter、旧数据兼容、时序图和 onefile 打包稳定性测试。
 
-**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.4.0...v2.5.0
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.4.0...v2.5.0-rc
 
 ## Version 2.4.0
 

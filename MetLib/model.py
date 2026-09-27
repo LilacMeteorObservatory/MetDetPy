@@ -107,7 +107,7 @@ class Backend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def forward(self, x: U8Mat) -> list[list[NDArray[np.float64]]]:
+    def forward(self, x: U8Mat) -> Optional[list[list[NDArray[np.float64]]]]:
         pass
 
 
@@ -129,9 +129,10 @@ class ONNXBackend(Backend):
         """
         self.weight_path = weight_path
         self.dtype = dtype
+        self.logger = logger
         # load model
-        if providers_key and (not providers_key in DEVICE_MAPPING) and logger:
-            logger.warning(
+        if providers_key and (not providers_key in DEVICE_MAPPING) and self.logger:
+            self.logger.warning(
                 f"Gicen provider {providers_key} is not supported." +
                 "Fall back to default provider.")
         if not providers_key:
@@ -181,8 +182,8 @@ class ONNXBackend(Backend):
         return self.model_session.get_providers()[0]
 
     def forward(
-            self, x: Union[U8Mat,
-                           list[U8Mat]]) -> list[list[NDArray[np.float64]]]:
+        self, x: Union[U8Mat, list[U8Mat]]
+    ) -> Optional[list[list[NDArray[np.float64]]]]:
         """ run inference session with given input.
 
         Args:
@@ -191,10 +192,16 @@ class ONNXBackend(Backend):
                 tensors; otherwise x should be a tensor.
 
         Returns:
-            list: raw output.
+            list: raw output, or None if the model lock could not be
+            acquired within LOCK_TIMEOUT seconds.
         """
         assert len(self.input_name) > 0, "invalid input name cnt."
-        self._global_lock.acquire(timeout=LOCK_TIMEOUT)
+        acquired = self._global_lock.acquire(timeout=LOCK_TIMEOUT)
+        if not acquired:
+            if self.logger:
+                self.logger.warning(
+                    f"Failed to acquire lock for model {self.weight_path} within {LOCK_TIMEOUT} seconds.")
+            return None
         try:
             if self.single_input:
                 return self.model_session.run(None, {self.input_name[0]: x})
@@ -324,7 +331,16 @@ class YOLOModel(object):
 
         # cvt h*w*c to b*c*h*w, and forward.
         x = (x.transpose(2, 0, 1))[None, ...]
-        results = self.backend.forward(x)[0][0]
+        raw_output = self.backend.forward(x)
+        if raw_output is None:
+            # backend failed to acquire its lock in time; skip this input
+            # instead of crashing, so the caller can keep running.
+            self.logger.warning(
+                f"Model {self.weight_path} skipped one forward call "
+                "because the backend lock could not be acquired in time.")
+            return (np.zeros((0, 4), dtype=np.int_),
+                    np.zeros((0, NUM_CLASS), dtype=np.float64))
+        results = raw_output[0][0]
 
         # YOLO output: [0:4] is center-based xywh, 4 is objectness and [5:]
         # contains per-class scores.
