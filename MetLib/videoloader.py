@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional, Type, Union
 
 import numpy as np
 
+from .profiling import profiled
 from .fileio import load_mask
 from .imgproc import Transform
 from .metlog import get_default_logger
@@ -354,6 +355,11 @@ class VanillaVideoLoader(BaseVideoLoader):
             f"Preset start_frame to {self.start_frame}; end_frame to {self.end_frame}."
         )
 
+    @profiled("read.total")
+    def _read_frame(self):
+        status, self.cur_frame = self.video.read()
+        return status
+
     def pop(self) -> Optional[U8Mat]:
         """pop a frame that can be used for detection.
 
@@ -362,14 +368,14 @@ class VanillaVideoLoader(BaseVideoLoader):
         """
         frame_list: list[U8Mat] = []
         for i in range(self.exp_frame):
-            status, self.cur_frame = self.video.read()
+            status = self._read_frame()
             if status and self.cur_frame is not None:
                 frame_list.append(
                     self.preprocess.exec_transform(self.cur_frame))
             else:
                 self.read_failure_count += 1
                 self.logger.warning(
-                        f"Load frame failed at {self.start_frame + i}")
+                    f"Load frame failed at {self.start_frame + i}")
                 if not self.continue_on_err:
                     self.stop()
                     break
@@ -577,7 +583,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
         try:
             for _ in range(self.exp_frame):
                 if self.stopped: break
-                frame = self.queue.get(timeout=GET_TIMEOUT)
+                frame = self.queue_get()
                 if frame is FAILED_FLAG: raise queue.Empty()
                 if not isinstance(frame, str):
                     ret.append(frame)
@@ -598,11 +604,11 @@ class ThreadVideoLoader(VanillaVideoLoader):
                 if self.read_stopped or not self.status:
                     if not self.continue_on_err:
                         break
-                self.status, self.cur_frame = self.video.read()
+                self.status = self._read_frame()
                 if self.status and self.cur_frame is not None:
                     self.processed_frame = self.preprocess.exec_transform(
                         self.cur_frame)
-                    self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
+                    self.queue_put()
                 else:
                     self.read_failure_count += 1
                     self.logger.warning(
@@ -618,6 +624,14 @@ class ThreadVideoLoader(VanillaVideoLoader):
         finally:
             self.stop()
 
+    @profiled('queue.get')
+    def queue_get(self):
+        return self.queue.get(timeout=GET_TIMEOUT)
+    
+    @profiled('queue.put')
+    def queue_put(self):
+        self.queue.put(self.processed_frame, timeout=PUT_TIMEOUT)
+    
     def stop(self):
         if not self.read_stopped:
             super().stop()

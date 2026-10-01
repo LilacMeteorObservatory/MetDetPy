@@ -6,6 +6,7 @@ from typing import Optional
 import tqdm
 
 from MetLib import get_detector, get_loader, get_wrapper
+from MetLib.profiling import StageProfiler, profile_loader, profile_stage
 from MetLib.collector import MeteorCollector
 from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
@@ -30,7 +31,8 @@ def detect_video(video_name: str,
                  time_range: tuple[Optional[str],
                                    Optional[str]] = (None, None),
                  live_mode: bool = False,
-                 provider_key: Optional[str] = None) -> MDRF:
+                 provider_key: Optional[str] = None,
+                 profile: bool = False) -> MDRF:
     """The main API of MetDetPy, detecting meteors from the given video.
 
     Args:
@@ -43,6 +45,7 @@ def detect_video(video_name: str,
         time_range (tuple, optional): time range from the start to the end. Defaults to (None, None).
         live_mode (bool, optional): Whether to apply live mode, detect video at approximate recording time. Defaults to False.
         provider_key (Optional[str], optional): provider device. Defaults to None.
+        profile (bool): Log aggregate stage timings, excluding initialization.
 
     Returns:
         dict: a dict that records detection config and results.
@@ -58,8 +61,8 @@ def detect_video(video_name: str,
     logger.start()
 
     # initialization
+    t0 = time.perf_counter()
     try:
-        t0 = time.time()
         # parse preprocessing params
         VideoLoaderCls = get_loader(cfg.loader.name)
         VideoWrapperCls = get_wrapper(cfg.loader.wrapper)
@@ -112,7 +115,8 @@ def detect_video(video_name: str,
             positive_category_list=global_config.export.positive_category_list)
 
         logger.info(
-            f"Preprocessing finished. Time cost: {(time.time() - t0):.1f}s.")
+            f"Preprocessing finished. Time cost: {(time.perf_counter() - t0):.1f}s."
+        )
         # wait for logger clear
         while not logger.is_empty:
             continue
@@ -175,9 +179,21 @@ def detect_video(video_name: str,
             'Fatal error occured when initializing. MetDetPy will exit.')
         logger.stop()
         raise e
+    t1 = time.perf_counter()
+    logger.info(f"Initialization elapsed: {t1 - t0:.4f}s.")
+    profilers = []
+    main_profiler = (StageProfiler(
+        "main_loop", cpu_stages={"detector.detect", "collector.update"})
+                     if profile else None)
+    if profile:
+        profilers.append(profile_loader(video_loader, "main_loader"))
+        if recheck_loader is not None:
+            profilers.append(profile_loader(recheck_loader, "recheck_loader"))
+        profilers.append(main_profiler)
+        if isinstance(detector, M3Detector):
+            detector.stack.stage_profiler = main_profiler
+
     # MAIN DETECTION PART
-    t1 = time.time()
-    tot_get_time = 0
     tot_wait_time = 0
     visu_info: list[BaseVisuAttrs] = []
     try:
@@ -188,18 +204,20 @@ def detect_video(video_name: str,
                 (i - start_frame) //
                     rt_param.exp_frame) % rt_param.eq_int_fps == 0:
                 logger.processing(str(frame2time(i, rt_param.fps)))
-            t2 = time.time()
-            x = video_loader.pop()
-            tot_get_time += (time.time() - t2)
+            with profile_stage(main_profiler, "pop.total"):
+                x = video_loader.pop()
             if (video_loader.stopped or x is None):
                 break
 
-            detector.update(x)
-            lines, cates = detector.detect()
+            with profile_stage(main_profiler, "detector.update"):
+                detector.update(x)
+            with profile_stage(main_profiler, "detector.detect"):
+                lines, cates = detector.detect()
 
             if len(lines) or (((i - start_frame) // rt_param.exp_frame) %
                               rt_param.eq_int_fps == 0):
-                meteor_collector.update(i, lines=lines, cates=cates)
+                with profile_stage(main_profiler, "collector.update"):
+                    meteor_collector.update(i, lines=lines, cates=cates)
 
             if visual_mode:
                 # 仅在可视化模式下通过detector和collector的可视化接口获取需要渲染的所有内容。
@@ -221,7 +239,7 @@ def detect_video(video_name: str,
             if live_mode:
                 expect_time_cost = (prog_int * rt_param.exp_frame /
                                     rt_param.fps) * LIVE_MODE_SPEED_CTRL_CONST
-                cur_time_cost = time.time() - t0
+                cur_time_cost = time.perf_counter() - t0
                 if (cur_time_cost < expect_time_cost):
                     tot_wait_time += (expect_time_cost - cur_time_cost)
                     time.sleep(expect_time_cost - cur_time_cost)
@@ -236,19 +254,26 @@ def detect_video(video_name: str,
         video_loader.release()
         meteor_collector.clear()
         visual_manager.stop()
-        logger.info("Time cost: %.4fs." % (time.time() - t1))
+        logger.info("Time cost: %.4fs." % (time.perf_counter() - t1))
         logger.info(
             "Recheck model call count = "
             f"{meteor_collector.met_exporter.recheck_model_call_count}.")
-        recheck_read_failure_count = (
-            recheck_loader.read_failure_count
-            if recheck_loader is not None else 0)
+        recheck_read_failure_count = (recheck_loader.read_failure_count
+                                      if recheck_loader is not None else 0)
         logger.info(
             "Video read failure count: "
             f"main={video_loader.read_failure_count}; "
             f"recheck={recheck_read_failure_count}; "
-            f"total={video_loader.read_failure_count + recheck_read_failure_count}.")
-        logger.debug(f"Total Pop Waiting Time = {tot_get_time:.4f}s.")
+            f"total={video_loader.read_failure_count + recheck_read_failure_count}."
+        )
+        if profile:
+            logger.info("[Profile] Wall-clock timings after initialization; "
+                        "nested stages and concurrent threads overlap.")
+            logger.info("[Profile] Selected stages also report calling-thread "
+                        "CPU time.")
+            for profiler in profilers:
+                for line in profiler.summary():
+                    logger.info(line)
         if live_mode:
             logger.debug(f"Total Wait Time = {tot_wait_time:.4f}s.")
         logger.stop()
@@ -353,6 +378,10 @@ if __name__ == "__main__":
                         default=None,
                         help="Save detection results as a json file.")
 
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print aggregate stage wall-clock timings at exit.")
     args = parser.parse_args()
 
     if args.cfg is None:
@@ -393,7 +422,8 @@ if __name__ == "__main__":
                           work_mode=args.mode,
                           time_range=(args.start_time, args.end_time),
                           live_mode=live_mode,
-                          provider_key=args.provider)
+                          provider_key=args.provider,
+                          profile=args.profile)
     if args.save_path:
         save_path = save_path_handler(args.save_path, args.target, ext="json")
         with open(save_path, mode="w", encoding="utf-8") as f:

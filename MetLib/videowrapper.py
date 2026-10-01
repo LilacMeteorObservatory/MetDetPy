@@ -14,6 +14,7 @@ import av.error
 import cv2
 from cv2.typing import MatLike
 
+from .profiling import profiled, timed_call
 from .utils import frame2time, time2frame
 from .metlog import get_default_logger
 
@@ -278,8 +279,13 @@ class PyAVVideoWrapper(BaseVideoWrapper):
     def _decoded_frame_batches(self):
         """Yield decoded frame batches and treat decoder flush EOF normally."""
         try:
-            for packet in self.container.demux(self.video):
-                frames: list[av.VideoFrame] = packet.decode()  # type: ignore
+            packets = iter(self.container.demux(self.video))
+            while True:
+                try:
+                    packet = next(packets)
+                except StopIteration:
+                    break
+                frames = timed_call(self, "read.packet_decode", packet.decode)
                 if frames:
                     yield frames
         except av.error.EOFError:
