@@ -16,7 +16,7 @@ from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, DLCfg, MainDetectCfg,
                               RuntimeParams)
 from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
-from MetLib.model import AVAILABLE_DEVICE_ALIAS, DEFAULT_STR
+from MetLib.model import validate_provider_key
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
                           SWITCH2BOOL, VERSION, frame2time, frame2ts,
                           get_num_class, relative2abs_path)
@@ -50,10 +50,10 @@ def detect_video(video_name: str,
     Returns:
         dict: a dict that records detection config and results.
     """
-    filled_provider_key = provider_key if provider_key else DEFAULT_STR
-    cfg.collector.recheck_cfg.model.providers_key = filled_provider_key
-    if isinstance(cfg.detector.cfg, DLCfg):
-        cfg.detector.cfg.model.providers_key = filled_provider_key
+    if provider_key:
+        cfg.collector.recheck_cfg.model.providers_key = provider_key
+        if isinstance(cfg.detector.cfg, DLCfg):
+            cfg.detector.cfg.model.providers_key = provider_key
 
     # set output mode
     set_default_logger(debug_mode, work_mode)
@@ -360,11 +360,11 @@ if __name__ == "__main__":
                         help="Apply recheck before the result is printed"
                         " (the model must specified in the config file).")
 
-    parser.add_argument("--provider",
-                        type=str,
-                        choices=AVAILABLE_DEVICE_ALIAS,
-                        default=None,
-                        help="Force appoint onnxruntime providers.")
+    parser.add_argument(
+        "--provider",
+        type=validate_provider_key,
+        default=None,
+        help="Select provider: cpu, default, dml[:N], cuda[:N], coreml.")
     parser.add_argument("--live-mode",
                         type=str,
                         nargs='?',

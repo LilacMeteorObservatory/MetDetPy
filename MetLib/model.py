@@ -40,6 +40,16 @@ WINDOWS_DLL_CHK_LIST = [
         "ucrtbase.dll"
     ]
 
+def validate_provider_key(value: str) -> str:
+    """Validate a backend alias with an optional nonnegative GPU index."""
+    alias, separator, index = value.partition(":")
+    if alias not in DEVICE_MAPPING:
+        raise ValueError(f"Unknown provider: {value!r}.")
+    if separator and (alias not in {"dml", "cuda"}
+                      or not index.isascii() or not index.isdecimal()):
+        raise ValueError("Device index must be a nonnegative integer, like: 'dml:0' or 'cuda:0'.")
+    return value
+
 
 def _cxcywh_to_tlwh(boxes: NDArray[np.float64]) -> NDArray[np.float64]:
     """Convert YOLO center-based boxes to top-left ``(x, y, w, h)``."""
@@ -117,7 +127,7 @@ class ONNXBackend(Backend):
                  weight_path: str,
                  dtype: DTypeLike,
                  warmup: bool,
-                 providers_key: Optional[str] = None,
+                 providers_key: str,
                  logger: Optional[BaseMetLog] = None) -> None:
         f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
         Args:
@@ -130,15 +140,27 @@ class ONNXBackend(Backend):
         self.weight_path = weight_path
         self.dtype = dtype
         self.logger = logger
+        self._device_index = None
+        indexed = bool(providers_key and ":" in providers_key)
+        requested_provider = None
         # load model
-        if providers_key and (not providers_key in DEVICE_MAPPING) and self.logger:
-            self.logger.warning(
-                f"Gicen provider {providers_key} is not supported." +
-                "Fall back to default provider.")
-        if not providers_key:
-            providers = DEVICE_MAPPING[DEFAULT_STR]
+        if indexed:
+            validate_provider_key(providers_key)
+            alias, index = providers_key.split(":")
+            if alias not in {"dml", "cuda"}:
+                raise ValueError(f"Unsupported ONNX provider: {providers_key!r}.")
+            requested_provider = DEVICE_MAPPING[alias][0]
+            if requested_provider not in ort.get_available_providers():
+                raise ValueError(f"ONNX provider {requested_provider} is not installed.")
+            self._device_index = int(index)
+            providers = [(requested_provider, {"device_id": str(self._device_index)}),
+                         "CPUExecutionProvider"]
         else:
-            providers = DEVICE_MAPPING.get(providers_key,
+            if providers_key and providers_key not in DEVICE_MAPPING and self.logger:
+                self.logger.warning(
+                    f"Given provider {providers_key} is not supported. "
+                    "Fall back to default provider.")
+            providers = DEVICE_MAPPING.get(providers_key or DEFAULT_STR,
                                            DEVICE_MAPPING[DEFAULT_STR])
         
         if is_lfs_pointer(self.weight_path):
@@ -147,8 +169,14 @@ class ONNXBackend(Backend):
                 "Please pull the actual model file using Git LFS."
             )
             
+        session_kwargs = ({"enable_fallback": False}
+                          if requested_provider is not None else {})
         self.model_session = ort.InferenceSession(self.weight_path,
-                                                  providers=providers)
+                                                  providers=providers,
+                                                  **session_kwargs)
+        if (requested_provider is not None
+                and self.model_session.get_providers()[0] != requested_provider):
+            raise RuntimeError(f"Failed to activate requested ONNX device {providers_key}.")
         self.shapes: list[list[int]] = [
             x.shape for x in self.model_session.get_inputs()
         ]
@@ -179,7 +207,8 @@ class ONNXBackend(Backend):
 
     @property
     def device(self) -> str:
-        return self.model_session.get_providers()[0]
+        provider = self.model_session.get_providers()[0]
+        return f"{provider}:{self._device_index}" if self._device_index is not None else provider
 
     def forward(
         self, x: Union[U8Mat, list[U8Mat]]
