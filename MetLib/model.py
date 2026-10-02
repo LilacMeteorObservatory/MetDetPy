@@ -10,6 +10,7 @@ from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
 from .metstruct import ModelCfg, validate_num_threads
+from .profiling import profiled
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
 
 ort.set_default_logger_severity(4)
@@ -178,6 +179,11 @@ class ONNXBackend(Backend):
                           if requested_provider is not None else {})
         session_options = ort.SessionOptions()
         session_options.intra_op_num_threads = num_threads
+        if any((provider[0] if isinstance(provider, tuple) else provider)
+               == "DmlExecutionProvider" for provider in providers):
+            # DirectML requires sequential execution and no memory pattern optimization.
+            session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            session_options.enable_mem_pattern = False
         self.model_session = ort.InferenceSession(self.weight_path,
                                                   sess_options=session_options,
                                                   providers=providers,
@@ -410,6 +416,7 @@ class YOLOModel(object):
         result_pos: NDArray[np.int_] = np.array(results[:, :4], dtype=int)
         return result_pos, joint_scores
 
+    @profiled("model.forward")
     def forward(self, x: U8Mat):
         """forward function that supports multiscale inference.
         
@@ -500,7 +507,7 @@ class YOLOModel(object):
                         result_joint_scores.append(clip_joint_scores)
         except Exception as e:
             # 异常跳过
-            logger.error(
+            self.logger.error(
                 f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
                 f"Results of this frame could be lost...")
             if len(result_pos) == 0 or len(result_joint_scores) == 0:

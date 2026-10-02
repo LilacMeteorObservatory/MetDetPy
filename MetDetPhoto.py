@@ -3,7 +3,7 @@
 
 适用数据：
 * 单张图像
-* TODO: 批量图像（文件夹）
+* 批量图像（文件夹或 @清单文件）
 * 延时视频（照片构成的序列）
 
 ## 支持的保存格式
@@ -26,12 +26,13 @@ from MetLib.fileio import (SUPPORT_ALL_IMG_FORMAT, SUPPORT_COMMON_FORMAT,
                            is_ext_within, load_8bit_image, load_mask,
                            load_raw_with_preprocess, save_path_handler)
 from MetLib.imgloader import MultiThreadImgLoader
+from MetLib.image_manifest import load_image_manifest
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import MDRF, MockVideoObject, SingleImgRecord
 from MetLib.metvisu import (BaseVisuAttrs, ColorTuple, DrawRectVisu,
                             OpenCVMetVisu, SquareColorPair, TextColorPair,
                             TextVisu)
-from MetLib.model import YOLOModel
+from MetLib.model import AVAILABLE_DEVICE_ALIAS, YOLOModel, validate_provider_key
 from MetLib.utils import (VERSION, exclude_predictions_by_name, get_id2name,
                           parse_resize_param, pt_offset, relative2abs_path)
 from MetLib.videoloader import ThreadVideoLoader
@@ -96,233 +97,246 @@ def construct_visu_info(boxes: NDArray[np.int_],
     return visu_info
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("target", help="path to the img or video.")
-parser.add_argument("--mask", help="path to the mask file.")
-parser.add_argument("--model-path", help="/path/to/the/model", default=None)
-parser.add_argument("--exclude-noise", action="store_true")
-parser.add_argument("--model-type",
-                    help="type of the model. Support YOLO.",
-                    default="YOLOModel")
-parser.add_argument("--debayer",
-                    help="apply debayer to the given image/video.",
-                    action="store_true")
-parser.add_argument("--debayer-pattern",
-                    help="debayer pattern, like RGGB or BGGR.")
-parser.add_argument("--scale",
-                    "-M",
-                    type=int,
-                    default=2,
-                    help="multiscale num.")
-parser.add_argument("--partition",
-                    "-P",
-                    type=int,
-                    default=2,
-                    help="partition in pyramid.")
-parser.add_argument("--visu",
-                    "-V",
-                    action="store_true",
-                    help="show detect results.")
-parser.add_argument("--visu-resolution",
-                    "-R",
-                    type=str,
-                    help="detect results showing resolution.")
-parser.add_argument("--save-path", "-S", type=str, help="save path for MDRF.")
-parser.add_argument("--debug", "-D", action="store_true", help="debug mode.")
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("target", help="path to an image, folder, video, or @image-list.txt.")
+    parser.add_argument("--mask", help="path to the mask file.")
+    parser.add_argument("--model-path", help="/path/to/the/model", default=None)
+    parser.add_argument("--device", type=validate_provider_key, default="default",
+                        help="ONNX device: default, cpu, dml[:index], cuda[:index], coreml.")
+    parser.add_argument("--exclude-noise", action="store_true")
+    parser.add_argument("--model-type",
+                        help="type of the model. Support YOLO.",
+                        default="YOLOModel")
+    parser.add_argument("--debayer",
+                        help="apply debayer to the given image/video.",
+                        action="store_true")
+    parser.add_argument("--debayer-pattern",
+                        help="debayer pattern, like RGGB or BGGR.")
+    parser.add_argument("--scale",
+                        "-M",
+                        type=int,
+                        default=2,
+                        help="multiscale num.")
+    parser.add_argument("--partition",
+                        "-P",
+                        type=int,
+                        default=2,
+                        help="partition in pyramid.")
+    parser.add_argument("--visu",
+                        "-V",
+                        action="store_true",
+                        help="show detect results.")
+    parser.add_argument("--visu-resolution",
+                        "-R",
+                        type=str,
+                        help="detect results showing resolution.")
+    parser.add_argument("--save-path", "-S", type=str, help="save path for MDRF.")
+    parser.add_argument("--debug", "-D", action="store_true", help="debug mode.")
 
-args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.device != "default" and args.device.partition(":")[0] not in AVAILABLE_DEVICE_ALIAS:
+        parser.error(f"Requested ONNX device is not installed: {args.device}")
 
-if args.model_path is None:
-    args.model_path = "./weights/yolov5s_v2.onnx"
+    if args.model_path is None:
+        args.model_path = "./weights/yolov5s_v2.onnx"
 
-input_path = args.target
-model_path = relative2abs_path(
-    args.model_path) if not path.isabs(args.model_path) else args.model_path
-visu_resolution = parse_resize_param(
-    args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE
-) if args.visu_resolution else DEFAULT_VISUAL_WINDOW_SIZE
+    list_mode = args.target.startswith("@")
+    input_path = args.target[1:] if list_mode else args.target
+    img_list = load_image_manifest(input_path) if list_mode else None
+    model_path = relative2abs_path(
+        args.model_path) if not path.isabs(args.model_path) else args.model_path
+    visu_resolution = parse_resize_param(
+        args.visu_resolution, DEFAULT_VISUAL_WINDOW_SIZE
+    ) if args.visu_resolution else DEFAULT_VISUAL_WINDOW_SIZE
 
-set_default_logger(debug_mode=args.debug, work_mode="frontend")
-logger = get_default_logger()
+    set_default_logger(debug_mode=args.debug, work_mode="frontend")
+    logger = get_default_logger()
 
-model = YOLOModel(model_path,
-                  dtype="float32",
-                  nms=True,
-                  warmup=True,
-                  logger=logger,
-                  multiscale_pred=args.scale,
-                  multiscale_partition=args.partition)
-logger.start()
-valid_flag = False
-results: list[SingleImgRecord] = []
-video = None
-try:
-    if os.path.isdir(input_path):
-        # img folder mode
-        img_list = [
-            os.path.join(input_path, x)
-            for x in cast(list[str], os.listdir(input_path))
-            if is_ext_within(x, SUPPORT_ALL_IMG_FORMAT)
-        ]
-        visual_manager = OpenCVMetVisu(exp_time=1,
-                                       resolution=visu_resolution,
-                                       flag=args.visu)
-        img_loader = MultiThreadImgLoader(img_list, logger=logger)
-        # temp fix: mock video object
-        video = MockVideoObject(image_folder=input_path)
-        try:
-            img_loader.start()
-            iterator = range(len(img_list))
-            for i in tqdm.tqdm(iterator, total=len(img_list), ncols=100):
-                img_path, img = img_loader.pop()
-                # exits when encounter empty results
+    model = YOLOModel(model_path,
+                      dtype="float32",
+                      nms=True,
+                      warmup=True,
+                      logger=logger,
+                      providers_key=args.device,
+                      multiscale_pred=args.scale,
+                      multiscale_partition=args.partition)
+    logger.start()
+    valid_flag = False
+    results: list[SingleImgRecord] = []
+    video = None
+    try:
+        if list_mode or os.path.isdir(input_path):
+            # img folder mode
+            img_list = img_list if list_mode else [
+                os.path.join(input_path, x)
+                for x in sorted(cast(list[str], os.listdir(input_path)))
+                if is_ext_within(x, SUPPORT_ALL_IMG_FORMAT)
+            ]
+            visual_manager = OpenCVMetVisu(exp_time=1,
+                                           resolution=visu_resolution,
+                                           flag=args.visu)
+            img_loader = MultiThreadImgLoader(img_list, logger=logger)
+            # temp fix: mock video object
+            video = MockVideoObject(image_folder=input_path)
+            try:
+                img_loader.start()
+                iterator = range(len(img_list))
+                for i in tqdm.tqdm(iterator, total=len(img_list), ncols=100):
+                    img_path, img = img_loader.pop()
+                    # exits when encounter empty results
+                    if img is None:
+                        logger.error(f"Failed to load image {img_path or img_list[i]}.")
+                        if img_path is None: break
+                        continue
+                    # TODO: Cached resized mask
+                    if args.mask:
+                        mask = load_mask(args.mask, list(img.shape[1::-1]))
+                        img = img * mask
+                    boxes, preds = model.forward(img)
+                    if args.visu:
+                        visu_info = construct_visu_info(boxes,
+                                                        preds,
+                                                        watermark_text=img_path)
+                        visual_manager.display_a_frame(img, visu_info)
+                        if visual_manager.manual_stop:
+                            logger.info('Manual interrupt signal detected.')
+                            break
+                    if args.exclude_noise:
+                        boxes, preds = exclude_predictions_by_name(
+                            boxes, preds, EXCLUDE_LIST)
+                    if len(boxes) > 0:
+                        results.append(
+                            SingleImgRecord(
+                                boxes=[list(map(int, x)) for x in boxes],
+                                preds=[
+                                    ID2NAME[int(np.argmax(pred))] for pred in preds
+                                ],
+                                prob=[
+                                    f"{pred[int(np.argmax(pred))]:.2f}"
+                                    for pred in preds
+                                ],
+                                img_size=list(img.shape)[1::-1],
+                                img_filename=img_path))
+                        logger.meteor(str(results[-1]))
+                    else:
+                        logger.debug(
+                            f"Image {img_path} detection finished with no result.")
+            except (Exception, KeyboardInterrupt) as e:
+                logger.error(f"detection terminates caused by: {e.__repr__()}")
+            finally:
+                if not img_loader.stopped:
+                    img_loader.stop()
+
+        elif os.path.isfile(input_path):
+            suffix = input_path.split(".")[-1].lower()
+
+            if suffix in SUPPORT_ALL_IMG_FORMAT:
+                # img mode
+                # temp fix: mock video object
+                video = MockVideoObject(image_folder=input_path)
+                if is_ext_within(input_path, SUPPORT_COMMON_FORMAT):
+                    img = load_8bit_image(input_path)
+                else:
+                    img = load_raw_with_preprocess(input_path, output_bps=8)
                 if img is None:
-                    if img_path is None: break
-                    continue
-                # TODO: Cached resized mask
-                if args.mask:
-                    mask = load_mask(args.mask, list(img.shape[1::-1]))
-                    img = img * mask
+                    raise ValueError(
+                        f"Failed to load image file from {input_path}.")
+                mask = load_mask(args.mask, list(img.shape[1::-1]))
+                img = img * mask
+                visual_manager = OpenCVMetVisu(exp_time=1,
+                                               resolution=visu_resolution,
+                                               flag=args.visu)
                 boxes, preds = model.forward(img)
-                if args.visu:
-                    visu_info = construct_visu_info(boxes,
-                                                    preds,
-                                                    watermark_text=img_path)
-                    visual_manager.display_a_frame(img, visu_info)
-                    if visual_manager.manual_stop:
-                        logger.info('Manual interrupt signal detected.')
-                        break
                 if args.exclude_noise:
                     boxes, preds = exclude_predictions_by_name(
                         boxes, preds, EXCLUDE_LIST)
-                if len(boxes) > 0:
-                    results.append(
-                        SingleImgRecord(
-                            boxes=[list(map(int, x)) for x in boxes],
-                            preds=[
-                                ID2NAME[int(np.argmax(pred))] for pred in preds
-                            ],
-                            prob=[
-                                f"{pred[int(np.argmax(pred))]:.2f}"
-                                for pred in preds
-                            ],
-                            img_size=list(img.shape)[1::-1],
-                            img_filename=img_path))
-                    logger.meteor(str(results[-1]))
-                else:
-                    logger.debug(
-                        f"Image {img_path} detection finished with no result.")
-        except (Exception, KeyboardInterrupt) as e:
-            logger.error(f"detection terminates caused by: {e.__repr__()}")
-        finally:
-            if not img_loader.stopped:
-                img_loader.stop()
-
-    elif os.path.isfile(input_path):
-        suffix = input_path.split(".")[-1].lower()
-
-        if suffix in SUPPORT_ALL_IMG_FORMAT:
-            # img mode
-            # temp fix: mock video object
-            video = MockVideoObject(image_folder=input_path)
-            if is_ext_within(input_path, SUPPORT_COMMON_FORMAT):
-                img = load_8bit_image(input_path)
-            else:
-                img = load_raw_with_preprocess(input_path, output_bps=8)
-            if img is None:
-                raise ValueError(
-                    f"Failed to load image file from {input_path}.")
-            mask = load_mask(args.mask, list(img.shape[1::-1]))
-            img = img * mask
-            visual_manager = OpenCVMetVisu(exp_time=1,
-                                           resolution=visu_resolution,
-                                           flag=args.visu)
-            boxes, preds = model.forward(img)
-            if args.exclude_noise:
-                boxes, preds = exclude_predictions_by_name(
-                    boxes, preds, EXCLUDE_LIST)
-            results = [
-                SingleImgRecord(
-                    boxes=[list(map(int, x)) for x in boxes],
-                    preds=[ID2NAME[int(np.argmax(pred))] for pred in preds],
-                    prob=[
-                        f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds
-                    ],
-                    img_filename=input_path)
-            ]
-            logger.info(str(results))
-            if args.visu:
-                visu_info = construct_visu_info(boxes,
-                                                preds,
-                                                watermark_text=input_path)
-                visual_manager.display_a_frame(img, visu_info)
-                cv2.waitKey(0)
-        elif suffix in SUPPORT_VIDEO_FORMAT:
-            # video mode
-            video = ThreadVideoLoader(OpenCVVideoWrapper,
-                                      input_path,
-                                      hwaccel=None,
-                                      mask_name=args.mask,
-                                      exp_option="real-time",
-                                      debayer=args.debayer,
-                                      debayer_pattern=args.debayer_pattern,
-                                      continue_on_err=True)
-            tot_frames = video.iterations
-            video.start()
-            visual_manager = OpenCVMetVisu(exp_time=1,
-                                           resolution=visu_resolution,
-                                           flag=args.visu)
-            results = []
-            for i in tqdm.tqdm(range(tot_frames)):
-                img = video.pop()
-                if img is None: continue
-                boxes, probs = model.forward(img)
+                results = [
+                    SingleImgRecord(
+                        boxes=[list(map(int, x)) for x in boxes],
+                        preds=[ID2NAME[int(np.argmax(pred))] for pred in preds],
+                        prob=[
+                            f"{pred[int(np.argmax(pred))]:.2f}" for pred in preds
+                        ],
+                        img_filename=input_path)
+                ]
+                logger.info(str(results))
                 if args.visu:
-                    visu_info = construct_visu_info(
-                        boxes, probs, watermark_text=f"{i}/{tot_frames} imgs")
+                    visu_info = construct_visu_info(boxes,
+                                                    preds,
+                                                    watermark_text=input_path)
                     visual_manager.display_a_frame(img, visu_info)
-                    if visual_manager.manual_stop:
-                        logger.info('Manual interrupt signal detected.')
-                        break
-                if args.exclude_noise:
-                    boxes, probs = exclude_predictions_by_name(
-                        boxes, probs, EXCLUDE_LIST)
-                preds = [ID2NAME[int(np.argmax(pred))] for pred in probs]
-                if len(boxes) > 0:
-                    results.append(
-                        SingleImgRecord(
-                            boxes=[list(map(int, x)) for x in boxes],
-                            preds=preds,
-                            prob=[
-                                f"{pred[int(np.argmax(pred))]:.2f}"
-                                for pred in probs
-                            ],
-                            num_frame=i))
-                    logger.meteor(str(results[-1]))
+                    cv2.waitKey(0)
+            elif suffix in SUPPORT_VIDEO_FORMAT:
+                # video mode
+                video = ThreadVideoLoader(OpenCVVideoWrapper,
+                                          input_path,
+                                          hwaccel=None,
+                                          mask_name=args.mask,
+                                          exp_option="real-time",
+                                          debayer=args.debayer,
+                                          debayer_pattern=args.debayer_pattern,
+                                          continue_on_err=True)
+                tot_frames = video.iterations
+                video.start()
+                visual_manager = OpenCVMetVisu(exp_time=1,
+                                               resolution=visu_resolution,
+                                               flag=args.visu)
+                results = []
+                for i in tqdm.tqdm(range(tot_frames)):
+                    img = video.pop()
+                    if img is None: continue
+                    boxes, probs = model.forward(img)
+                    if args.visu:
+                        visu_info = construct_visu_info(
+                            boxes, probs, watermark_text=f"{i}/{tot_frames} imgs")
+                        visual_manager.display_a_frame(img, visu_info)
+                        if visual_manager.manual_stop:
+                            logger.info('Manual interrupt signal detected.')
+                            break
+                    if args.exclude_noise:
+                        boxes, probs = exclude_predictions_by_name(
+                            boxes, probs, EXCLUDE_LIST)
+                    preds = [ID2NAME[int(np.argmax(pred))] for pred in probs]
+                    if len(boxes) > 0:
+                        results.append(
+                            SingleImgRecord(
+                                boxes=[list(map(int, x)) for x in boxes],
+                                preds=preds,
+                                prob=[
+                                    f"{pred[int(np.argmax(pred))]:.2f}"
+                                    for pred in probs
+                                ],
+                                num_frame=i))
+                        logger.meteor(str(results[-1]))
+            else:
+                raise NotImplementedError(
+                    f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_ALL_IMG_FORMAT}."
+                )
         else:
-            raise NotImplementedError(
-                f"Unsupport file suffix \"{suffix}\". For now this only support {SUPPORT_VIDEO_FORMAT} and {SUPPORT_ALL_IMG_FORMAT}."
-            )
-    else:
-        raise FileNotFoundError(f"File {input_path} does not exist!")
-    valid_flag = True
+            raise FileNotFoundError(f"File {input_path} does not exist!")
+        valid_flag = True
 
-    # 保存结果
-    if valid_flag and args.save_path and video is not None:
-        fin_result = MDRF(
-            version=VERSION,
-            basic_info=video.summary(),
-            config=None,
-            type="image-prediction"
-            if isinstance(video, MockVideoObject) else "timelapse-prediction",
-            anno_size=video.summary().resolution,
-            results=results)
-        save_path = save_path_handler(args.save_path, input_path, ext="json")
-        logger.info(f"Result saved to: {save_path}")
-        with open(save_path, mode="w", encoding="utf-8") as f:
-            json.dump(fin_result.to_dict(), f, ensure_ascii=False, indent=4)
+        # 保存结果
+        if valid_flag and args.save_path and video is not None:
+            fin_result = MDRF(
+                version=VERSION,
+                basic_info=video.summary(),
+                config=None,
+                type="image-prediction"
+                if isinstance(video, MockVideoObject) else "timelapse-prediction",
+                anno_size=video.summary().resolution,
+                results=results)
+            save_path = save_path_handler(args.save_path, input_path, ext="json")
+            logger.info(f"Result saved to: {save_path}")
+            with open(save_path, mode="w", encoding="utf-8") as f:
+                json.dump(fin_result.to_dict(), f, ensure_ascii=False, indent=4)
 
-except Exception as e:
-    logger.error(e.__repr__())
-finally:
-    logger.stop()
+    except Exception as e:
+        logger.error(e.__repr__())
+    finally:
+        logger.stop()
+
+
+if __name__ == "__main__":
+    main()
