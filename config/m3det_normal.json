@@ -65,6 +65,7 @@
                 "weight_path": "./weights/yolov5s_v2.onnx",
                 "dtype": "float32",
                 "input_color_order": "rgb",
+                "num_threads": 0,
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.10,

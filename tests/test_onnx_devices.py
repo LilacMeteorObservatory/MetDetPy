@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import numpy as np
 import pytest
@@ -19,8 +19,13 @@ def test_indexed_provider_options(monkeypatch, alias, provider):
     monkeypatch.setattr(model, "is_lfs_pointer", lambda _: False)
     backend = model.ONNXBackend("model.onnx", np.float32, False, f"{alias}:1")
     constructor.assert_called_once_with(
-        "model.onnx", providers=[(provider, {"device_id": "1"}), "CPUExecutionProvider"],
+        "model.onnx", sess_options=ANY,
+        providers=[(provider, {"device_id": "1"}), "CPUExecutionProvider"],
         enable_fallback=False)
+    assert constructor.call_args.kwargs["sess_options"].intra_op_num_threads == 0
+    options = constructor.call_args.kwargs["sess_options"]
+    assert options.execution_mode == model.ort.ExecutionMode.ORT_SEQUENTIAL
+    assert options.enable_mem_pattern is (alias != "dml")
     assert backend.device == f"{provider}:1"
 
 

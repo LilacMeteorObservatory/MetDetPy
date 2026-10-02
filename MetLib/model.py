@@ -9,7 +9,7 @@ import threading
 from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
-from .metstruct import ModelCfg
+from .metstruct import ModelCfg, validate_num_threads
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
 
 ort.set_default_logger_severity(4)
@@ -99,7 +99,8 @@ class Backend(metaclass=ABCMeta):
                  dtype: DTypeLike,
                  warmup: bool,
                  providers_key: Optional[str] = None,
-                 logger: Optional[BaseMetLog] = None) -> None:
+                 logger: Optional[BaseMetLog] = None,
+                 num_threads: int = 0) -> None:
         pass
 
     @property
@@ -128,7 +129,8 @@ class ONNXBackend(Backend):
                  dtype: DTypeLike,
                  warmup: bool,
                  providers_key: str,
-                 logger: Optional[BaseMetLog] = None) -> None:
+                 logger: Optional[BaseMetLog] = None,
+                 num_threads: int = 0) -> None:
         f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
         Args:
             weight_path (str): /path/to/the/weight/file.
@@ -136,7 +138,10 @@ class ONNXBackend(Backend):
             warmup (bool, optional): warmup to model before batch processing. Defaults to True.
             providers_key (str, optional): model provider. Defaults to None.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+            num_threads (int): CPU intra-op threads including the calling thread.
+                Defaults to 0 (ORT automatic selection); does not control GPU threads.
         """
+        validate_num_threads(num_threads)
         self.weight_path = weight_path
         self.dtype = dtype
         self.logger = logger
@@ -171,7 +176,10 @@ class ONNXBackend(Backend):
             
         session_kwargs = ({"enable_fallback": False}
                           if requested_provider is not None else {})
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = num_threads
         self.model_session = ort.InferenceSession(self.weight_path,
+                                                  sess_options=session_options,
                                                   providers=providers,
                                                   **session_kwargs)
         if (requested_provider is not None
@@ -257,7 +265,8 @@ class YOLOModel(object):
                  hw_tolerance: float = 0.2,
                  providers_key: Optional[str] = None,
                  input_color_order: str = "rgb",
-                 logger: BaseMetLog = logger) -> None:
+                 logger: BaseMetLog = logger,
+                 num_threads: int = 0) -> None:
         r"""Init a YOLOModel that handles YOLO-like inputs and outputs.
 
         Args:
@@ -288,6 +297,8 @@ class YOLOModel(object):
                 Supported values are ``"rgb"`` and ``"bgr"``. Defaults to
                 ``"rgb"``.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+            num_threads (int): Backend CPU inference threads, 0 for automatic.
+                For ORT this controls intra-op parallelism, not inter-op or decoding.
         """
         self.weight_path = weight_path
         self.dtype = STR2DTYPE.get(dtype, np.float32)
@@ -320,9 +331,11 @@ class YOLOModel(object):
                                                 self.dtype,
                                                 warmup,
                                                 providers_key,
-                                                logger=self.logger)
+                                                logger=self.logger,
+                                                num_threads=num_threads)
         self.logger.info(
-            f"Sucessfully load {self.weight_path} on device= {self.backend.device} with Warmup={warmup}."
+            f"Sucessfully load {self.weight_path} on device= {self.backend.device} "
+            f"with Warmup={warmup}, num_threads={num_threads} (0=auto)."
         )
 
         # for yolo only first argument is working.
@@ -548,4 +561,5 @@ def init_model(cfg: ModelCfg, logger: BaseMetLog):
                  multiscale_partition=cfg.multiscale_partition,
                  providers_key=cfg.providers_key,
                  input_color_order=cfg.input_color_order,
+                 num_threads=cfg.num_threads,
                  logger=logger)
