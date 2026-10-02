@@ -154,6 +154,30 @@ python MetDetPhoto.py target [--mask MASK]
 | `--visu-resolution` | 可视化窗口的分辨率设置 | 默认分辨率 |
 | `--save-path` | 保存检测结果到 [MDRF](../data-format-cn.md#流星检测记录格式(MDRF)) 格式文件中 | 不保存 |
 
+### 多设备推理
+
+文件夹、`@清单文件` 和延时视频默认使用全部可用 DML GPU；单张图像保持单设备。
+重复物理显卡和软件适配器会被排除。没有 DML 时保留原有单设备自动选择；
+自动模式跳过初始化失败的 GPU，全部失败时回退 CPU。显式设备初始化失败会记录并结束。
+
+```sh
+python MetDetPhoto.py --list-devices
+python MetDetPhoto.py @images.txt --device gpu --save-path results.json
+python MetDetPhoto.py ./images --device dml:0,dml:1
+python MetDetPhoto.py timelapse.mp4 --device gpu,cpu --num-threads 2
+python MetDetPhoto.py ./images --device coreml,cpu --num-threads 1
+python MetDetPhoto.py ./images --device default
+```
+
+`dml` 由 ORT 自动选择一张 GPU，`gpu` 使用全部可用 DML GPU。支持 `dml,cpu`，拒绝 `dml,dml:N` 混选。
+默认 DML 与 `dml` 共用 `dml` 锁；显式 DML 按规范化的设备索引共用锁，不同索引可并行。
+ONNXBackend 禁止同一进程混用自动 DML 和显式索引；照片、视频和直接调用模型都遵守此约束，锁注册表保留至进程结束。
+
+`--num-threads` 控制 CPU 推理工作设备，默认单独运行为 `0`（自动）、混用为 `1`。
+CoreML 可能自行使用 CPU/GPU/Neural Engine，因此 `coreml,cpu` 不保证更快。
+结果仍按输入顺序保存，视频保留原始帧序号；日志报告含初始化的整批耗时和各设备平均推理耗时。
+`--list-devices` 不加载模型，列出的候选是否能运行当前模型会在初始化时验证。
+
 ### MetDetPhoto 使用示例
 
 #### 基础用法

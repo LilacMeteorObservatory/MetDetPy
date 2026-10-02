@@ -11,6 +11,7 @@ from numpy.typing import DTypeLike, NDArray
 from .metlog import BaseMetLog, get_default_logger
 from .metstruct import ModelCfg, validate_num_threads
 from .profiling import profiled
+from .onnx_devices import discover_dml_adapters
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
 
 ort.set_default_logger_severity(4)
@@ -124,7 +125,24 @@ class Backend(metaclass=ABCMeta):
 
 
 class ONNXBackend(Backend):
-    _global_lock = threading.Lock()
+    _device_locks: dict[str, threading.Lock] = {}
+    _device_locks_guard = threading.Lock()
+
+    @classmethod
+    def _get_device_lock(cls, key: str):
+        # Hold the registry guard only while locating/creating a device lock.
+        with cls._device_locks_guard:
+            if key not in cls._device_locks:
+                conflict = (any(existing.startswith("dml:") for existing in cls._device_locks)
+                            if key == "dml" else
+                            key.startswith("dml:") and "dml" in cls._device_locks)
+                if conflict:
+                    raise ValueError(
+                        "Cannot mix automatic DML (dml/default) with indexed DML "
+                        "(dml:N) in one process. Use one DML selection mode consistently.")
+                cls._device_locks[key] = threading.Lock()
+            return cls._device_locks[key]
+
     def __init__(self,
                  weight_path: str,
                  dtype: DTypeLike,
@@ -159,6 +177,7 @@ class ONNXBackend(Backend):
             if requested_provider not in ort.get_available_providers():
                 raise ValueError(f"ONNX provider {requested_provider} is not installed.")
             self._device_index = int(index)
+            self._device_key = f"{alias}:{self._device_index}"
             providers = [(requested_provider, {"device_id": str(self._device_index)}),
                          "CPUExecutionProvider"]
         else:
@@ -168,6 +187,10 @@ class ONNXBackend(Backend):
                     "Fall back to default provider.")
             providers = DEVICE_MAPPING.get(providers_key or DEFAULT_STR,
                                            DEVICE_MAPPING[DEFAULT_STR])
+            # Default uses the configured provider family, without probing a Session.
+            self._device_key = next(
+                (alias for alias, choices in DEVICE_MAPPING.items()
+                 if alias != DEFAULT_STR and choices[0] == providers[0]), providers[0])
         
         if is_lfs_pointer(self.weight_path):
             raise RuntimeError(
@@ -175,6 +198,7 @@ class ONNXBackend(Backend):
                 "Please pull the actual model file using Git LFS."
             )
             
+        self._lock = self._get_device_lock(self._device_key)
         session_kwargs = ({"enable_fallback": False}
                           if requested_provider is not None else {})
         session_options = ort.SessionOptions()
@@ -205,11 +229,12 @@ class ONNXBackend(Backend):
         if warmup:
             # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
             # 无法适配当前backend模型
-            _ = self.model_session.run(
-                [], {
-                    name: np.zeros(shape, dtype=self.dtype)
-                    for name, shape in zip(self.input_name, self.input_shape)
-                })
+            with self._lock:
+                _ = self.model_session.run(
+                    [], {
+                        name: np.zeros(shape, dtype=self.dtype)
+                        for name, shape in zip(self.input_name, self.input_shape)
+                    })
 
     @property
     def input_shape(self) -> list[list[int]]:
@@ -239,7 +264,7 @@ class ONNXBackend(Backend):
             acquired within LOCK_TIMEOUT seconds.
         """
         assert len(self.input_name) > 0, "invalid input name cnt."
-        acquired = self._global_lock.acquire(timeout=LOCK_TIMEOUT)
+        acquired = self._lock.acquire(timeout=LOCK_TIMEOUT)
         if not acquired:
             if self.logger:
                 self.logger.warning(
@@ -254,7 +279,7 @@ class ONNXBackend(Backend):
                 for name, tensor in zip(self.input_name, x)
             })
         finally:
-            self._global_lock.release()
+            self._lock.release()
 
 
 class YOLOModel(object):
@@ -328,6 +353,15 @@ class YOLOModel(object):
                 f"Expected one of {sorted(SUPPORTED_INPUT_COLOR_ORDERS)}.")
         if providers_key is None:
             providers_key = DEFAULT_STR
+
+        if providers_key.startswith("dml:"):
+            try:
+                index = int(providers_key.split(":")[1])
+                adapter = next((a for a in discover_dml_adapters() if a.index == index), None)
+                if adapter is not None and adapter.duplicate_of is not None:
+                    providers_key = f"dml:{adapter.duplicate_of}"
+            except OSError as error:
+                self.logger.warning(f"DML initialization identity query failed: {error}")
 
         # init model
         model_suffix = self.weight_path.split(".")[-1].lower()

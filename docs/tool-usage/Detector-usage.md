@@ -174,6 +174,35 @@ python MetDetPhoto.py target [--mask MASK]
 | `--visu-resolution` | Visualization window resolution setting | Default resolution |
 | `--save-path` | Save detection results to [MDRF](../data-format.md#meteor-detection-recording-format-mdrf) format file | Not saved |
 
+### Multi-device inference
+
+Folders, `@image-list.txt` manifests and timelapse videos use all available DML GPUs by default.
+Single images keep single-device selection. Physical aliases and software adapters are excluded.
+Without DML, the existing single-device automatic selection is retained. Automatic mode skips GPUs
+that fail initialization and falls back to CPU if none succeed. Explicit device failures are logged
+and terminate initialization.
+
+```sh
+python MetDetPhoto.py --list-devices
+python MetDetPhoto.py @images.txt --device gpu --save-path results.json
+python MetDetPhoto.py ./images --device dml:0,dml:1
+python MetDetPhoto.py timelapse.mp4 --device gpu,cpu --num-threads 2
+python MetDetPhoto.py ./images --device coreml,cpu --num-threads 1
+python MetDetPhoto.py ./images --device default
+```
+
+`--device dml` lets ORT select one GPU; `gpu` uses all DML GPUs.
+`dml,cpu` is supported. Mixing `dml` with indexed DML devices (for example `dml,dml:1`) is rejected.
+Automatic DML sessions share the `dml` lock. Explicit DML sessions share a lock by canonical device index; different indices can run concurrently.
+ONNXBackend rejects mixing automatic and indexed DML in one process, including direct model calls. Lock registrations persist for the process lifetime.
+Lock keys follow initialization parameters; `default` maps to the preferred provider family, and ORT fallback does not change the lock key.
+
+`--num-threads` controls the CPU inference worker: defaults to `0` (automatic) alone, `1` when mixed.
+CoreML may itself use CPU/GPU/Neural Engine, so `coreml,cpu` is not guaranteed to improve throughput.
+Output keeps input order and original video frame numbers. Logs include total elapsed time with
+initialization and per-device mean inference time. `--list-devices` does not load a model;
+candidate model support is checked when initializing inference sessions.
+
 ### MetDetPhoto Usage Examples
 
 #### Basic Usage
