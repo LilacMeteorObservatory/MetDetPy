@@ -173,7 +173,7 @@ python MetDetPhoto.py ./images --device default
 默认 DML 与 `dml` 共用 `dml` 锁；显式 DML 按规范化的设备索引共用锁，不同索引可并行。
 ONNXBackend 禁止同一进程混用自动 DML 和显式索引；照片、视频和直接调用模型都遵守此约束，锁注册表保留至进程结束。
 
-`--num-threads` 控制 CPU 推理工作设备，默认单独运行为 `0`（自动）、混用为 `1`。
+`--num-threads` 控制 CPU 推理工作设备，默认单独运行为 `0`（自动）、混用为逻辑处理器数的四分之一（本机为 4）。
 CoreML 可能自行使用 CPU/GPU/Neural Engine，因此 `coreml,cpu` 不保证更快。
 结果仍按输入顺序保存，视频保留原始帧序号；日志报告含初始化的整批耗时和各设备平均推理耗时。
 `--list-devices` 不加载模型，列出的候选是否能运行当前模型会在初始化时验证。

@@ -197,7 +197,7 @@ Automatic DML sessions share the `dml` lock. Explicit DML sessions share a lock 
 ONNXBackend rejects mixing automatic and indexed DML in one process, including direct model calls. Lock registrations persist for the process lifetime.
 Lock keys follow initialization parameters; `default` maps to the preferred provider family, and ORT fallback does not change the lock key.
 
-`--num-threads` controls the CPU inference worker: defaults to `0` (automatic) alone, `1` when mixed.
+`--num-threads` controls the CPU inference worker: defaults to `0` (automatic) alone, one quarter of the logical CPU count when mixed.
 CoreML may itself use CPU/GPU/Neural Engine, so `coreml,cpu` is not guaranteed to improve throughput.
 Output keeps input order and original video frame numbers. Logs include total elapsed time with
 initialization and per-device mean inference time. `--list-devices` does not load a model;
