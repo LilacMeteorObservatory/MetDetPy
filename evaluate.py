@@ -301,8 +301,12 @@ def compare(video: OpenCVVideoWrapper,
     # TODO: 分别计算长/中/短的P/R/F1（长中短的划分如何决定？）
     # List of Gts
 
-    base_results = get_regularized_results(base_dict, video)
-    new_results = get_regularized_results(new_dict, video)
+    # The temporal cursor below requires chronological targets. Export records
+    # can arrive in completion order, including several targets in one record.
+    base_results = sorted(get_regularized_results(base_dict, video),
+                          key=lambda item: (item.start_frame, item.last_activate_frame))
+    new_results = sorted(get_regularized_results(new_dict, video),
+                         key=lambda item: (item.start_frame, item.last_activate_frame))
 
     mismatch_collection: list[MDTarget] = []
 
@@ -336,7 +340,7 @@ def compare(video: OpenCVVideoWrapper,
                 and (calculate_time_iou(instance,base_results[cur_id]) >= tiou) \
                 and calculate_area_iou(met2xyxy(instance.to_dict()), met2xyxy(base_results[cur_id].to_dict())) >= aiou:
                 # TEMP FIX: 向前兼容v2.1.0的标注，低置信度转DROPPED进行判定。
-                if base_results[cur_id].score <= pos_thre:
+                if gt_mode and base_results[cur_id].score <= pos_thre:
                     base_results[cur_id].category = "DROPPED"
                 base_category = base_results[cur_id].category
                 # 兼容。。。
@@ -360,7 +364,7 @@ def compare(video: OpenCVVideoWrapper,
     # 完整记录未匹配参考目标，使 MISSED 行和丢失数一致。
     for index, reference in enumerate(base_results):
         if not matched_id[index]:
-            reference_category = ("DROPPED" if reference.score <= pos_thre
+            reference_category = ("DROPPED" if gt_mode and reference.score <= pos_thre
                                   else reference.category)
             if reference_category == "UNKNOWN_AREA":
                 reference_category = "OTHERS"

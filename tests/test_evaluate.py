@@ -9,6 +9,7 @@ from MetLib.metstruct import SingleMDRecord
 def target(start=0, end=10, score=0.9):
     item = SimpleNamespace(start_frame=start, last_activate_frame=end,
                            start_time=f"{start:06d}", end_time=f"{end:06d}",
+                           last_activate_time=f"{end:06d}",
                            pt1=[1, 2], pt2=[8, 9], category="METEOR",
                            score=score)
     item.to_dict = lambda: dict(pt1=item.pt1, pt2=item.pt2)
@@ -54,6 +55,19 @@ def test_compare_counts_all_tail_predictions(monkeypatch):
     assert stats["lost_num"] == 0
 
 
+@pytest.mark.parametrize('base_order,new_order', [
+    ([2, 0, 1], [0, 1, 2]), ([0, 1, 2], [2, 0, 1]), ([2, 1, 0], [1, 2, 0])])
+def test_compare_matches_targets_exported_in_completion_order(monkeypatch, base_order, new_order):
+    targets = [target(0, 10), target(20, 30), target(40, 50)]
+    baseline = report([targets[i] for i in base_order])
+    predictions = report([targets[i] for i in new_order])
+    stats = compare(monkeypatch, baseline, predictions)
+    assert stats['matched_num'] == 3
+    assert stats['added_num'] == stats['lost_num'] == stats['category_changed_num'] == 0
+    assert stats['cross_ratio(A n B / A u B)'] == 1.0
+    assert [x.start_frame for x in baseline.results[0].target] == [targets[i].start_frame for i in base_order]
+
+
 def test_normalization_returns_independent_targets():
     original = target()
     source = report([original])
@@ -74,6 +88,24 @@ def test_low_score_candidates_remain_in_total(monkeypatch):
     assert stats["new_predict_num"] == 2
     assert stats["low_score_predict_num"] == 1
     assert stats["matrix"][:, -1].sum() == 1
+
+
+def test_prediction_comparison_preserves_low_score_reference_category(monkeypatch):
+    reference, prediction = target(score=0.4), target(score=0.4)
+    reference.category = prediction.category = 'PLANE/SATELLITE'
+    stats = compare(monkeypatch, report([reference]), report([prediction]))
+    assert stats['matched_num'] == 1
+    assert stats['category_changed_num'] == 0
+    index = evaluate.NAME2ID['PLANE/SATELLITE']
+    assert stats['matrix'][index, index] == 1
+    missing = compare(monkeypatch, report([reference]), report([]))
+    assert missing['matrix'][-1, index] == 1
+
+
+def test_annotation_comparison_keeps_low_score_dropped_convention(monkeypatch):
+    stats = compare(monkeypatch, report([target(score=0.4)], 'annotation'),
+                    report([target(score=0.9)]))
+    assert stats['matrix'][evaluate.NAME2ID['METEOR'], evaluate.NAME2ID['DROPPED']] == 1
 
 
 def test_classification_errors_count_as_fp_and_fn():
