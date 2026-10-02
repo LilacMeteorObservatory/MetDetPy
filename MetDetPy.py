@@ -190,6 +190,14 @@ def detect_video(video_name: str,
         if recheck_loader is not None:
             profilers.append(profile_loader(recheck_loader, "recheck_loader"))
         profilers.append(main_profiler)
+        if isinstance(detector, MLDetector):
+            model_profiler = StageProfiler("main_model")
+            detector.model.stage_profiler = model_profiler
+            profilers.append(model_profiler)
+        if recheck_cfg.switch:
+            model_profiler = StageProfiler("recheck_model")
+            meteor_collector.met_exporter.recheck_model.stage_profiler = model_profiler
+            profilers.append(model_profiler)
         if isinstance(detector, M3Detector):
             detector.stack.stage_profiler = main_profiler
 
