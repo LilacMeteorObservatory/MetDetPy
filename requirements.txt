@@ -12,3 +12,6 @@ rawpy>=0.20.0
 
 # if you want to run make_package.py please install
 # nuitka>=1.9.5
+
+# for development photo comparison plots, install:
+# matplotlib>=3.6
