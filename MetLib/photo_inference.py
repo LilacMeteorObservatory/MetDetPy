@@ -1,15 +1,20 @@
 """Bounded, ordered image inference with one model per device worker."""
+import os
 from collections import deque
 from concurrent.futures import Future
 from dataclasses import dataclass
 from queue import Queue
 from threading import Thread
 from time import perf_counter
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 from .metlog import BaseMetLog
 from .model import DEVICE_MAPPING, YOLOModel
-from .onnx_devices import describe_adapter, discover_dml_adapters, same_adapter, parse_photo_devices
+from .onnx_devices import (describe_adapter, discover_dml_adapters,
+                           parse_photo_devices, same_adapter)
+
+CPU_COUNT = os.cpu_count()
+CPU_THREAD_NUM: int = CPU_COUNT // 4 if CPU_COUNT else 1
 
 
 def create_photo_models(keys: list[str],
@@ -93,10 +98,11 @@ def create_photo_models(keys: list[str],
 
     for group in candidates:
         for key in group:
-            threads = (num_threads if num_threads is not None else
-                       1 if len(candidates) > 1 else 0) if key == "cpu" else (
-                           num_threads if key == "default"
-                           and num_threads is not None else 0)
+            threads = (
+                num_threads if num_threads is not None else CPU_THREAD_NUM
+                if len(candidates) > 1 else 0) if key == "cpu" else (
+                    num_threads
+                    if key == "default" and num_threads is not None else 0)
             try:
                 add(key, threads)
                 break
@@ -116,7 +122,7 @@ def create_photo_models(keys: list[str],
                     isinstance(getattr(m.backend, "device", None), str)
                     and m.backend.device.startswith("CPUExecutionProvider")
                     for _, m in models):
-                add("cpu", num_threads if num_threads is not None else 1)
+                add("cpu", num_threads if num_threads is not None else CPU_THREAD_NUM)
     return models
 
 

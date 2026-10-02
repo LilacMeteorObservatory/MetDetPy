@@ -61,7 +61,7 @@ def test_auto_skips_failed_representative_without_trying_alias(monkeypatch):
     models = create_photo_models(['gpu', 'cpu'], factory, ['dml', 'cpu'], Mock())
     assert [key for key, _ in models] == ['dml:1', 'cpu']
     assert [call.args[0] for call in factory.call_args_list] == ['dml:0', 'dml:1', 'cpu']
-    assert factory.call_args_list[-1].args == ('cpu', 1)
+    assert factory.call_args_list[-1].args == ('cpu', photo_inference.CPU_THREAD_NUM)
 
 
 def test_explicit_aliases_and_cpu_threads(monkeypatch):
@@ -73,7 +73,7 @@ def test_explicit_aliases_and_cpu_threads(monkeypatch):
     assert factory.call_args_list[-1].args == ('cpu', 3)
     factory.reset_mock()
     create_photo_models(['coreml', 'cpu'], factory, ['coreml', 'cpu'], Mock())
-    assert [call.args for call in factory.call_args_list] == [('coreml', 0), ('cpu', 1)]
+    assert [call.args for call in factory.call_args_list] == [('coreml', 0), ('cpu', photo_inference.CPU_THREAD_NUM)]
 
 
 def test_all_gpu_fail_falls_back_but_explicit_failure_raises(monkeypatch):
@@ -231,7 +231,7 @@ def test_bare_dml_cpu_selection_is_allowed(monkeypatch):
     monkeypatch.setattr(photo_inference, 'discover_dml_adapters', lambda: [adapter(0)])
     models = create_photo_models(['dml', 'cpu'], factory, ['dml', 'cpu'], Mock())
     assert [key for key, _ in models] == ['dml', 'cpu']
-    assert factory.call_args_list[-1].args == ('cpu', 1)
+    assert factory.call_args_list[-1].args == ('cpu', photo_inference.CPU_THREAD_NUM)
 
 
 @pytest.mark.parametrize('first,second', [

@@ -164,7 +164,7 @@ def main(argv=None):
         type=int,
         default=None,
         help=
-        "CPU inference threads: defaults to 0 alone, 1 when mixed with other devices."
+        "CPU inference threads: defaults to 0 alone, one quarter of the logical CPU count when mixed."
     )
     parser.add_argument("--exclude-noise", action="store_true")
     parser.add_argument("--model-type",
