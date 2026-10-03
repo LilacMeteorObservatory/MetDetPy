@@ -2,7 +2,7 @@
     "description": {
         "preset_name_en": "DLDet-FP16",
         "preset_name_cn": "DLDet-FP16",
-        "intro_cn": "FP16精度深度学习检测器，速度更快，检测结果可能有轻微差异。",
+        "intro_cn": "FP16精度的深度学习检测器，速度更快，检测结果可能有轻微差异。",
         "intro_en": "Lightweight deep-learning detector that prioritizes speed, with possible minor differences in detection results."
     },
     "loader": {
