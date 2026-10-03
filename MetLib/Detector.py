@@ -24,6 +24,7 @@ from .metstruct import BinaryCfg, Box, BrightnessCfg, DLCfg
 from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
                       SquareColorPair, TextColorPair, TextVisu)
 from .model import init_model
+from .profiling import profiled
 from .utils import (EMA, PI, SlidingWindow, U8Mat, Uint8EMA, expand_cls_pred,
                     generate_group_interpolate, get_name2id, lineset_nms)
 
@@ -68,8 +69,10 @@ class SNR_SW(SlidingWindow):
                                         size=(sub_h, sub_w),
                                         dtype=np.uint8,
                                         force_int=True,
-                                        calc_std=False)
+                                        calc_std=False,
+                                        calc_max=False)
 
+    @profiled("m3.update.stack")
     def update(self, new_frame: U8Mat):
         super().update(new_frame)
         self.sub_sw.update(self.get_subarea(new_frame))
@@ -157,6 +160,25 @@ class BaseDetector(metaclass=ABCMeta):
         return []
 
 
+class MockDetector(BaseDetector):
+    """No-op detector for feed-pipeline benchmarks (gray or color input).
+
+    Keeps no image references and performs no image processing. Subclass this
+    detector to introduce controlled work in update/detect for experiments.
+    The standard detector config is accepted but unused.
+    """
+
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
+                 num_cls: int, cfg: Any, logger: BaseMetLog):
+        self.frames_seen = 0
+
+    def update(self, new_frame: U8Mat) -> None:
+        self.frames_seen += 1
+
+    def detect(self) -> tuple[list[list[int]], list[list[np.float64]]]:
+        return [], []
+
+
 class LineDetector(BaseDetector):
     """基于"二值化-Hough直线检测"的检测器类。
     作为抽象类，并不会产生检测结果。
@@ -213,7 +235,9 @@ class LineDetector(BaseDetector):
             self.dy_mask_list = SlidingWindow(n=self.stack_maxsize,
                                               size=self.mask.shape,
                                               dtype=np.uint8,
-                                              force_int=True)
+                                              force_int=True,
+                                              calc_max=False)
+            self._dy_mask_buffer = np.empty(self.mask.shape, dtype=np.uint8)
 
         # 动态间隔()
         # TODO: 待下线
@@ -235,11 +259,15 @@ class LineDetector(BaseDetector):
         # if "dynamic_mask" is applied, stack and mask dst
         self.dy_mask_list.update(act)
         # TODO: 进一步使Dy_mask稳定作用在持续产生响应的区域，并提供可调整的阈值。
-        dy_mask = np.array(self.dy_mask_list.sum
-                           <= (self.dy_mask_list.length - 1) * 255,
-                           dtype=np.uint8)
-        dy_mask = cv2.erode(dy_mask, self.cv_op)
-        return np.multiply(act, dy_mask)
+        np.less_equal(self.dy_mask_list.sum,
+                      (self.dy_mask_list.length - 1) * 255,
+                      out=self._dy_mask_buffer,
+                      casting="unsafe")
+        cv2.erode(self._dy_mask_buffer, self.cv_op, dst=self._dy_mask_buffer)
+        # The history window has already copied act; the caller no longer needs
+        # its unmasked contents, so reuse it for the result.
+        cv2.multiply(act, self._dy_mask_buffer, dst=act)
+        return act
 
 
 class ClassicDetector(LineDetector):
@@ -322,13 +350,16 @@ class M3Detector(LineDetector):
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
                  num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
         super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
+        self._mean_buffer = np.empty(self.mask.shape, dtype=np.uint8)
+        self._diff_buffer = np.empty(self.mask.shape, dtype=np.uint8)
 
     def detect(self):
         # Preprocessing
         # Mainly calculate diff_img (which basically equals to max-mid)
         light_img = self.stack.max
-        diff_img = light_img - self.stack.mean
-        diff_img = cv2.medianBlur(diff_img, 3)
+        np.subtract(light_img, self.stack.mean_into(self._mean_buffer),
+                    out=self._diff_buffer)
+        diff_img = cv2.medianBlur(self._diff_buffer, 3)
 
         # Post-processing后处理：二值化 + 闭运算
         _, dst = cv2.threshold(diff_img, self.bi_threshold, 255,
@@ -341,7 +372,7 @@ class M3Detector(LineDetector):
         if self.dynamic_cfg.dy_mask:
             dst = self.calculate_dy_mask(dst)
 
-        self.dst_sum = cast(float, np.sum(dst / 255.) / self.mask_area * 100)
+        self.dst_sum = cast(float, cv2.countNonZero(dst) / self.mask_area * 100)
         gap = max(
             0, 1 - self.dst_sum / self.max_allow_gap) * self.hough_cfg.max_gap
 

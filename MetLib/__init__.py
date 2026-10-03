@@ -1,7 +1,7 @@
 from typing import Callable, TypeVar
 
 from .Detector import (BaseDetector, ClassicDetector, DiffAreaGuidingDetecor,
-                       M3Detector, MLDetector)
+                       M3Detector, MLDetector, MockDetector)
 from .model import YOLOModel
 from .videoloader import ThreadVideoLoader, VanillaVideoLoader
 from .videowrapper import (BaseVideoWrapper, OpenCVVideoWrapper,
@@ -31,7 +31,7 @@ available_wrappers: list[type[BaseVideoWrapper]] = [
     OpenCVVideoWrapper, PyAVVideoWrapper
 ]
 available_detectors: list[type[BaseDetector]] = [
-    M3Detector, ClassicDetector, MLDetector, DiffAreaGuidingDetecor
+    M3Detector, ClassicDetector, MLDetector, DiffAreaGuidingDetecor, MockDetector
 ]
 
 available_writers: list[type[BaseVideoWriter]] = [

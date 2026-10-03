@@ -40,6 +40,7 @@ class ModelCfg {
     weight_path: str
     dtype: str
     input_color_order: str
+    num_threads: int
     nms: bool
     warmup: bool
     pos_thre: float
@@ -442,12 +443,17 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
 |dtype|str|描述网络的输入数据格式。当使用量化模型时，需在此处配置格式，否则程序可能无法正常运行。目前支持全精度（`"float32"`），半精度（`"float16"`）。|`"float32"`|
 |input_color_order|str|模型权重所期望的通道顺序。传给 `forward` 的图像固定为 BGR；配置为 `"rgb"` 时模型会自动转换。|`"rgb"`|
+|num_threads|int|模型后端的 CPU 算子内推理线程数，必须为非负整数；`0` 表示自动选择，省略时默认为 `0`。ORT 后端映射到 `intra_op_num_threads`。|0|
 |nms|bool|是否需要执行非最大值抑制NMS。如果构建的网络已附带NMS，则选择`false`以提升运行速度。|`true`|
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
 |pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.1|
 |nms_thre|float|去重时使用的阈值。|0.45|
 |multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
 |multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|
+
+`num_threads` 分别配置在主检测的 `detector.cfg.model` 和复检的 `collector.recheck_cfg.model` 中，例如 `"num_threads": 4`。M3Det 主检测不使用模型，仅复检使用此参数。
+
+该参数不控制视频解码线程、图执行的 inter-op 并行度或 GPU 线程数。在 ORT 中，正整数包括调用线程；使用 GPU provider 时，该设置用于 ORT 的 CPU 算子，不能限制 GPU 并行度。`0` 保留后端自动策略；不同后端或设备的相同数值不保证相同性能。[ORT 线程说明](https://onnxruntime.ai/docs/performance/tune-performance/threading.html)
 
 ## 剪切参数设置
 

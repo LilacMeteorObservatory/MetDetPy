@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from .profiling import profiled
 from .utils import U8Mat, keep1ret_value
 
 UINT8_MAX = 255
@@ -126,6 +127,7 @@ class Transform(object):
         self.transform.append(
             (cv2.cvtColor, dict(code=self.PATTERN_MAPPING[pattern], dstCn=3)))
 
+    @profiled("preprocess.total")
     def exec_transform(self, img: U8Mat) -> U8Mat:
         """按顺序对给定的输入执行给定的图像变换。
 
@@ -134,7 +136,7 @@ class Transform(object):
         Returns:
             MatLike: 变换后图像
         """
-        for [transform, kwargs] in self.transform:
+        for (transform, kwargs) in self.transform:
             img = transform(img, **kwargs)
         return img
 

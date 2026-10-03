@@ -17,7 +17,7 @@ from .metlog import get_default_logger
 from .metstruct import Box
 
 PROJECT_NAME = "MetDetPy"
-VERSION = "V2.5.0-rc"
+VERSION = "V2.6.0"
 EPS = 1e-2
 PI = np.pi / 180.0
 LIVE_MODE_SPEED_CTRL_CONST = 0.9
@@ -215,7 +215,8 @@ class SlidingWindow(object):
                  size: Sequence[int],
                  dtype: type = int,
                  force_int: bool = False,
-                 calc_std: bool = False) -> None:
+                 calc_std: bool = False,
+                 calc_max: bool = True) -> None:
         """_summary_
 
         Args:
@@ -224,7 +225,10 @@ class SlidingWindow(object):
             dtype (Type, optional): _description_. Defaults to int.
             force_int (bool, optional): 启用强制整数运算加速. Defaults to False.
             calc_std (bool, optional): _description_. Defaults to False.
+            calc_max (bool, optional): Maintain the window maximum. Defaults to True.
         """
+        if n < 1:
+            raise ValueError("SlidingWindow n must be >= 1")
         self.n = n
         self.timer = 0
         self.size = size
@@ -232,6 +236,7 @@ class SlidingWindow(object):
         self.dtype = dtype
         self.force_int = force_int
         self.calc_std = calc_std
+        self.calc_max = calc_max
         sum_dtype = float
         if self.force_int and dtype == np.uint8:
             sum_dtype = np.uint32
@@ -244,8 +249,8 @@ class SlidingWindow(object):
         self.sliding_window: NDArray[np.uint8] = np.zeros(shape=(n, ) +
                                                           tuple(size),
                                                           dtype=self.dtype)
-        self.stack_max_cache: NDArray[np.uint8] = np.zeros(shape=tuple(size),
-                                                           dtype=self.dtype)
+        self.stack_max_cache = (np.zeros(size, dtype=self.dtype)
+                                if calc_max else None)
 
     def update(self, new_frame: U8Mat):
         self.timer += 1
@@ -264,13 +269,24 @@ class SlidingWindow(object):
             self.square_sum += np.square(self.sliding_window[self.cur_index],
                                          dtype=np.uint32)
         # 更新最大值堆栈缓存
-        self.refresh_max()
+        if self.calc_max:
+            self.refresh_max()
 
     @property
     def mean(self) -> Union[NDArray[np.uint32], NDArray[np.float64]]:
+        """Return an independent array containing the current window mean."""
+        out = np.empty(self.size,
+                       dtype=self.dtype if self.force_int else np.float64)
+        return self.mean_into(out)
+
+    def mean_into(self, out: NDArray) -> NDArray:
+        """Write the current window mean into a caller-owned array."""
         if self.force_int:
-            return np.array(self.sum // self.length, dtype=self.dtype)
-        return self.sum / self.length
+            np.floor_divide(self.sum, self.length, out=out,
+                            casting="unsafe")
+        else:
+            np.divide(self.sum, self.length, out=out)
+        return out
 
     @property
     def length(self):
@@ -278,12 +294,16 @@ class SlidingWindow(object):
 
     @property
     def max(self) -> U8Mat:
+        if not self.calc_max:
+            raise RuntimeError("Maximum maintenance is disabled (calc_max=False)")
         return self.stack_max_cache
 
     def refresh_max(self) -> U8Mat:
         """refresh and return max stack result.
         Should only be used when the stack is updated manually.
         """
+        if not self.calc_max:
+            raise RuntimeError("Maximum maintenance is disabled (calc_max=False)")
         self.stack_max_cache = np.max(self.sliding_window, axis=0)
         return self.max
 
@@ -793,20 +813,21 @@ def lineset_nms(
         # 开始新的一组
         nms_ids.append(idx)
         nms_mask[idx] = 1
-        max_width = 0
-        for idy in length_sort[i:]:
-            if nms_mask[idy]: continue
-            # 距离小于长线的length_sqr//4 (长线的半径以内) 即收纳.
-            # TODO: 这个逻辑和过去并不一样。需要测试以验证稳定性。
-            if pt_len_sqr(centers[idx], centers[idy]) < length_sqr[idx] // 4:
-                nms_mask[idy] = 1
-                # max_width only include Ax+By.
-                max_width = max(
-                    max_width,
-                    np.abs(
-                        np.sum(length_params[idx, :2] * centers[idy]) +
-                        length_params[idx, -1]))
-        width_list.append(max_width)
+        candidates = length_sort[i + 1:]
+        candidates = candidates[nms_mask[candidates] == 0]
+        # Preserve greedy order and the strict, integer-rounded radius test.
+        delta = centers[idx] - centers[candidates]
+        distance_sqr = delta[:, 0]**2 + delta[:, 1]**2
+        absorbed = candidates[distance_sqr < length_sqr[idx] // 4]
+        nms_mask[absorbed] = 1
+        if absorbed.size:
+            # Keep np.sum's integer promotion, matching the scalar version.
+            widths = np.abs(
+                np.sum(length_params[idx, :2] * centers[absorbed], axis=1)
+                + length_params[idx, -1])
+            width_list.append(max(0, widths.max()))
+        else:
+            width_list.append(0)
 
     # 后处理
     nms_lines = lines[nms_ids]

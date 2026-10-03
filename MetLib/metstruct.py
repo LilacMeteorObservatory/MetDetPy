@@ -343,6 +343,12 @@ class LoaderCfg(DictAble):
     hwaccel: Optional[str] = None
 
 
+def validate_num_threads(num_threads: int) -> None:
+    """Validate a model's CPU inference thread count (0 means automatic)."""
+    if type(num_threads) is not int or num_threads < 0:
+        raise ValueError("num_threads must be a nonnegative integer (0 means automatic).")
+
+
 @dataclasses.dataclass
 class ModelCfg(DictAble):
     name: str
@@ -356,6 +362,10 @@ class ModelCfg(DictAble):
     multiscale_partition: int
     providers_key: Optional[str] = "default"
     input_color_order: Literal["rgb", "bgr"] = "rgb"
+    num_threads: int = 0
+
+    def __post_init__(self) -> None:
+        validate_num_threads(self.num_threads)
 
 
 @dataclasses.dataclass

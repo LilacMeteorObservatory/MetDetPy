@@ -1,18 +1,20 @@
 {
     "description": {
-        "preset_name_cn": "M3Det-通用（旧）",
-        "preset_name_en": "M3Det-general-old",
-        "intro_cn": "使用旧版本模型的通用自适应检测器。",
-        "intro_en": "Adaptive meteor detector. Suitable for most detection scenarios."
+        "preset_name_cn": "M3Det-通用",
+        "preset_name_en": "M3Det-general",
+        "intro_cn": "使用全精度模型的通用自适应检测器。",
+        "intro_en": "General adaptive meteor detector using FP32 model weights."
     },
     "loader": {
         "name": "ThreadVideoLoader",
-        "wrapper": "OpenCVVideoWrapper",
+        "wrapper": "PyAVVideoWrapper",
+        "hwaccel": null,
         "resize": 960,
         "exp_time": "auto",
         "merge_func": "max",
         "grayscale": true,
-        "upper_bound": 0.5
+        "upper_bound": 0.34,
+        "continue_on_err": true
     },
     "detector": {
         "name": "M3Detector",
@@ -53,21 +55,23 @@
                 0.6
             ],
             "det_thre": 0.5,
-            "thre2": 2048
+            "merge_dist_sqr": 2048,
+            "recheck_threshold": 0.25
         },
         "recheck_cfg": {
             "switch": true,
             "model": {
                 "name": "YOLOModel",
-                "weight_path": "./weights/yolov5s.onnx",
+                "weight_path": "./weights/yolov5s_v2.onnx",
                 "dtype": "float32",
                 "input_color_order": "rgb",
+                "num_threads": 0,
                 "nms": true,
                 "warmup": true,
                 "pos_thre": 0.10,
                 "nms_thre": 0.45,
-                "multiscale_pred":2,
-                "multiscale_partition":2
+                "multiscale_pred": 2,
+                "multiscale_partition": 2
             },
             "save_path": ""
         },

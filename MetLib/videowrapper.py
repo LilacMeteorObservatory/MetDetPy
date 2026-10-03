@@ -14,6 +14,7 @@ import av.error
 import cv2
 from cv2.typing import MatLike
 
+from .profiling import profiled, timed_call
 from .utils import frame2time, time2frame
 from .metlog import get_default_logger
 
@@ -189,6 +190,10 @@ class PyAVVideoWrapper(BaseVideoWrapper):
                                  hwaccel=self.video_decoder)
         self.video = self.container.streams.video[0]
         self.video.thread_type = "FRAME"
+        # Keep the scaling context across decoded frames. PyAV's
+        # VideoFrame.to_ndarray(format=...) otherwise owns a separate
+        # reformatter (and its worker threads) for each input frame.
+        self._bgr_reformatter = av.video.reformatter.VideoReformatter()
         self.video_frame_cache: list[av.VideoFrame] = []
         # CFR output timeline. Input frames are positioned only by their PTS.
         self._target_fps = self._select_target_fps()
@@ -278,8 +283,13 @@ class PyAVVideoWrapper(BaseVideoWrapper):
     def _decoded_frame_batches(self):
         """Yield decoded frame batches and treat decoder flush EOF normally."""
         try:
-            for packet in self.container.demux(self.video):
-                frames: list[av.VideoFrame] = packet.decode()  # type: ignore
+            packets = iter(self.container.demux(self.video))
+            while True:
+                try:
+                    packet = next(packets)
+                except StopIteration:
+                    break
+                frames = timed_call(self, "read.packet_decode", packet.decode)
                 if frames:
                     yield frames
         except av.error.EOFError:
@@ -344,6 +354,21 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
         return selected_frame
 
+    @profiled("read.to_ndarray_bgr")
+    def _to_bgr_ndarray(self, frame: av.VideoFrame):
+        # No threads argument: PyAV chooses its default automatic setting.
+        # This also works with PyAV releases before the threads parameter.
+        # Some recordings tag color primaries or transfer characteristics as
+        # 0 (reserved). PyAV 17.x / FFmpeg rejects those tags during swscale,
+        # even though decoding succeeded. Treat only that invalid tag as
+        # unspecified; keep valid source color metadata intact.
+        if getattr(frame, "color_primaries", None) == 0:
+            frame.color_primaries = 2
+        if getattr(frame, "color_trc", None) == 0:
+            frame.color_trc = 2
+        bgr_frame = self._bgr_reformatter.reformat(frame, format="bgr24")
+        return bgr_frame.to_ndarray()
+
     def read(self):
         """Read one frame from the CFR output timeline.
 
@@ -361,7 +386,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
             selected_frame = self._consume_until(output_time_sec)
 
             if selected_frame is not None:
-                self._last_frame_data = selected_frame.to_ndarray(format='bgr24')
+                self._last_frame_data = self._to_bgr_ndarray(selected_frame)
 
             if self._last_frame_data is None:
                 return False, None
@@ -373,9 +398,9 @@ class PyAVVideoWrapper(BaseVideoWrapper):
             logger.error(f"{e.__repr__()} encountered when reading "
                          f"video frame with {self.__class__.__name__}.")
             return False, None
-
     def release(self):
         self.container.close()
+        self._bgr_reformatter = None
 
     def set_to(self, frame_num: int):
         """设置当前指针位置。
@@ -406,7 +431,7 @@ class PyAVVideoWrapper(BaseVideoWrapper):
 
         selected_frame = self._consume_until(target_time_sec)
         if selected_frame is not None:
-            self._last_frame_data = selected_frame.to_ndarray(format='bgr24')
+            self._last_frame_data = self._to_bgr_ndarray(selected_frame)
 
         if self.video_frame_cache and self._last_frame_time_sec is not None:
             next_time_sec = self._frame_time_sec(self.video_frame_cache[0])

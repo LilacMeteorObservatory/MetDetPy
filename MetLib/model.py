@@ -9,7 +9,9 @@ import threading
 from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
-from .metstruct import ModelCfg
+from .metstruct import ModelCfg, validate_num_threads
+from .profiling import profiled
+from .onnx_devices import discover_dml_adapters
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
 
 ort.set_default_logger_severity(4)
@@ -39,6 +41,16 @@ WINDOWS_DLL_CHK_LIST = [
         "msvcp140.dll",
         "ucrtbase.dll"
     ]
+
+def validate_provider_key(value: str) -> str:
+    """Validate a backend alias with an optional nonnegative GPU index."""
+    alias, separator, index = value.partition(":")
+    if alias not in DEVICE_MAPPING:
+        raise ValueError(f"Unknown provider: {value!r}.")
+    if separator and (alias not in {"dml", "cuda"}
+                      or not index.isascii() or not index.isdecimal()):
+        raise ValueError("Device index must be a nonnegative integer, like: 'dml:0' or 'cuda:0'.")
+    return value
 
 
 def _cxcywh_to_tlwh(boxes: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -89,7 +101,8 @@ class Backend(metaclass=ABCMeta):
                  dtype: DTypeLike,
                  warmup: bool,
                  providers_key: Optional[str] = None,
-                 logger: Optional[BaseMetLog] = None) -> None:
+                 logger: Optional[BaseMetLog] = None,
+                 num_threads: int = 0) -> None:
         pass
 
     @property
@@ -112,13 +125,31 @@ class Backend(metaclass=ABCMeta):
 
 
 class ONNXBackend(Backend):
-    _global_lock = threading.Lock()
+    _device_locks: dict[str, threading.Lock] = {}
+    _device_locks_guard = threading.Lock()
+
+    @classmethod
+    def _get_device_lock(cls, key: str):
+        # Hold the registry guard only while locating/creating a device lock.
+        with cls._device_locks_guard:
+            if key not in cls._device_locks:
+                conflict = (any(existing.startswith("dml:") for existing in cls._device_locks)
+                            if key == "dml" else
+                            key.startswith("dml:") and "dml" in cls._device_locks)
+                if conflict:
+                    raise ValueError(
+                        "Cannot mix automatic DML (dml/default) with indexed DML "
+                        "(dml:N) in one process. Use one DML selection mode consistently.")
+                cls._device_locks[key] = threading.Lock()
+            return cls._device_locks[key]
+
     def __init__(self,
                  weight_path: str,
                  dtype: DTypeLike,
                  warmup: bool,
-                 providers_key: Optional[str] = None,
-                 logger: Optional[BaseMetLog] = None) -> None:
+                 providers_key: str,
+                 logger: Optional[BaseMetLog] = None,
+                 num_threads: int = 0) -> None:
         f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
         Args:
             weight_path (str): /path/to/the/weight/file.
@@ -126,20 +157,40 @@ class ONNXBackend(Backend):
             warmup (bool, optional): warmup to model before batch processing. Defaults to True.
             providers_key (str, optional): model provider. Defaults to None.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+            num_threads (int): CPU intra-op threads including the calling thread.
+                Defaults to 0 (ORT automatic selection); does not control GPU threads.
         """
+        validate_num_threads(num_threads)
         self.weight_path = weight_path
         self.dtype = dtype
         self.logger = logger
+        self._device_index = None
+        indexed = bool(providers_key and ":" in providers_key)
+        requested_provider = None
         # load model
-        if providers_key and (not providers_key in DEVICE_MAPPING) and self.logger:
-            self.logger.warning(
-                f"Gicen provider {providers_key} is not supported." +
-                "Fall back to default provider.")
-        if not providers_key:
-            providers = DEVICE_MAPPING[DEFAULT_STR]
+        if indexed:
+            validate_provider_key(providers_key)
+            alias, index = providers_key.split(":")
+            if alias not in {"dml", "cuda"}:
+                raise ValueError(f"Unsupported ONNX provider: {providers_key!r}.")
+            requested_provider = DEVICE_MAPPING[alias][0]
+            if requested_provider not in ort.get_available_providers():
+                raise ValueError(f"ONNX provider {requested_provider} is not installed.")
+            self._device_index = int(index)
+            self._device_key = f"{alias}:{self._device_index}"
+            providers = [(requested_provider, {"device_id": str(self._device_index)}),
+                         "CPUExecutionProvider"]
         else:
-            providers = DEVICE_MAPPING.get(providers_key,
+            if providers_key and providers_key not in DEVICE_MAPPING and self.logger:
+                self.logger.warning(
+                    f"Given provider {providers_key} is not supported. "
+                    "Fall back to default provider.")
+            providers = DEVICE_MAPPING.get(providers_key or DEFAULT_STR,
                                            DEVICE_MAPPING[DEFAULT_STR])
+            # Default uses the configured provider family, without probing a Session.
+            self._device_key = next(
+                (alias for alias, choices in DEVICE_MAPPING.items()
+                 if alias != DEFAULT_STR and choices[0] == providers[0]), providers[0])
         
         if is_lfs_pointer(self.weight_path):
             raise RuntimeError(
@@ -147,8 +198,23 @@ class ONNXBackend(Backend):
                 "Please pull the actual model file using Git LFS."
             )
             
+        self._lock = self._get_device_lock(self._device_key)
+        session_kwargs = ({"enable_fallback": False}
+                          if requested_provider is not None else {})
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = num_threads
+        if any((provider[0] if isinstance(provider, tuple) else provider)
+               == "DmlExecutionProvider" for provider in providers):
+            # DirectML requires sequential execution and no memory pattern optimization.
+            session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            session_options.enable_mem_pattern = False
         self.model_session = ort.InferenceSession(self.weight_path,
-                                                  providers=providers)
+                                                  sess_options=session_options,
+                                                  providers=providers,
+                                                  **session_kwargs)
+        if (requested_provider is not None
+                and self.model_session.get_providers()[0] != requested_provider):
+            raise RuntimeError(f"Failed to activate requested ONNX device {providers_key}.")
         self.shapes: list[list[int]] = [
             x.shape for x in self.model_session.get_inputs()
         ]
@@ -163,11 +229,12 @@ class ONNXBackend(Backend):
         if warmup:
             # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
             # 无法适配当前backend模型
-            _ = self.model_session.run(
-                [], {
-                    name: np.zeros(shape, dtype=self.dtype)
-                    for name, shape in zip(self.input_name, self.input_shape)
-                })
+            with self._lock:
+                _ = self.model_session.run(
+                    [], {
+                        name: np.zeros(shape, dtype=self.dtype)
+                        for name, shape in zip(self.input_name, self.input_shape)
+                    })
 
     @property
     def input_shape(self) -> list[list[int]]:
@@ -179,7 +246,8 @@ class ONNXBackend(Backend):
 
     @property
     def device(self) -> str:
-        return self.model_session.get_providers()[0]
+        provider = self.model_session.get_providers()[0]
+        return f"{provider}:{self._device_index}" if self._device_index is not None else provider
 
     def forward(
         self, x: Union[U8Mat, list[U8Mat]]
@@ -196,7 +264,7 @@ class ONNXBackend(Backend):
             acquired within LOCK_TIMEOUT seconds.
         """
         assert len(self.input_name) > 0, "invalid input name cnt."
-        acquired = self._global_lock.acquire(timeout=LOCK_TIMEOUT)
+        acquired = self._lock.acquire(timeout=LOCK_TIMEOUT)
         if not acquired:
             if self.logger:
                 self.logger.warning(
@@ -211,7 +279,7 @@ class ONNXBackend(Backend):
                 for name, tensor in zip(self.input_name, x)
             })
         finally:
-            self._global_lock.release()
+            self._lock.release()
 
 
 class YOLOModel(object):
@@ -228,7 +296,8 @@ class YOLOModel(object):
                  hw_tolerance: float = 0.2,
                  providers_key: Optional[str] = None,
                  input_color_order: str = "rgb",
-                 logger: BaseMetLog = logger) -> None:
+                 logger: BaseMetLog = logger,
+                 num_threads: int = 0) -> None:
         r"""Init a YOLOModel that handles YOLO-like inputs and outputs.
 
         Args:
@@ -259,6 +328,8 @@ class YOLOModel(object):
                 Supported values are ``"rgb"`` and ``"bgr"``. Defaults to
                 ``"rgb"``.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
+            num_threads (int): Backend CPU inference threads, 0 for automatic.
+                For ORT this controls intra-op parallelism, not inter-op or decoding.
         """
         self.weight_path = weight_path
         self.dtype = STR2DTYPE.get(dtype, np.float32)
@@ -283,6 +354,15 @@ class YOLOModel(object):
         if providers_key is None:
             providers_key = DEFAULT_STR
 
+        if providers_key.startswith("dml:"):
+            try:
+                index = int(providers_key.split(":")[1])
+                adapter = next((a for a in discover_dml_adapters() if a.index == index), None)
+                if adapter is not None and adapter.duplicate_of is not None:
+                    providers_key = f"dml:{adapter.duplicate_of}"
+            except OSError as error:
+                self.logger.warning(f"DML initialization identity query failed: {error}")
+
         # init model
         model_suffix = self.weight_path.split(".")[-1].lower()
         assert model_suffix in SUFFIX2BACKEND, f"Model arch not supported: only support {SUFFIX2BACKEND.keys()}, got {model_suffix}."
@@ -291,9 +371,11 @@ class YOLOModel(object):
                                                 self.dtype,
                                                 warmup,
                                                 providers_key,
-                                                logger=self.logger)
+                                                logger=self.logger,
+                                                num_threads=num_threads)
         self.logger.info(
-            f"Sucessfully load {self.weight_path} on device= {self.backend.device} with Warmup={warmup}."
+            f"Sucessfully load {self.weight_path} on device= {self.backend.device} "
+            f"with Warmup={warmup}, num_threads={num_threads} (0=auto)."
         )
 
         # for yolo only first argument is working.
@@ -368,6 +450,7 @@ class YOLOModel(object):
         result_pos: NDArray[np.int_] = np.array(results[:, :4], dtype=int)
         return result_pos, joint_scores
 
+    @profiled("model.forward")
     def forward(self, x: U8Mat):
         """forward function that supports multiscale inference.
         
@@ -458,7 +541,7 @@ class YOLOModel(object):
                         result_joint_scores.append(clip_joint_scores)
         except Exception as e:
             # 异常跳过
-            logger.error(
+            self.logger.error(
                 f"Exception {e.__repr__()} encountered with calling {self.__class__.__name__}. "
                 f"Results of this frame could be lost...")
             if len(result_pos) == 0 or len(result_joint_scores) == 0:
@@ -519,4 +602,5 @@ def init_model(cfg: ModelCfg, logger: BaseMetLog):
                  multiscale_partition=cfg.multiscale_partition,
                  providers_key=cfg.providers_key,
                  input_color_order=cfg.input_color_order,
+                 num_threads=cfg.num_threads,
                  logger=logger)

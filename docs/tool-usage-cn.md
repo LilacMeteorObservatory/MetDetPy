@@ -36,7 +36,7 @@ Evaluate 是一个集成了性能评估及效果测试工具。它可以用于�
 若需要评估MetDetPy在某个视频上的检测性能，可以运行 `evaluate.py` :
 
 ```sh
-python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--debug]
+python evaluate.py --report REPORT [--cfg CFG] [--load LOAD] [--save-path SAVE_PATH] [--metric] [--debug]
 ```
 
 ### 参数
@@ -49,12 +49,42 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metric] [--de
 
 * `--save`：要将检测结果保存到的路径与文件名。
 
-* `--metrics`：依据提供json文件的类别不同，进行回归测试（与其他预测结果比较）或计算检测的精度和召回率（与基本事实比较）。 要应用该选项，`json` 文件中需要包含`results` 的信息。
+* `--metric`：与参考结果比较，并计算分类 Precision / Recall / F1。`json` 文件中需要包含 `results`。
+
+* `--metrics-path`：与 `--metric` 一起使用，将每类指标、micro/macro 汇总和 P-R 数据点保存到 JSON。
+
+报告的 `comparison_summary` 从原有比较矩阵提炼：`added_num` 为未匹配的新预测数，`lost_num` 为未匹配的参考目标数，`category_changed_num` 为时空匹配但类别不同的目标数；`category_transitions` 按参考类别 `from_category` → 新类别 `to_category` 列出计数。类别变化不重复计入新增或丢失。该摘要沿用原比较口径：与预测基线比较时包含低分和 DROPPED 候选；与 GT 比较时分数不超过 0.5 的新预测不参与匹配。它与有效类别 P/R/F1 的过滤口径不同。
+
+* `--batch`：输入 JSON 为 case 清单；`--case ID` 可重复指定，只执行选中的 case。
+* `--passes N`：每个 case 重复运行次数，默认 1；单报告也支持重复运行。
+* `--output-dir`：批量或重复运行的输出目录，默认 `evaluation-results`。每次运行独立进程，分别保存预测、指标、差异和日志，`summary.json` 保存逐 case/pass 结果及成功运行的性能中位数、最小值、最大值。失败记录后继续执行，最终退出码为 1。重复运行不是独立效果样本，不能把各 pass 的 TP/FP/FN 累加作为数据集质量指标。输出目录再次使用会覆盖同编号的运行文件，比较版本时应使用不同目录。
+
+清单示例（`json`/可选 `cfg` 相对于清单目录；省略 `cfg` 时使用命令行配置）：
+
+```json
+{"cases": [
+  {"id": "night", "json": "night.json"},
+  {"id": "noise", "json": "noise.json", "cfg": "configs/noise.json"}
+]}
+```
+
+```sh
+python evaluate.py --manifest cases.json --metric --output-dir results/base
+python evaluate.py --manifest cases.json --case night --passes 3 --output-dir results/night
+```
+
+性能统计使用 `perf_counter` 测量检测调用的总耗时（包含初始化与收尾，不含采样线程退出等待）。`cpu_time` 为进程 user+system 时间增量，`avg_cpu_usage` 为该增量除以总耗时乘 100；100% 表示占用一个逻辑核心，可超过 100%。内存单位 MiB，保留平均 RSS，并新增采样峰值、起止值及净增长、采样次数和间隔。默认每 0.5 秒采样，峰值可能遗漏短暂尖峰；平均值是样本平均。统计限当前进程，不包含外部子进程或 GPU 显存。
+
+分类指标使用默认分数阈值 0.5（严格大于），先按置信度降序进行类别无关的一对一时空匹配，选择交叠乘积最大的未匹配参考目标。错分类分别计入预测类别 FP 和真实类别 FN；`matched_num` 单独表示时空匹配数量。`DROPPED` 和 GT 中分数不超过阈值的标注不参与分类指标，但预测总数、低分候选数及 DROPPED 数量单独保留。零分母指标返回 0；macro 只汇总在当前阈值下出现的类别。
+
+P-R 数据点按所有有效候选的不同分数扫描阈值，包含全排除与全保留端点；仅反映报告中保留的候选，不恢复上游已过滤或已转成 DROPPED 的目标。与预测基线比较时，指标表示一致性，不代表真实检测准确率。
 
 * `--debug`：用这个启动`evaluate.py`时，会有详细的调试信息。
 
 ### Example
-(To be updated)
+```sh
+python evaluate.py --report annotation.json --load predictions.json --metric --metrics-path metrics.json
+```
 
 ---
 

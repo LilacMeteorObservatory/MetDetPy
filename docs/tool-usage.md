@@ -40,12 +40,12 @@ Evaluate is an integrated performance evaluation and regression testing tool. It
 To evaluate how MetDetPy performs on your video, you can simply run `evaluate.py` :
 
 ```sh
-python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--debug]
+python evaluate.py --report REPORT [--cfg CFG] [--load LOAD] [--save-path SAVE_PATH] [--metric] [--debug]
 ```
 
 ### Arguments
 
-* `json`: A JSON file in `MDRF` format, which needs to contain the necessary information related to the video (video file and mask file paths, start and end times) to initiate. Its format should meet the requirements specified in [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf).
+* `--report`: A JSON file in `MDRF` format, which needs to contain the necessary information related to the video (video file and mask file paths, start and end times) to initiate. Its format should meet the requirements specified in [Meteor Detection Recording Format (MDRF)](#meteor-detection-recording-format-mdrf).
 
 * `--cfg`: Configuration file. By default, it uses the default configuration, which is [m3det_normal.json](../config/m3det_normal.json).
 
@@ -53,9 +53,11 @@ python evaluate.py json [--cfg CFG] [--load LOAD] [--save SAVE] [--metrics] [--d
 
 * `--save`: The path and filename where the detection results will be saved.
 
-* `--metrics`: Depending on the category of the provided JSON file, it performs regression testing (comparing with other prediction results) or calculates detection precision and recall (comparing with ground truth). To apply this option, the `json` file needs to contain `results` information.
+* `--metric`: Depending on the category of the provided JSON file, it performs regression testing (comparing with other prediction results) or calculates detection precision and recall (comparing with ground truth). To apply this option, the `json` file needs to contain `results` information.
 
 * `--debug`: When starting `evaluate.py` with this option, detailed debug information will be provided.
+
+`--manifest MANIFEST` accepts a JSON object containing a `cases` list instead of an MDRF report. Exactly one of `--report` and `--manifest` is required. Use repeatable `--case ID` to select manifest cases and `--passes N` for repeated runs (default: 1).
 
 ### Example
 (To be updated)

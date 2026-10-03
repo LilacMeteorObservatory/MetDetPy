@@ -2,6 +2,7 @@ from fractions import Fraction
 from types import SimpleNamespace
 
 import numpy as np
+import av
 
 from MetLib.videowrapper import PyAVVideoWrapper
 
@@ -12,9 +13,21 @@ class FakeFrame:
         self.pts = pts
         self.value = value
 
-    def to_ndarray(self, format: str):
+    def to_ndarray(self, format: str = "bgr24"):
         assert format == "bgr24"
         return np.full((1, 1, 3), self.value, dtype=np.uint8)
+
+
+class FakeReformatter:
+
+    def __init__(self):
+        self.frames = []
+
+    def reformat(self, frame, format):
+        assert format == "bgr24"
+        # A real VideoReformatter keeps its context, not input frame objects.
+        self.frames.append(id(frame))
+        return frame
 
 
 class FakePacket:
@@ -55,6 +68,7 @@ def make_wrapper(frames, fps=10.0, num_frames=10):
     wrapper._cur_frame_idx = 0
     wrapper._last_frame_data = None
     wrapper._last_frame_time_sec = None
+    wrapper._bgr_reformatter = FakeReformatter()
     wrapper._eof = True
     return wrapper
 
@@ -114,6 +128,54 @@ def test_set_to_preserves_target_frame_for_next_read():
     assert status
     assert pixel_value(frame) == 2
     assert wrapper.get_video_pos() == 3
+
+
+def test_reformatter_is_reused_across_reads_and_seek():
+    frames = [FakeFrame(pts, index) for index, pts in enumerate(
+        (0, 100, 200, 300))]
+    wrapper = make_wrapper(frames, num_frames=4)
+    reformatter = wrapper._bgr_reformatter
+
+    assert wrapper.read()[0]
+    assert wrapper.read()[0]
+    assert wrapper._bgr_reformatter is reformatter
+    assert reformatter.frames[:2] == [id(frame) for frame in frames[:2]]
+
+    wrapper.video_frame_cache = []
+    wrapper._eof = False
+    assert wrapper.set_to(2)
+    assert wrapper.read()[0]
+    assert wrapper._bgr_reformatter is reformatter
+    assert reformatter.frames[-1] == id(frames[2])
+
+
+def test_reused_reformatter_matches_pyav_bgr_conversion():
+    # Exercise PyAV's actual reformatter, including a YUV -> BGR conversion.
+    rgb = np.arange(48 * 64 * 3, dtype=np.uint8).reshape(48, 64, 3)
+    decoded = av.VideoFrame.from_ndarray(rgb, format="rgb24").reformat(
+        format="yuv420p")
+    wrapper = object.__new__(PyAVVideoWrapper)
+    wrapper._bgr_reformatter = av.video.reformatter.VideoReformatter()
+    expected = decoded.to_ndarray(format="bgr24")
+    for _ in range(3):
+        np.testing.assert_array_equal(wrapper._to_bgr_ndarray(decoded), expected)
+
+
+def test_reformatter_normalizes_reserved_color_metadata():
+    rgb = np.arange(48 * 64 * 3, dtype=np.uint8).reshape(48, 64, 3)
+    decoded = av.VideoFrame.from_ndarray(rgb, format="rgb24").reformat(
+        format="yuv420p")
+    decoded.color_primaries = 0
+    decoded.color_trc = 0
+    wrapper = object.__new__(PyAVVideoWrapper)
+    wrapper._bgr_reformatter = av.video.reformatter.VideoReformatter()
+
+    actual = wrapper._to_bgr_ndarray(decoded)
+
+    assert actual.shape == rgb.shape
+    assert actual.dtype == np.uint8
+    assert decoded.color_primaries == 2
+    assert decoded.color_trc == 2
 
 
 def test_target_fps_prefers_guessed_rate_over_gap_affected_average():
