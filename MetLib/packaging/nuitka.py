@@ -4,6 +4,7 @@ import os
 import platform as pf
 import shutil
 import sys
+from pathlib import Path
 from typing import Union
 
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
@@ -14,6 +15,21 @@ join_path = os.path.join
 SCRIPTS = ["MetDetPy.py", "ClipToolkit.py", "MetDetPhoto.py"]
 
 EXCLUDE_PKGS = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "PIL"]
+
+
+def expose_pyexiv2_extension(dist_dir: str):
+    # pyexiv2.lib imports the extension by its top-level name, exiv2api.
+    # Nuitka collects it under pyexiv2/lib; expose it on the bundle's sys.path.
+    bundle = Path(dist_dir)
+    native_dir = bundle / "pyexiv2" / "lib"
+    for extension in native_dir.glob("exiv2api.*"):
+        if extension.suffix in (".pyd", ".so"):
+            shutil.copy2(extension, bundle / extension.name)
+    # Its ctypes loader also expects the shared library beside __file__.
+    for name in ("exiv2.dll", "libexiv2.so", "libexiv2.dylib"):
+        library = bundle / name
+        if native_dir.is_dir() and library.is_file():
+            shutil.copy2(library, native_dir / name)
 
 
 def nuitka_compile(header: list[str], options: dict[str, Union[bool, str]],
@@ -61,11 +77,20 @@ def build(args):
     }
 
     nuitka_pkgs = [f"--nofollow-import-to={x}" for x in EXCLUDE_PKGS]
+    # PyAV extensions import other av modules dynamically (e.g. av.utils).
+    nuitka_pkgs.append("--include-module=av.utils")
     nuitka_pkgs.append("--include-package-data=pyexiv2")
 
-    if platform == "win" and args.mingw64:
-        print("Apply mingw64 as compiler.")
-        nuitka_base["--mingw64"] = True
+    if platform == "win":
+        if sys.version_info >= (3, 13):
+            if args.mingw64:
+                print("WARNING: MinGW64 is not supported for Python 3.13+. "
+                      "Using MSVC instead; install Visual Studio Build Tools "
+                      "with the Desktop development with C++ workload.")
+            nuitka_base["--msvc"] = "latest"
+        elif args.mingw64:
+            print("Apply mingw64 as compiler.")
+            nuitka_base["--mingw64"] = True
 
     if platform.startswith("macos"):
         nuitka_base["--macos-app-version"] = VERSION
@@ -119,6 +144,7 @@ def build(args):
             shutil.rmtree(join_path(compile_path, f"{base}.dist"))
         shutil.move(join_path(compile_path, "MetDetPy.dist"),
                     join_path(compile_path, "MetDetPy"))
+        expose_pyexiv2_extension(join_path(compile_path, "MetDetPy"))
         print("Done.")
 
     post_process(compile_path,

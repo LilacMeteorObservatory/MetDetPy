@@ -39,7 +39,7 @@ nuitka_group = argparser.add_argument_group("nuitka options")
 nuitka_group.add_argument(
     "--mingw64",
     action="store_true",
-    help="Use mingw64 as compiler (Windows + nuitka only).",
+    help="Use MinGW64 (Windows + nuitka, Python < 3.13); newer Python uses MSVC.",
     default=False,
 )
 nuitka_group.add_argument(

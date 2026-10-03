@@ -84,7 +84,7 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--onefile`: generate one executable per program instead of a directory bundle.
 
-* `--mingw64`: use the MinGW64 compiler with the Nuitka backend on Windows.
+* `--mingw64`: use MinGW64 on Windows with Python 3.12 or earlier. Python 3.13+ automatically uses MSVC; install Visual Studio Build Tools with the Desktop development with C++ workload.
 
 * `--macos-sign-identity`: macOS signing identity for the Nuitka backend.
 
@@ -98,6 +98,16 @@ Executables and the optional ZIP package are generated in the [dist](../dist/) d
 
 **Notice:**
 
-1. When using Nuitka, install `nuitka>=2.0.0` and an available C/C++ compiler. For PyInstaller, install `pyinstaller>=6.0`.
+1. Use a Nuitka release supporting your Python version and an available C/C++ compiler. Python 3.13 support started in Nuitka 2.5. For PyInstaller, install `pyinstaller>=6.0`.
 2. Due to the nature of Python packaging, these tools cannot generate cross-platform executables; build the executable on the target platform.
-3. If `matplotlib` or `scipy` exists in the environment, they may be included in the packaged output. To reduce package size, prepare a clean environment or avoid installing heavy optional dependencies.
+3. PyInstaller excludes optional plotting, training, interactive development, and Qt dependencies from the three runtime tools. Development photo comparison plots are not part of the release bundle. A dedicated virtual environment is still recommended; required native libraries such as `pyexiv2` remain included.
+
+Use a separate environment populated from the runtime dependency list, for example on Windows:
+
+```powershell
+python -m venv .venv-package
+.venv-package\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+.venv-package\Scripts\python.exe make_package.py --backend pyinstaller
+```
+
+This list controls direct build-environment dependencies; pip installs their required transitive dependencies and PyInstaller analyzes them. It does not truncate the final module graph. For a Windows DML release, use `onnxruntime-directml` instead of generic `onnxruntime` in that environment.

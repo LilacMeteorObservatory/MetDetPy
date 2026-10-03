@@ -226,7 +226,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     "cfg": {
         "model": {
             "name":"YOLOModel",
-            "weight_path": "./weights/yolov5s.onnx",
+            "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
             "input_color_order": "rgb",
             "nms": true,
@@ -425,7 +425,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 ```json
 "model": {
     "name":"YOLOModel",
-    "weight_path": "./weights/yolov5s.onnx",
+    "weight_path": "./weights/yolov5s_v2.onnx",
     "dtype": "float32",
     "input_color_order": "rgb",
     "nms": true,
@@ -440,7 +440,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
 |name|str|使用的深度学习模型类型，这将决定程序如何处理输入输出。目前仅实现了YOLO格式的模型`"YOLOModel"`。|`"YOLOModel"`|
-|weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s.onnx"`|
+|weight_path|str|网络权重的路径。可以是相对MetDetPy的路径，也可以是绝对路径。默认提供了已训练完成的YOLOv5s。网络输出的标签应当参考[class_name文件](../config/class_name.txt)配置。目前支持`.onnx`的网络权重格式。|`"./weights/yolov5s_v2.onnx"`|
 |dtype|str|描述网络的输入数据格式。当使用量化模型时，需在此处配置格式，否则程序可能无法正常运行。目前支持全精度（`"float32"`），半精度（`"float16"`）。|`"float32"`|
 |input_color_order|str|模型权重所期望的通道顺序。传给 `forward` 的图像固定为 BGR；配置为 `"rgb"` 时模型会自动转换。|`"rgb"`|
 |num_threads|int|模型后端的 CPU 算子内推理线程数，必须为非负整数；`0` 表示自动选择，省略时默认为 `0`。ORT 后端映射到 `intra_op_num_threads`。|0|

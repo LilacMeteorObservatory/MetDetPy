@@ -79,7 +79,7 @@ Note:
 2. 飞行器/大面积时间不容易被后验检测器检出。
 3. 改善报错信息（尤其是配置文件）
 
-## Version 2.6.0（待发布）
+## Version 2.6.0
 
 ✅ New Feature(s)
 * `MetDetPhoto`
@@ -110,6 +110,9 @@ Note:
 * 修复日志输出失败后日志线程退出的问题，输出异常时改用 stderr，并在停止时等待队列处理完毕。
 * 修复部分视频使用保留值色彩元数据时，PyAV / FFmpeg 的 BGR 转换失败问题。
 * 修复视频结果回归对输入目标顺序的依赖，以及将旧检测报告的低分目标错误视为人工标注中的 `DROPPED` 的问题；完善漏检统计与差异输出。
+* 修复 Windows Python 3.13+ 下指定 MinGW64 导致 Nuitka 打包失败的问题，自动改用 MSVC。
+* 修复 Nuitka 目录发行包缺少 PyAV 动态依赖，以及 pyexiv2 原生扩展和共享库的加载路径问题。
+* 收紧 PyInstaller 依赖收集，移除不必要的 Pillow 隐式导入，排除绘图、训练、交互式开发和 Qt 等可选依赖。
 
 ⚠️ Compatibility and Performance Notes
 * `M3Det` 的默认模型已变化，阈值附近的分数和保留结果可能出现轻微差异；需要沿用全精度模型时，可回退使用 `m3det_normal_old.json`。

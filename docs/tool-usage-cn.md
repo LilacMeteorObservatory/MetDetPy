@@ -108,7 +108,7 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--onefile`：每个程序生成一个可执行文件，而不是目录式程序包。
 
-* `--mingw64`：Nuitka 后端在 Windows 上使用 MinGW64 编译器。
+* `--mingw64`：Nuitka 后端在 Windows、Python 3.12 及更早版本使用 MinGW64；Python 3.13+ 自动改用 MSVC，需要安装 Visual Studio Build Tools 的 C++ 桌面开发组件。
 
 * `--macos-sign-identity`：Nuitka 后端使用的 macOS 签名身份。
 
@@ -124,4 +124,14 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 1. 使用 Nuitka 时需要安装 `nuitka>=2.0.0` 并准备可用的 C/C++ 编译器；使用 PyInstaller 时请安装 `pyinstaller>=6.0`。
 2. 由于Python的特性，这些工具均无法跨平台打包生成可执行文件。你只能打包当前平台的可执行程序。
-3. 如果你的环境中存在 `matplotlib` 或 `scipy`，它们可能会被打包进去。如果想要减小打包体积，请准备一个干净的环境或避免安装这些重量级依赖。
+3. PyInstaller 默认排除绘图、训练、交互式开发及 Qt 等可选依赖，只打包三个运行工具需要的依赖；开发用照片差异统计图工具不包含在发行包中。建议仍使用独立虚拟环境构建，并保留 `pyexiv2` 等原生库。
+
+建议在独立环境中按运行依赖清单安装，避免开发环境的可选导入进入发行包。例如 Windows：
+
+```powershell
+python -m venv .venv-package
+.venv-package\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+.venv-package\Scripts\python.exe make_package.py --backend pyinstaller
+```
+
+这份清单控制构建环境的直接依赖，其必需的间接依赖由 pip 安装，再由 PyInstaller 分析收集；不是对最终模块表做截断。Windows DML 发行包应在构建环境中使用 `onnxruntime-directml` 替代通用 `onnxruntime`。

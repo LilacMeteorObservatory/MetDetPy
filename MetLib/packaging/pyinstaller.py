@@ -19,15 +19,20 @@ SCRIPTS = [
 HIDDEN_IMPORTS = [
     "cv2",
     "numpy",
-    "PIL",
-    "PIL.Image",
     "pyexiv2",
-    "uuid",
     "pyexpat",
     "xml.etree.ElementTree",
 ]
 
-EXCLUDES = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "pkg_resources"]
+# Optional imports in dependencies must not pull the development environment
+# into the three runtime tools. Plotting/comparison tools are not packaged.
+EXCLUDES = [
+    "torch", "scipy", "tensorflow", "keras", "IPython", "pkg_resources",
+    "PIL", "matplotlib", "pandas", "sympy", "numba", "llvmlite", "pyarrow",
+    "PySide6", "PySide2", "PyQt6", "PyQt5", "tkinter",
+    "onnxruntime.tools", "onnxruntime.transformers", "onnxruntime.quantization",
+    "onnxruntime.training", "onnxruntime.datasets", "onnxruntime.backend",
+]
 
 
 def create_merged_spec(work_path: str, onefile: bool, console: bool,

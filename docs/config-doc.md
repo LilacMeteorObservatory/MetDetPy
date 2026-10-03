@@ -225,7 +225,7 @@ Example (deep-learning detector):
     "cfg": {
         "model": {
             "name": "YOLOModel",
-            "weight_path": "./weights/yolov5s.onnx",
+            "weight_path": "./weights/yolov5s_v2.onnx",
             "dtype": "float32",
             "input_color_order": "rgb",
             "nms": true,
@@ -414,7 +414,7 @@ Example:
 ```json
 "model": {
     "name":"YOLOModel",
-    "weight_path": "./weights/yolov5s.onnx",
+    "weight_path": "./weights/yolov5s_v2.onnx",
     "dtype": "float32",
     "input_color_order": "rgb",
     "nms": true,
@@ -429,7 +429,7 @@ Example:
 |Field|Type|Description|Recommended|
 |---|---|---|---|
 |`name`|str|Model type; currently only YOLO format (`"YOLOModel"`) is implemented.|`"YOLOModel"`|
-|`weight_path`|str|Path to model weights (relative to project or absolute). A YOLOv5s `.onnx` is included. The label file is `../global/class_name.txt`.|`"./weights/yolov5s.onnx"`|
+|`weight_path`|str|Path to model weights (relative to project or absolute). A YOLOv5s `.onnx` is included. The label file is `../global/class_name.txt`.|`"./weights/yolov5s_v2.onnx"`|
 |`dtype`|str|Input dtype. Use correct dtype for quantized models. Supported: `"float32"`, `"float16"`.|`"float32"`|
 |`input_color_order`|str|Channel order expected by the model weights. Images supplied to `forward` use BGR and are converted when this is `"rgb"`.|`"rgb"`|
 |`num_threads`|int|Backend CPU intra-op inference threads. Must be a nonnegative integer; `0` selects automatically and is also the default when omitted. Maps to ORT `intra_op_num_threads`.|0|

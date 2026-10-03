@@ -48,7 +48,7 @@ def post_process(compile_path: str,
                  onefile_mode: bool,
                  apply_zip: bool,
                  source_root: Optional[str] = None):
-    """Copy static folders, uuid, pyexiv2; optionally zip."""
+    """Copy static resource folders; optionally zip the artifacts."""
     import sys
     platform = PLATFORM_MAPPING[sys.platform]
 
@@ -60,11 +60,6 @@ def post_process(compile_path: str,
     for src_folder in ["config", "weights", "global"]:
         if os.path.exists(os.path.join(source_root, src_folder)):
             copy_tree(src_folder, tgt_base, source_root)
-
-    # uuid module
-    import uuid
-    if uuid.__file__:
-        shutil.copy(uuid.__file__, tgt_base)
 
     # zip
     if apply_zip:
