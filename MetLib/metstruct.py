@@ -349,6 +349,14 @@ def validate_num_threads(num_threads: int) -> None:
         raise ValueError("num_threads must be a nonnegative integer (0 means automatic).")
 
 
+def validate_objectness_thre(objectness_thre: float) -> None:
+    """Validate the optional raw-candidate objectness gate (0 disables it)."""
+    if (isinstance(objectness_thre, bool)
+            or not isinstance(objectness_thre, (int, float))
+            or not 0 <= objectness_thre <= 1):
+        raise ValueError("objectness_thre must be a number between 0 and 1.")
+
+
 @dataclasses.dataclass
 class ModelCfg(DictAble):
     name: str
@@ -363,9 +371,11 @@ class ModelCfg(DictAble):
     providers_key: Optional[str] = "default"
     input_color_order: Literal["rgb", "bgr"] = "rgb"
     num_threads: int = 0
+    objectness_thre: float = 0.25
 
     def __post_init__(self) -> None:
         validate_num_threads(self.num_threads)
+        validate_objectness_thre(self.objectness_thre)
 
 
 @dataclasses.dataclass

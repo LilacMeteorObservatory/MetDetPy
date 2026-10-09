@@ -41,6 +41,7 @@ class ModelCfg {
     num_threads: int
     nms: bool
     warmup: bool
+    objectness_thre: float
     pos_thre: float
     nms_thre: float
     multiscale_pred: int
@@ -230,7 +231,8 @@ Example (deep-learning detector):
             "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.10,
+            "objectness_thre": 0.25,
+            "pos_thre": 0.25,
             "nms_thre": 0.45
         }
     }
@@ -354,7 +356,8 @@ The `collector` controls filtering/collection rules and recheck (re-verification
             "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.10,
+            "objectness_thre": 0.25,
+            "pos_thre": 0.25,
             "nms_thre": 0.45,
             "multiscale_pred": 2,
             "multiscale_partition": 2
@@ -419,7 +422,8 @@ Example:
     "input_color_order": "rgb",
     "nms": true,
     "warmup": true,
-    "pos_thre": 0.10,
+    "objectness_thre": 0.25,
+    "pos_thre": 0.25,
     "nms_thre": 0.45,
     "multiscale_pred":2,
     "multiscale_partition":2
@@ -435,10 +439,13 @@ Example:
 |`num_threads`|int|Backend CPU intra-op inference threads. Must be a nonnegative integer; `0` selects automatically and is also the default when omitted. Maps to ORT `intra_op_num_threads`.|0|
 |`nms`|bool|Whether to run NMS. Set `false` if the model already includes NMS to speed up inference.|`true`|
 |`warmup`|bool|Whether to run a warmup pass before real inference.|`true`|
-|`pos_thre`|float|Positive sample score threshold (0–1).|0.1|
+|`objectness_thre`|float, optional|Strict minimum objectness for raw candidates, applied before joint scoring and NMS. Defaults to 0.25 when omitted; explicitly set 0 to disable this gate. Range: 0–1.|0.25|
+|`pos_thre`|float|Model output-score threshold: `sqrt(objectness * max(class_probability))`. Range: 0–1; direct construction defaults to 0.25. NMS squares the threshold to compare raw joint scores.|0.25|
 |`nms_thre`|float|NMS IoU threshold.|0.45|
 |`multiscale_pred`|int|Run multi-scale detection when >0. Larger values increase compute and false positives; typically 1 or 2.|1 / 2|
 |`multiscale_partition`|int|Partition number per dimension for multi-scale detection. Typical value: 2.|2|
+
+Configure the two score gates separately for main detection and recheck; M3Det uses them only for recheck. Direct `YOLOModel` construction, including photo detection, defaults both gates to 0.25. With NMS enabled, default eligibility requires `objectness > 0.25` and `sqrt(objectness * max(class_probability)) > 0.25`.
 
 Set `num_threads` independently in `detector.cfg.model` for main detection and `collector.recheck_cfg.model` for recheck, for example `"num_threads": 4`. M3Det uses this setting only for its recheck model.
 

@@ -222,6 +222,7 @@ def _model_with_raw_predictions(predictions: np.ndarray) -> YOLOModel:
     model.unwarning = False
     model.nms = True
     model.input_color_order = "rgb"
+    model.objectness_thre = 0.0
     model.pos_thre = 0.25
     model.nms_thre = 0.45
     model.backend = SimpleNamespace(
@@ -235,7 +236,7 @@ def test_single_tile_candidate_gate_uses_joint_score():
         [6, 6, 2, 2, 0.90, 0.05],
     ], dtype=np.float32)
     model = _model_with_raw_predictions(predictions)
-    model.pos_thre = 0.10
+    model.pos_thre = np.sqrt(0.10)
 
     boxes, joint_scores = model._forward(
         np.zeros((8, 8, 3), dtype=np.float32))
@@ -252,12 +253,64 @@ def test_single_tile_nms_ranks_eligible_candidates_by_joint_score():
         [4, 4, 2, 2, 0.75, 0.90],
     ], dtype=np.float32)
     model = _model_with_raw_predictions(predictions)
+    model.pos_thre = 0.10  # Both candidates pass the calibrated score gate.
 
     boxes, joint_scores = model._forward(
         np.zeros((8, 8, 3), dtype=np.float32))
 
     assert boxes.tolist() == [[3, 3, 5, 5]]
     np.testing.assert_allclose(joint_scores, [[0.75 * 0.90]], rtol=1e-6)
+
+
+def test_objectness_gate_runs_before_joint_score_nms():
+    predictions = np.array([
+        [4, 4, 2, 2, 0.20, 0.90],  # higher joint score, ineligible objectness
+        [4, 4, 2, 2, 0.30, 0.40],  # must survive the overlapping first box
+    ], dtype=np.float32)
+    model = _model_with_raw_predictions(predictions)
+    model.objectness_thre = 0.25
+    model.pos_thre = 0.25
+
+    boxes, scores = model._forward(np.zeros((8, 8, 3), dtype=np.float32))
+
+    assert boxes.tolist() == [[3, 3, 5, 5]]
+    np.testing.assert_allclose(scores, [[0.30 * 0.40]], rtol=1e-6)
+
+
+@pytest.mark.parametrize("multiscale_pred", [0, 1])
+def test_restored_gates_and_calibrated_output_boundaries(multiscale_pred):
+    predictions = np.array([
+        [1, 1, 1, 1, 0.25, 1.00],  # strict objectness boundary
+        [3, 1, 1, 1, 0.50, 0.125],  # strict joint-score boundary
+        [5, 1, 1, 1, 0.50, 0.13],   # p below .25 is still eligible
+        [7, 1, 1, 1, 0.30, 0.30],   # old score gate accepts j=.09
+    ], dtype=np.float32)
+    model = _model_with_raw_predictions(predictions)
+    model.objectness_thre = 0.25
+    model.pos_thre = 0.25
+    model.dtype = np.float32
+    model.multiscale_pred = multiscale_pred
+    model.multiscale_partition = 2
+    model.hw_ratio = 1.0
+    model.hw_tolerance = 0.2
+    model.logger = SimpleNamespace(debug=lambda *args: None, error=lambda *args: None)
+
+    boxes, scores = model.forward(np.zeros((8, 8, 3), dtype=np.uint8))
+
+    assert boxes.tolist() == [[6, 0, 7, 1], [4, 0, 5, 1]]
+    np.testing.assert_allclose(scores, np.sqrt([[0.09], [0.065]]), rtol=1e-6)
+
+
+def test_objectness_gate_can_remove_every_candidate_without_nms():
+    model = _model_with_raw_predictions(np.array(
+        [[4, 4, 2, 2, 0.25, 1.0]], dtype=np.float32))
+    model.objectness_thre = 0.25
+    model.nms = False
+
+    boxes, scores = model._forward(np.zeros((8, 8, 3), dtype=np.float32))
+
+    assert boxes.shape == (0, 4)
+    assert scores.shape == (0, 1)
 
 
 def test_multiscale_merge_uses_configured_nms_threshold():
@@ -285,7 +338,7 @@ def test_multiscale_merge_uses_configured_nms_threshold():
     assert boxes.tolist() == [[10, 10, 110, 110], [90, 10, 190, 110]]
 
 
-def test_multiscale_merge_uses_joint_score_threshold_directly():
+def test_multiscale_merge_converts_output_threshold_to_joint_score():
     model = object.__new__(YOLOModel)
     model.c = 3
     model.dtype = np.float32
@@ -293,7 +346,7 @@ def test_multiscale_merge_uses_joint_score_threshold_directly():
     model.multiscale_partition = 2
     model.hw_ratio = 1.0
     model.hw_tolerance = 0.2
-    model.pos_thre = 0.06
+    model.pos_thre = 0.25
     model.nms_thre = 0.45
     model.input_color_order = "rgb"
     model.logger = SimpleNamespace(debug=lambda *args: None,
@@ -307,7 +360,7 @@ def test_multiscale_merge_uses_joint_score_threshold_directly():
     model._forward = fake_forward
     boxes, scores = model.forward(np.zeros((100, 100, 3), dtype=np.uint8))
 
-    # Both NMS passes use the configured raw joint-score threshold. The final
-    # public score is still sqrt(objectness * class probability).
+    # An output score threshold of .25 corresponds to raw joint score .0625.
+    # The public score is still sqrt(objectness * class probability).
     assert boxes.tolist() == [[10, 10, 30, 30]]
     np.testing.assert_allclose(scores, [[np.sqrt(0.07)]])

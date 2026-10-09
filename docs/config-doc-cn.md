@@ -43,6 +43,7 @@ class ModelCfg {
     num_threads: int
     nms: bool
     warmup: bool
+    objectness_thre: float
     pos_thre: float
     nms_thre: float
     multiscale_pred: int
@@ -231,7 +232,8 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.10,
+            "objectness_thre": 0.25,
+            "pos_thre": 0.25,
             "nms_thre": 0.45
         }
     }
@@ -362,7 +364,8 @@ CollectorCfg --> RecheckCfg : recheck_cfg
             "input_color_order": "rgb",
             "nms": true,
             "warmup": true,
-            "pos_thre": 0.10,
+            "objectness_thre": 0.25,
+            "pos_thre": 0.25,
             "nms_thre": 0.45,
             "multiscale_pred":2,
             "multiscale_partition":2
@@ -430,7 +433,8 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     "input_color_order": "rgb",
     "nms": true,
     "warmup": true,
-    "pos_thre": 0.10,
+    "objectness_thre": 0.25,
+    "pos_thre": 0.25,
     "nms_thre": 0.45,
     "multiscale_pred":2,
     "multiscale_partition":2
@@ -446,10 +450,13 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |num_threads|int|模型后端的 CPU 算子内推理线程数，必须为非负整数；`0` 表示自动选择，省略时默认为 `0`。ORT 后端映射到 `intra_op_num_threads`。|0|
 |nms|bool|是否需要执行非最大值抑制NMS。如果构建的网络已附带NMS，则选择`false`以提升运行速度。|`true`|
 |warmup|bool|是否需要在使用前预热。设置为`true`可以提升网络的运行速度。|`true`|
-|pos_thre|float|正样本阈值，超过该得分的会被认为是正样本。取值为[0,1]。|0.1|
+|objectness_thre|float，可选|原始候选的 objectness 门槛，在联合分数计算及 NMS 前按严格大于关系过滤。省略时默认 0.25；显式设为 0 可关闭此过滤。取值为[0,1]。|0.25|
+|pos_thre|float|模型输出分数 `sqrt(objectness × 最大类别概率)` 的门槛，取值为[0,1]，直接构造模型时默认 0.25。NMS 内部将此门槛平方后比较原始联合分数。|0.25|
 |nms_thre|float|去重时使用的阈值。|0.45|
 |multiscale_pred|int|多尺度检测时使用的尺度。取0时，不进行任何处理；取N>0的整数代表会进行必要的旋转处理，并在N个尺度上进行检测。需要注意：过深的尺度会显著增加计算量和误报样本，因此通常取1或2即可。|1（低分辨率）/2（高分辨率）|
 |multiscale_partition"|int|多尺度检测时，子图像在长/宽方向的分片数。需要取大于1的整数，建议值为2。过大的分片数会显著增加计算量和误报样本，|2|
+
+上述两个分数门槛分别配置于主检和复检模型；M3Det 仅在复检中使用。直接构造 `YOLOModel`（包括图片检测）的默认值均为 0.25。启用 NMS 时，默认候选需满足 `objectness > 0.25` 且 `sqrt(objectness × 最大类别概率) > 0.25`。
 
 `num_threads` 分别配置在主检测的 `detector.cfg.model` 和复检的 `collector.recheck_cfg.model` 中，例如 `"num_threads": 4`。M3Det 主检测不使用模型，仅复检使用此参数。
 

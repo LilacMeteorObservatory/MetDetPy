@@ -9,7 +9,7 @@ import threading
 from numpy.typing import DTypeLike, NDArray
 
 from .metlog import BaseMetLog, get_default_logger
-from .metstruct import ModelCfg, validate_num_threads
+from .metstruct import ModelCfg, validate_num_threads, validate_objectness_thre
 from .profiling import profiled
 from .onnx_devices import discover_dml_adapters
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
@@ -289,7 +289,7 @@ class YOLOModel(object):
                  dtype: str,
                  nms: bool = False,
                  warmup: bool = True,
-                 pos_thre: float = 0.10,
+                 pos_thre: float = 0.25,
                  nms_thre: float = 0.45,
                  multiscale_pred: int = 1,
                  multiscale_partition: int = 2,
@@ -297,7 +297,8 @@ class YOLOModel(object):
                  providers_key: Optional[str] = None,
                  input_color_order: str = "rgb",
                  logger: BaseMetLog = logger,
-                 num_threads: int = 0) -> None:
+                 num_threads: int = 0,
+                 objectness_thre: float = 0.25) -> None:
         r"""Init a YOLOModel that handles YOLO-like inputs and outputs.
 
         Args:
@@ -306,8 +307,12 @@ class YOLOModel(object):
             nms (bool, optional): whether to execute non-maximum suppression (NMS) for model outputs.
                 If the model is not exported with nms, set to True. Defaults to False.
             warmup (bool, optional): warmup to model before batch processing. Defaults to True.
-            pos_thre (float, optional): minimum raw ``objectness * class_probability``
-                score used by NMS to keep positive samples. Defaults to 0.10.
+            pos_thre (float, optional): minimum output score
+                ``sqrt(objectness * class_probability)``. Defaults to 0.25.
+                NMS uses its square to compare raw joint scores.
+            objectness_thre (float, optional): independent minimum objectness
+                for raw candidates, applied before NMS. Defaults to 0.25;
+                0 explicitly disables this gate.
             nms_thre (float, optional): NMS threshold when merging predictions. Defaults to 0.45.
             multiscale_pred (int, optional): the number of prediction scales, shoule be an integer>=0. 
                 Different multiscale_pred scales performs as follows:
@@ -334,6 +339,8 @@ class YOLOModel(object):
         self.weight_path = weight_path
         self.dtype = STR2DTYPE.get(dtype, np.float32)
         self.nms = nms
+        validate_objectness_thre(objectness_thre)
+        self.objectness_thre = objectness_thre
         self.pos_thre = pos_thre
         self.nms_thre = nms_thre
         self.logger = logger
@@ -424,6 +431,11 @@ class YOLOModel(object):
                     np.zeros((0, NUM_CLASS), dtype=np.float64))
         results = raw_output[0][0]
 
+        # Gate raw candidates before class scoring or suppression. A high class
+        # score must not let a low-objectness box suppress an eligible target.
+        if self.objectness_thre > 0:
+            results = results[results[:, 4] > self.objectness_thre]
+
         # YOLO output: [0:4] is center-based xywh, 4 is objectness and [5:]
         # contains per-class scores.
         objectness = results[:, 4]
@@ -432,7 +444,7 @@ class YOLOModel(object):
         if self.nms:
             boxes_tlwh = _cxcywh_to_tlwh(results[:, :4])
             selected = _class_aware_nms(boxes_tlwh, joint_scores,
-                                        self.pos_thre, self.nms_thre)
+                                        self.pos_thre ** 2, self.nms_thre)
             results = results[selected]
             joint_scores = joint_scores[selected]
 
@@ -557,7 +569,7 @@ class YOLOModel(object):
         # a hard-coded aggressive threshold.
         boxes_tlwh = _xyxy_to_tlwh(concat_result_pos)
         selected = _class_aware_nms(boxes_tlwh, concat_joint_scores,
-                                    self.pos_thre, self.nms_thre)
+                                    self.pos_thre ** 2, self.nms_thre)
         concat_result_pos = concat_result_pos[selected]
         concat_joint_scores = concat_joint_scores[selected]
 
@@ -603,4 +615,5 @@ def init_model(cfg: ModelCfg, logger: BaseMetLog):
                  providers_key=cfg.providers_key,
                  input_color_order=cfg.input_color_order,
                  num_threads=cfg.num_threads,
+                 objectness_thre=cfg.objectness_thre,
                  logger=logger)
