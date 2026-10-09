@@ -1,7 +1,7 @@
 {
     "description": {
-        "preset_name_cn": "M3Det-通用",
-        "preset_name_en": "M3Det-general",
+        "preset_name_cn": "M3Det-通用（旧）",
+        "preset_name_en": "M3Det-general-old",
         "intro_cn": "使用全精度模型的通用自适应检测器。",
         "intro_en": "General adaptive meteor detector using FP32 model weights."
     },
