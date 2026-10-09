@@ -79,6 +79,19 @@ Note:
 2. 飞行器/大面积时间不容易被后验检测器检出。
 3. 改善报错信息（尤其是配置文件）
 
+## Version 2.6.1
+
+✅ BugFix
+* 修复 v2.5.0 引入的深度学习候选过滤回归：恢复 NMS 前独立的 objectness 门槛，避免低 objectness 候选因类别分数较高而通过筛选；恢复 `pos_thre` 的旧版语义，默认值恢复为 `0.25`。新增 `objectness_thre` 配置独立控制，默认值为 `0.25`；
+* 修正 `m3det_normal_old.json` 的预设名称。
+* 打包工具优化：完善 Nuitka 发行版本的动态依赖，收紧 PyInstaller 的依赖收集，减小发行版体积。
+
+⚠️ Configuration Migration Notes
+* 建议更新为本版本提供的预设。默认设置为 `objectness_thre=0.25`、`pos_thre=0.25`，分别约束 objectness 和开平方后的模型分数。
+* 如果希望继续使用 v2.5.0 / v2.6.0 原始联合分数门槛的配置，需要将 `pos_thre` 换算为原值的平方根：例如原值 `0.10` 应改为约 `0.316227766`。
+
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.6.0...v2.6.1
+
 ## Version 2.6.0
 
 ✅ New Feature(s)
