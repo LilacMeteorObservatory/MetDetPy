@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 from typing import Optional
 
 import numpy as np
+import pytest
 
 import sys
 sys.path.insert(0, '.')
@@ -175,6 +176,34 @@ class TestClipMerging:
 
 class TestRecheckIntegration:
     """Test that recheck rejections break the pending chain."""
+
+    @pytest.mark.parametrize("stack_size", [(960, 540), (1280, 720), (1920, 1080)])
+    def test_recheck_matches_in_stack_coordinates_without_rescaling_target(self, stack_size):
+        exporter = make_exporter(recheck=True)
+        exporter.recheck_loader = MagicMock(video_total_frames=10000)
+        target = make_target(30, 60, category="METEOR")
+        target.center_point_list = [[150, 150]]
+        ratio = [stack_size[0] / 960, stack_size[1] / 540]
+        native_pt1 = [int(100 * r) for r in ratio]
+        native_pt2 = [int(200 * r) for r in ratio]
+        image = np.zeros((stack_size[1], stack_size[0], 3), dtype=np.uint8)
+        scores = np.zeros((1, Name2Label.METEOR + 1), dtype=np.float64)
+        scores[0, Name2Label.METEOR] = .8
+        exporter.recheck_model.forward.return_value = (np.array([[*native_pt1, *native_pt2]]), scores)
+        try:
+            with patch('MetLib.collector.max_stacker', return_value=image), \
+                    patch('MetLib.collector.calc_brightness_with_roi', return_value=.5) as brightness:
+                assert exporter.recheck_single_target(target) is target
+                assert (target.pt1, target.pt2, target.center_point_list) == ([100, 100], [200, 200], [[150, 150]])
+                assert target.recheck_score == .8
+                roi = brightness.call_args.args[1]
+                assert [roi.x1, roi.y1, roi.x2, roi.y2] == [*native_pt1, *native_pt2]
+            # Final export scales exactly once, independent of recheck size.
+            record = exporter.rescale(SingleMDRecord.from_target(target, exporter.raw_size))
+            assert (record.target[0].pt1, record.target[0].pt2) == ([200, 200], [400, 400])
+            assert record.target[0].center_point_list == [[300, 300]]
+        finally:
+            wait_for_processing(exporter)
 
     def test_fp_rejection_breaks_chain(self):
         """A-B-C targets, B rejected by recheck → A and C separate."""

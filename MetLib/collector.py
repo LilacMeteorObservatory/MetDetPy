@@ -726,6 +726,7 @@ class MetExporter(object):
             self.recheck_padding = int(RECHECK_PADDING_SEC * self.fps)
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = runtime_param.raw_size
+        self.runtime_size = runtime_param.runtime_size
         self.rescale_ratio = [
             x / y
             for x, y in zip(runtime_param.raw_size, runtime_param.runtime_size)
@@ -872,7 +873,13 @@ class MetExporter(object):
 
         self.recheck_model_call_count += 1
         bbox_list, score_list = self.recheck_model.forward(stacked_img)
-        target_bbox = [[*target.pt1, *target.pt2]]
+        # Model boxes use the stacked image's coordinates, whereas the target
+        # remains in the main detector's coordinates until final export.
+        recheck_ratio = [stacked_img.shape[1] / self.runtime_size[0],
+                         stacked_img.shape[0] / self.runtime_size[1]]
+        recheck_pt1 = scale_to(target.pt1, recheck_ratio)
+        recheck_pt2 = scale_to(target.pt2, recheck_ratio)
+        target_bbox = [[*recheck_pt1, *recheck_pt2]]
         matched_pairs = box_matching(bbox_list, target_bbox)  # type: ignore
 
         if len(matched_pairs) == 0:
@@ -898,7 +905,7 @@ class MetExporter(object):
         if (label != Name2Label.METEOR and label
                 in self.positive_cate_ids) or (label == Name2Label.METEOR and
                                                target.score >= self.det_thre):
-            sure_box = Box.from_pts(target.pt1, target.pt2)
+            sure_box = Box.from_pts(recheck_pt1, recheck_pt2)
             r_brightness = calc_brightness_with_roi(stacked_img, sure_box)
             target.relative_brightness = round(r_brightness, ndigits=3)
             target.aesthetic_score = round(target.score * target.fix_dist *

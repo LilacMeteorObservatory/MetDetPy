@@ -413,6 +413,8 @@ class YOLOModel(object):
                     f"Extra resize is applied to avoid error (which may increase time cost.)"
                 )
                 self.unwarning = False
+        else:
+            self.resize = False
 
         # resize if necessary
         if self.resize:

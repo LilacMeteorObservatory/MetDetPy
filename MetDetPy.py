@@ -149,10 +149,11 @@ def detect_video(video_name: str,
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
         if recheck_cfg.switch:
+            # Stack at native size
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
                                             video_name,
                                             mask_name,
-                                            resize_option,
+                                            None,
                                             hwaccel=cfg.loader.hwaccel,
                                             grayscale=False,
                                             exp_option="real-time",
