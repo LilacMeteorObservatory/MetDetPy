@@ -16,6 +16,13 @@ SCRIPTS = ["MetDetPy.py", "ClipToolkit.py", "MetDetPhoto.py"]
 
 EXCLUDE_PKGS = ["torch", "scipy", "tensorflow", "Ipython", "Keras", "PIL"]
 
+# Nuitka package configuration. It lets Nuitka bundle the dylibs that
+# pyexiv2 links against outside the Python installation (Homebrew's
+# brotli/gettext/inih), without which the build aborts with a DLL scan error.
+PACKAGE_CONFIG = join_path(os.path.dirname(os.path.abspath(__file__)),
+                            "nuitka_config",
+                            "metdetpy.nuitka-package.config.yml")
+
 
 def expose_pyexiv2_extension(dist_dir: str):
     # pyexiv2.lib imports the extension by its top-level name, exiv2api.
@@ -80,6 +87,7 @@ def build(args):
     # PyAV extensions import other av modules dynamically (e.g. av.utils).
     nuitka_pkgs.append("--include-module=av.utils")
     nuitka_pkgs.append("--include-package-data=pyexiv2")
+    nuitka_base["--user-package-configuration-file"] = PACKAGE_CONFIG
 
     if platform == "win":
         if sys.version_info >= (3, 13):

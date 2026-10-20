@@ -34,6 +34,10 @@ EXCLUDES = [
     "onnxruntime.training", "onnxruntime.datasets", "onnxruntime.backend",
 ]
 
+# Runtime hook executed by the frozen app before its own imports.
+RUNTIME_HOOK = join_path(os.path.dirname(os.path.abspath(__file__)),
+                          "hooks", "pyi_no_mp_lock.py")
+
 
 def create_merged_spec(work_path: str, onefile: bool, console: bool,
                        icon_path: Optional[str] = None,
@@ -61,14 +65,10 @@ _pyexiv2_datas, _pyexiv2_binaries, _pyexiv2_hiddenimports = collect_all('pyexiv2
     hiddenimports={hidden_imports_str} + _pyexiv2_hiddenimports,
     hookspath=[],
     hooksconfig={{}},
-    runtime_hooks=[],
+    runtime_hooks=[{RUNTIME_HOOK!r}],
     excludes={excludes_str},
     noarchive=False,
 )""")
-
-    merge_args = ", ".join(
-        f"({base}_a, '{base}', '{base}')" for _, base in SCRIPTS
-    )
 
     exe_blocks = []
     for _, script_base in SCRIPTS:
@@ -79,6 +79,7 @@ _pyexiv2_datas, _pyexiv2_binaries, _pyexiv2_hiddenimports = collect_all('pyexiv2
     {script_base}_pyz,
     {script_base}_a.scripts,
     [],
+    exclude_binaries=True,
     name='{script_base}',
     debug=False,
     bootloader_ignore_signals=False,
@@ -136,7 +137,6 @@ _pyexiv2_datas, _pyexiv2_binaries, _pyexiv2_hiddenimports = collect_all('pyexiv2
 {collect_preamble}
 {"".join(analysis_blocks)}
 
-MERGE({merge_args})
 {"".join(exe_blocks)}
 
 coll = COLLECT(
@@ -171,6 +171,7 @@ def build(args):
     spec_file = create_merged_spec(work_path, onefile_mode, console, icon_path, upx)
     build_root = join_path(work_path, "build")
     cmd = [sys.executable, "-m", "PyInstaller",
+           "--noconfirm",
            "--distpath", compile_path,
            "--workpath", build_root,
            spec_file]

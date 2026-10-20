@@ -1,0 +1,19 @@
+# Nuitka package configuration used when building MetDetPy.
+#
+# The `pyexiv2` wheel ships its own `libexiv2.dylib`, which is linked against
+# Homebrew builds of brotli / gettext / inih. Those libraries live outside the
+# Python installation, so Nuitka drops them by default while collecting the
+# DLLs of the `pyexiv2` extension module.
+#
+# The later macOS DLL path fixup then aborts the whole compilation with:
+#
+#   FATAL: Error, problem with dependency scan of
+#   '.../site-packages/pyexiv2/lib/libexiv2.dylib' with
+#   '/opt/homebrew/opt/brotli/lib/libbrotlidec.1.dylib' please report the bug.
+#
+# Allowing "package-system-dlls" makes Nuitka bundle those libraries as well
+# and rewrite their install names to point inside the distribution, so the
+# resulting application stays self-contained.
+- module-name: "pyexiv2"
+  import-hacks:
+    - package-system-dlls: "yes"
