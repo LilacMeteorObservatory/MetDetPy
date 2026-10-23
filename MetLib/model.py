@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+from math import ceil
 from os import path
 from typing import Optional, Union
 
@@ -21,7 +22,6 @@ DEFAULT_STR = "default"
 PARTITION_MIN_OVERLAP = 0.2
 LOCK_TIMEOUT = 5.0
 SUPPORTED_INPUT_COLOR_ORDERS = {"rgb", "bgr"}
-
 DEVICE_MAPPING: dict[str, list[str]] = {
     "cpu": ["CPUExecutionProvider"],
     "dml": ["DmlExecutionProvider"],
@@ -41,6 +41,57 @@ WINDOWS_DLL_CHK_LIST = [
         "msvcp140.dll",
         "ucrtbase.dll"
     ]
+
+
+
+def _tile_starts(length: int, size: int) -> list[int]:
+    """Cover an axis with equal windows, anchoring both ends.
+
+    Choose enough windows for at least PARTITION_MIN_OVERLAP, then distribute
+    their starts. Computing window size and stride independently can leave an
+    uncovered tail, even before either value is rounded to an integer.
+    """
+    if not 1 <= size <= length:
+        raise ValueError("Tile size must be within the image axis.")
+    if size == length:
+        return [0]
+    max_stride = max(1, int(size * (1 - PARTITION_MIN_OVERLAP)))
+    intervals = ceil((length - size) / max_stride)
+    return [i * (length - size) // intervals for i in range(intervals + 1)]
+
+
+def _plan_prediction_tiles(height: int, width: int, hw_ratio: float,
+                           tolerance: float, scales: int, partition: int):
+    """Plan ratio adaptation and progressively smaller, overlapping views.
+
+    Single-layer adaptation retains the full short axis and crops only the
+    excess long axis to the model aspect ratio. Transposition is reserved for
+    opposite image/model orientations. Resolution alone does not add views.
+    Returned xyxy windows are in the possibly transposed input coordinates.
+    """
+    transpose = (abs(height / width - hw_ratio) > tolerance
+                 and (height / width - 1) * (hw_ratio - 1) < 0)
+    if transpose:
+        height, width = width, height
+    tile_h, tile_w = height, width
+    if abs(height / width - hw_ratio) > tolerance:
+        if height / width > hw_ratio:
+            tile_h = max(1, min(height, round(width * hw_ratio)))
+        else:
+            tile_w = max(1, min(width, round(height / hw_ratio)))
+    levels = []
+    # A nominal partition=2 gives 2x2 overlapping views of a matching image.
+    # Adapted images can need a different grid to preserve the tile ratio.
+    shrink = partition - (partition - 1) * PARTITION_MIN_OVERLAP
+    for scale in range(scales):
+        if scale:
+            tile_h = max(1, ceil(tile_h / shrink))
+            tile_w = max(1, ceil(tile_w / shrink))
+        windows = [(x, y, x + tile_w, y + tile_h)
+                   for y in _tile_starts(height, tile_h)
+                   for x in _tile_starts(width, tile_w)]
+        levels.append(windows)
+    return transpose, levels
 
 def validate_provider_key(value: str) -> str:
     """Validate a backend alias with an optional nonnegative GPU index."""
@@ -317,13 +368,15 @@ class YOLOModel(object):
             multiscale_pred (int, optional): the number of prediction scales, shoule be an integer>=0. 
                 Different multiscale_pred scales performs as follows:
                 1. When set to 0, there will be no extra transform before inference, just resize;
-                2. When set to 1, there will be an optional basic transform and split on the full image;
+                2. When set to 1, adapt the aspect ratio with overlapping crops
+                   at one scale; transpose only opposite image/model orientations;
                 3. When number is larger than 1, the results will be predicted using multi-scale images
                     (similar to a feature pyramid).
                 This can improve recall and precision, but may also increase the time cost. Defaults to 1.
             multiscale_partition (int, optional): The number of partitions for multi-scale images at each level.
-                For example, at the first sub-level, if the multiscale_partition is set to 2, the image will 
-                be divided into $\(2^{1} \times 2^{1} = 2 \times 2\)$ sub-images and sent to the model. 
+                For example, partition=2 gives 2x2 overlapping views at the first
+                sub-level of an aspect-matched image. Adapted inputs may need a
+                different grid to preserve the crop ratio and cover all pixels.
                 The default value is 2.
             hw_tolerance (float, optional): The max allowed scaling ratio. When running with multiscale mode,
                 if diff height-width ratio is larger than excepted, image division will be applied.
@@ -502,57 +555,27 @@ class YOLOModel(object):
             result_pos, joint_scores = self._forward(x)
             return result_pos, np.sqrt(joint_scores)
 
-        transpose_flag = False
-        input_hw_ratio = h / w
-        h_rep, w_rep = 1, 1
-        if abs(self.hw_ratio - input_hw_ratio) > self.hw_tolerance:
-            # 需要对第一级做分割，判断是否需要旋转底图：
-            # 1. 模型和原图同向
-            # 2. 长短边异向，但旋转后符合直接匹配
-            if ((input_hw_ratio - 1) * (self.hw_ratio - 1)) > 0 or abs(
-                    self.hw_ratio - 1 / input_hw_ratio) < self.hw_tolerance:
-                transpose_flag = True
-                x = np.transpose(x, (1, 0, 2))
-                input_hw_ratio = 1 / input_hw_ratio
-                h, w = w, h
-            # TODO: 这段逻辑比较绕...归纳出统一的格式
-            if h > w:
-                h_rep = np.ceil(h * self.w / (self.h * w)).astype(int)
-            else:
-                w_rep = np.ceil(w * self.h / (h * self.w)).astype(int)
-        n = self.multiscale_partition**2
-        tot_partition_num = h_rep * w_rep * (n**(self.multiscale_pred) -
-                                             1) // (n - 1)
+        transpose_flag, levels = _plan_prediction_tiles(
+            h, w, self.hw_ratio, self.hw_tolerance, self.multiscale_pred,
+            self.multiscale_partition)
+        if transpose_flag:
+            x = np.transpose(x, (1, 0, 2))
+        tot_partition_num = sum(len(windows) for windows in levels)
         self.logger.debug(
             f"Forward with total partition: {tot_partition_num}; image transpose: {transpose_flag}"
         )
 
-        # 根据 rep 情况 分检测用 patch_index_list
+        # Each level covers both image edges; windows keep the base crop ratio.
         result_pos: list[NDArray[np.int_]] = []
         result_joint_scores: list[NDArray[np.float64]] = []
         try:
-            for scale in range(self.multiscale_pred):
-                if scale > 0:
-                    h_rep *= self.multiscale_partition
-                    w_rep *= self.multiscale_partition
-                tot_h_rep = (h_rep - 1) * PARTITION_MIN_OVERLAP
-                tot_w_rep = (w_rep - 1) * PARTITION_MIN_OVERLAP
-                h_size = int(h // (h_rep - tot_h_rep))
-                w_size = int(w // (w_rep - tot_w_rep))
-                h_stride = int(h // (h_rep + tot_h_rep))
-                w_stride = int(w // (w_rep + tot_w_rep))
-
-                for i in range(h_rep):
-                    for j in range(w_rep):
-                        clip_img = x[i * h_stride:i * h_stride + h_size,
-                                     j * w_stride:j * w_stride + w_size]
-                        clip_pos, clip_joint_scores = self._forward(clip_img)
-                        clip_pos[:, 1] += i * h_stride
-                        clip_pos[:, 3] += i * h_stride
-                        clip_pos[:, 0] += j * w_stride
-                        clip_pos[:, 2] += j * w_stride
-                        result_pos.append(clip_pos)
-                        result_joint_scores.append(clip_joint_scores)
+            for windows in levels:
+                for x1, y1, x2, y2 in windows:
+                    clip_pos, clip_joint_scores = self._forward(x[y1:y2, x1:x2])
+                    clip_pos[:, [0, 2]] += x1
+                    clip_pos[:, [1, 3]] += y1
+                    result_pos.append(clip_pos)
+                    result_joint_scores.append(clip_joint_scores)
         except Exception as e:
             # 异常跳过
             self.logger.error(
