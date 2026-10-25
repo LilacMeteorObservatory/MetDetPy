@@ -85,6 +85,7 @@ Note:
 * 修复 v2.5.0 引入的深度学习候选过滤回归：恢复 NMS 前独立的 objectness 门槛，避免低 objectness 候选因类别分数较高而通过筛选；恢复 `pos_thre` 的旧版语义，默认值恢复为 `0.25`。新增 `objectness_thre` 配置独立控制，默认值为 `0.25`；
 * 修正 `m3det_normal_old.json` 的预设名称。
 * 打包工具优化：完善 Nuitka 发行版本的动态依赖，收紧 PyInstaller 的依赖收集，减小发行版体积。
+* 修复 macOS 发行版在其它电脑上无法启动的问题：产物中残留了打包机的绝对路径（如 conda 环境的 `/Users/<user>/anaconda3/envs/.../libpython3.10.dylib`），导致 dyld 报 `Library not loaded` 而无法加载。新增打包后的 install name 重定位步骤，把这类路径改写为产物内的相对路径（`@loader_path/...`），同时修正 `$ORIGIN` rpath（macOS dyld 不识别该 ELF 写法）与第三方 dylib 自身残留的构建机路径。改写会作废二进制原有的代码签名，重定位后自动补回 ad-hoc 签名并保留原 identifier，避免产物签名失效。
 
 ⚠️ Configuration Migration Notes
 * 建议更新为本版本提供的预设。默认设置为 `objectness_thre=0.25`、`pos_thre=0.25`，分别约束 objectness 和开平方后的模型分数。

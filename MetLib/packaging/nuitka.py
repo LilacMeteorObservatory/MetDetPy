@@ -9,6 +9,7 @@ from typing import Union
 
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
 from .common import run_cmd, post_process
+from .macos import relocate_macos_binaries
 
 join_path = os.path.join
 
@@ -154,6 +155,14 @@ def build(args):
                     join_path(compile_path, "MetDetPy"))
         expose_pyexiv2_extension(join_path(compile_path, "MetDetPy"))
         print("Done.")
+
+        # 修正产物中残留的构建机绝对路径（如 conda 环境的 libpython3.10.dylib），
+        # 否则拷贝到其它机器后 dyld 会报 "Library not loaded"。
+        if platform.startswith("macos"):
+            print("Relocating dynamic library paths...", end="", flush=True)
+            commands = relocate_macos_binaries(
+                join_path(compile_path, "MetDetPy"))
+            print(f"Done. ({len(commands)} files fixed)")
 
     post_process(compile_path,
                  onefile_mode,

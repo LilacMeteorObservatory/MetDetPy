@@ -7,6 +7,7 @@ from typing import Optional
 
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
 from .common import run_cmd, post_process
+from .macos import relocate_macos_binaries
 
 join_path = os.path.join
 
@@ -189,6 +190,14 @@ def build(args):
     if os.path.exists(build_root):
         shutil.rmtree(build_root)
     print("Done.")
+
+    # 修正产物中残留的构建机绝对路径（如 conda 环境的 libpython3.x.dylib），
+    # 否则拷贝到其它机器后 dyld 会报 "Library not loaded"。
+    if platform == "macos" and not onefile_mode:
+        print("Relocating dynamic library paths...", end="", flush=True)
+        commands = relocate_macos_binaries(
+            join_path(compile_path, PROJECT_NAME))
+        print(f"Done. ({len(commands)} files fixed)")
 
     post_process(compile_path,
                  onefile_mode,
