@@ -71,7 +71,8 @@ either Nuitka or PyInstaller. Nuitka is the default backend.
 
 ```sh
 python make_package.py [--backend {nuitka,pyinstaller}]
-     [--apply-upx] [--apply-zip] [--onefile]
+     [--apply-upx] [--apply-zip] [--onefile] [--clean-dist]
+     [--build-tag TAG] [--build-report]
      [--mingw64] [--macos-sign-identity IDENTITY]
      [--windowed] [--icon ICON_PATH]
 ```
@@ -84,6 +85,12 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--onefile`: generate one executable per program instead of a directory bundle.
 
+* `--clean-dist`: remove the `dist/` directory before packaging so stale executables and resource folders are not mixed into the new build. Honored by both the Nuitka and PyInstaller backends.
+
+* `--build-tag`: optional override for the Nuitka onefile extraction cache tag. The cache tag defaults to `VERSION` (for example `V2.6.1`), so each release gets a fresh cache. Only pass this when several builds of the same version must not share one; changing the tag requires rebuilding.
+
+* `--build-report`: write an optional `build_report.txt` next to `make_package.py` with the version, source commit/worktree state, toolchain versions and artifact SHA256 hashes.
+
 * `--mingw64`: use MinGW64 on Windows with Python 3.12 or earlier. Python 3.13+ automatically uses MSVC; install Visual Studio Build Tools with the Desktop development with C++ workload.
 
 * `--macos-sign-identity`: macOS signing identity for the Nuitka backend.
@@ -92,9 +99,73 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--icon`: executable icon used by the PyInstaller backend.
 
+### Nuitka onefile extraction cache
+
+With `--backend nuitka --onefile`, the generated executables use a fixed
+extraction cache instead of a fresh temporary directory per launch:
+
+```
+{CACHE_DIR}/MetDetPy/<VERSION>
+```
+
+`{CACHE_DIR}` is resolved by Nuitka at runtime (`%LOCALAPPDATA%` on Windows;
+`$XDG_CACHE_HOME` or `~/.cache` on macOS and Linux). The first launch unpacks
+the payload there; later launches reuse the unpacked files (Nuitka verifies
+each file's CRC32), so the per-launch unpacking overhead is removed. The cache
+is kept after exit and therefore still occupies the unpacked size on disk. The
+three onefile programs of the same build share one cache directory, since
+their common dependencies are identical.
+
+The cache is keyed by `VERSION`, so a new release never reuses the previous
+release's payload. Rebuilding the same version reuses the same cache directory
+(Nuitka verifies each file's CRC32 and refreshes changed files from the
+payload); pass `--build-tag` only when several same-version builds must be kept
+apart. Old `onefile_*` temp directories and old caches are not cleaned
+automatically; delete them while all packaged programs are closed.
+
+In onefile mode the `pyexiv2` native pieces are included explicitly: the
+`exiv2api` extension is registered at build time and the `exiv2.dll` /
+`libexiv2` shared library is placed at `pyexiv2/lib` inside the payload, so
+EXIF/ICC writing keeps working when output images are exported.
+
+**Windows Store (MSIX / APPX) builds require the bootstrap patch**: Windows
+file system virtualization redirects the onefile extraction directory
+(`%LOCALAPPDATA%\MetDetPy\<VERSION>`) into the package private directory,
+but the Nuitka bootstrap then starts the child process with the *logical*
+path, so the loader cannot find `python310.dll` next to it and the engine dies
+with `0xC0000135`. A Windows onefile build therefore applies
+`nuitka-patches/patch_onefile_bootstrap.py` automatically before compiling
+(Nuitka 4.0.5 is locked). A version/anchor mismatch, or a built executable
+without the patch marker, **fails the build** instead of silently producing a
+Store build that cannot start. The patch rewrites `OnefileBootstrap.c` in the
+build environment's `site-packages` and keeps a `.metdetpy-orig` backup.
+Store acceptance must run on a new account / isolated machine where neither
+the normal nor the package private cache exists (a new `VERSION`, or an
+explicit new `--build-tag`).
+
+Example Windows onefile release build:
+
+```powershell
+python make_package.py --backend nuitka --onefile --apply-zip --clean-dist `
+  --build-report
+```
+
+This produces `dist/MetDetPy.exe`, `dist/MetDetPhoto.exe`,
+`dist/ClipToolkit.exe`, the `config/`, `weights/` and `global/` resource
+folders, and `dist/MetDetPy-win-v2.6.1-nuitka-onefile.zip`. With
+`--build-report`, a minimal `build_report.txt` is written next to
+`make_package.py`, containing only the version, source commit/worktree state,
+toolchain versions and artifact SHA256 values.
+
 ### Common Notes
 
 Executables and the optional ZIP package are generated in the [dist](../dist/) directory.
+
+With the Nuitka backend the ZIP is named
+`MetDetPy-<platform>-<version>-nuitka-<onefile|onedir>.zip`. A onefile ZIP has
+the executables and resource folders at its root; an onedir ZIP contains the
+`MetDetPy/` application folder, which holds the three executables, the runtime
+dependencies and the `config/`, `weights/` and `global/` resource folders.
 
 **Notice:**
 

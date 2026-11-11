@@ -95,7 +95,8 @@ python evaluate.py --report annotation.json --load predictions.json --metric --m
 
 ```sh
 python make_package.py [--backend {nuitka,pyinstaller}]
-     [--apply-upx] [--apply-zip] [--onefile]
+     [--apply-upx] [--apply-zip] [--onefile] [--clean-dist]
+     [--build-tag TAG] [--build-report]
      [--mingw64] [--macos-sign-identity IDENTITY]
      [--windowed] [--icon ICON_PATH]
 ```
@@ -108,6 +109,12 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--onefile`：每个程序生成一个可执行文件，而不是目录式程序包。
 
+* `--clean-dist`：打包前先删除 `dist/` 目录，避免旧的可执行文件和资源目录混入新构建。Nuitka 与 PyInstaller 后端均生效。
+
+* `--build-tag`：可选，覆盖 Nuitka onefile 固定解压目录的缓存标识。缓存标识默认为 `VERSION`（例如 `V2.6.1`），每个版本自然使用新的解压目录；只有同版本多次构建需要互相隔离时才需要指定，修改后必须重新打包才会生效。
+
+* `--build-report`：可选，在 `make_package.py` 同目录写出 `build_report.txt`，只记录版本、源码提交/工作区状态、工具链版本和各产物 SHA256。
+
 * `--mingw64`：Nuitka 后端在 Windows、Python 3.12 及更早版本使用 MinGW64；Python 3.13+ 自动改用 MSVC，需要安装 Visual Studio Build Tools 的 C++ 桌面开发组件。
 
 * `--macos-sign-identity`：Nuitka 后端使用的 macOS 签名身份。
@@ -116,9 +123,39 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 * `--icon`：PyInstaller 后端使用的可执行文件图标。
 
+### Nuitka onefile 固定解压目录
+
+使用 `--backend nuitka --onefile` 时，生成的可执行文件使用固定的解压缓存目录，而不是每次启动都创建新的临时目录：
+
+```
+{CACHE_DIR}/MetDetPy/<VERSION>
+```
+
+`{CACHE_DIR}` 由 Nuitka 在运行时解析（Windows 为 `%LOCALAPPDATA%`；macOS / Linux 为 `$XDG_CACHE_HOME` 或 `~/.cache`）。首次启动会把载荷解压到该目录，后续启动直接复用已解压的文件（Nuitka 会校验每个文件的 CRC32），从而省去每次启动的解压开销。缓存会在退出后保留，因此仍会占用解压后的磁盘空间。同一构建的三个 onefile 程序共用同一个缓存目录，因为它们的公共依赖相同。
+
+缓存以 `VERSION` 为标识，因此新版本不会复用旧版本的载荷。同版本重新构建会复用同一个缓存目录（Nuitka 会校验每个文件的 CRC32 并从载荷刷新变化的文件）；确需让同版本的多次构建互不干扰时，才使用 `--build-tag`。旧的 `onefile_*` 临时目录和旧版本缓存不会自动清理，可在确认相关程序全部退出后手动删除。
+
+onefile 模式下会显式处理 `pyexiv2` 原生组件：构建时注册 `exiv2api` 扩展，并把 `exiv2.dll` / `libexiv2` 共享库放入载荷内的 `pyexiv2/lib`，以保证导出图片时 EXIF/ICC 信息仍能正常写入。
+
+**Windows 商店版（MSIX / APPX）必须打引导层补丁**：Windows 文件系统虚拟化会把 onefile 解压目录（`%LOCALAPPDATA%\MetDetPy\<VERSION>`）重定向到包私有目录，而 Nuitka 引导层随后用逻辑路径启动内部子进程 → 加载器找不到同目录的 `python310.dll` → `0xC0000135` 秒退。Windows + onefile 构建前会自动执行 `nuitka-patches/patch_onefile_bootstrap.py`（锁定 Nuitka 4.0.5），把逻辑路径解析为物理路径后再 `CreateProcessW`；版本或锚点不匹配、或产物里找不到补丁标记时**构建直接失败**，不会静默产出商店版起不来的包。补丁会改写构建环境 `site-packages` 里的 `OnefileBootstrap.c`，原始文件备份为 `.metdetpy-orig`。商店版验收必须在新账号 / 隔离机上，且普通缓存与包私有缓存都不存在的条件下首启验证（例如新版本号，或显式指定新的 `--build-tag`）。
+
+Windows onefile 发行版示例：
+
+```powershell
+python make_package.py --backend nuitka --onefile --apply-zip --clean-dist `
+  --build-report
+```
+
+该命令会生成 `dist/MetDetPy.exe`、`dist/MetDetPhoto.exe`、`dist/ClipToolkit.exe`，`config/`、`weights/`、`global/` 资源目录，以及 `dist/MetDetPy-win-v2.6.1-nuitka-onefile.zip`。指定 `--build-report` 时，会在 `make_package.py` 同目录写出精简的 `build_report.txt`，只记录版本、源码提交/工作区状态、工具链版本和各产物 SHA256。
+
 ### 通用说明
 
 可执行程序和可选的 ZIP 压缩包会生成在 [dist](../dist/) 目录下。
+
+使用 Nuitka 后端时，ZIP 命名格式为
+`MetDetPy-<平台>-<版本>-nuitka-<onefile|onedir>.zip`。onefile 包的根目录直接是
+可执行文件和资源目录；onedir 包内是 `MetDetPy/` 应用目录，其中包含三个可执行文件、
+运行时依赖以及 `config/`、`weights/`、`global/` 资源目录。
 
 注意：
 

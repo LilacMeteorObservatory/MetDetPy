@@ -6,7 +6,7 @@ import sys
 from typing import Optional
 
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
-from .common import run_cmd, post_process
+from .common import run_cmd, post_process, clean_output_dir
 
 join_path = os.path.join
 
@@ -165,6 +165,8 @@ def build(args):
     icon_path = args.icon
 
     print("Using pyinstaller as package tool.")
+    if getattr(args, "clean_dist", False):
+        clean_output_dir(compile_path)
     os.makedirs(compile_path, exist_ok=True)
 
     upx = args.apply_upx
