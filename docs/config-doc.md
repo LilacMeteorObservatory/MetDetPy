@@ -263,7 +263,7 @@ Summary table (key parameters):
         <td rowspan="5">binary</td>
         <td>adaptive_bi_thre</td>
         <td>bool</td>
-        <td>Enable adaptive binary threshold estimation based on sampled SNR.</td>
+        <td>Enable adaptive binary threshold estimation from the sampled noise level.</td>
         <td>true</td>
     </tr>
     <tr>
@@ -287,7 +287,7 @@ Summary table (key parameters):
     <tr>
         <td>interval</td>
         <td>int</td>
-        <td>Estimation interval (frames). Too frequent estimation increases cost; too infrequent may lag behind SNR changes.</td>
+        <td>Estimation stride (frames) for the adaptive threshold. The noise statistic is maintained incrementally on a decimated sub-area, so a short stride is cheap; keep 1–2 for fast tracking, raise it only to trade responsiveness for a little less work.</td>
         <td>2</td>
     </tr>
     <tr>

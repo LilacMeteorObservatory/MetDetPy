@@ -182,7 +182,16 @@ class MergeFunction(object):
 
     @classmethod
     def max(cls, image_stack: Sequence[Union[U8Mat, MatLike]]):
-        return np.max(image_stack, axis=0, keepdims=True)[0]
+        if len(image_stack) == 0:
+            raise ValueError("Cannot merge an empty image stack.")
+        merged = np.array(image_stack[0], copy=True)
+        for frame in image_stack[1:]:
+            if frame.shape == merged.shape and frame.dtype == merged.dtype:
+                np.maximum(merged, frame, out=merged)
+            else:
+                # 类型/形状不一致时退回分配式，保持旧的类型提升语义。
+                merged = np.maximum(merged, frame)
+        return merged
 
     @classmethod
     def m3func(cls, image_stack: Sequence[Union[U8Mat, MatLike]]):

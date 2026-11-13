@@ -13,7 +13,7 @@ from MetLib.utils import SlidingWindow
 def test_m3_reused_buffers_match_original_background_and_dynamic_mask(window_size):
     cfg = MainDetectCfg.from_json_file("config/m3det_normal.json")
     mask = np.ones((48, 64), dtype=np.uint8)
-    detector = M3Detector(1, window_size, mask, 4, cfg.detector.cfg, MagicMock())
+    detector = M3Detector(1, window_size, mask, cfg.detector.cfg, MagicMock())
     history = SlidingWindow(window_size, mask.shape, dtype=np.uint8,
                             force_int=True, calc_max=False)
     rng = np.random.default_rng(42)

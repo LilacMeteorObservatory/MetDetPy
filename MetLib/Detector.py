@@ -26,88 +26,156 @@ from .metvisu import (BaseVisuAttrs, DrawRectVisu, ImgVisuAttrs,
 from .model import init_model
 from .profiling import profiled
 from .utils import (EMA, PI, SlidingWindow, U8Mat, Uint8EMA, expand_cls_pred,
-                    generate_group_interpolate, get_name2id, lineset_nms)
+                    generate_group_interpolate, get_name2id, get_num_class,
+                    lineset_nms)
 
 NUM_LINES_TOOMUCH = 500
 DEFAULT_INIT_VALUE = 5
 
 
-class SNR_SW(SlidingWindow):
-    """
-    ## 检测器使用的滑窗管理器。
+class NoiseSW(SlidingWindow):
+    """## 检测器使用的滑窗管理器。
 
-    基于滑动窗口维护序列，可以用于产生维护前景图像，参考背景图像，评估信噪比。
+    基于滑动窗口维护序列，可以用于产生维护前景图像，参考背景图像，评估噪声水平。
+
+    ## 噪声评估（est_noise=True）
+
+    在选定的子区域（且可抽取）上维护逐像素的时间二阶矩（整数累加器），结合主
+    滑窗已维护的一阶矩，得到池化的噪声标准差：
+
+        sigma = sqrt( mean_p( Σx²/L - (Σx/L)² ) )
+
+    即「逐像素时间方差在子区域内池化」。
+    
+    实现方式：
+
+    * 累加器只铺在子区域上（默认再 2×2 抽取），成本约为全帧的 1/40；
+    * 一阶矩复用主滑窗的 `sum`，每帧只需维护 Σx²（平方 + 入环 + 加减）；
+    * 开方只按 `noise_interval` 采样执行；整数累加、浮点评估
+    * 轻量计算，密集采样避免「固定采样步长与编码 GOP 周期拍频」造成的相位锁定。
+
+    噪声平滑使用 EMA，时间常数由 `noise_window_sec` 指定。
+
+    冷启动：窗口未填满时**不产生估计**（`noise_sigma` 保持 0，调用方继续使用固定
+    阈值）；窗口填满后在 `noise_warmup` 个样本内把动量抬升到稳态值。
+
+    Args:
+        n (int): 滑窗帧数。
+        mask (U8Mat): 运行时掩模，用于选择噪声评估子区域。
+        fps (float): 送入滑窗的帧率（VideoLoader 的 eq_fps），用于把采样步长换算
+            为秒，仅影响时间常数标定。
+        est_noise (bool): 是否评估噪声水平。
+        est_area (float): 噪声评估子区域占整帧的面积比例；0 表示整帧。
+        noise_interval (float): 噪声评估的采样步长（帧）。1 表示每帧评估。
+        noise_window_sec (float): 噪声 EMA 的时间常数（秒）。
+        noise_warmup (int): 动量从 0 抬升到稳态值所跨的样本数。
+        noise_decimate (int): 子区域抽取步长，1 表示不抽取。
     """
 
     def __init__(self,
                  n: int,
                  mask: U8Mat,
-                 est_snr: bool = True,
+                 fps: float = 1.0,
+                 est_noise: bool = True,
                  est_area: float = 0,
-                 noise_moment: float = 0.99,
-                 nz_interval: float = 1) -> None:
-        self.est_snr = est_snr
+                 noise_interval: float = 1,
+                 noise_window_sec: float = 60.0,
+                 noise_warmup: int = 10,
+                 noise_decimate: int = 2) -> None:
+        self.est_noise = est_noise
         self.n = n
-        self.nz_interval = nz_interval
+        self.noise_interval = max(1, int(noise_interval))
+        self.noise_window_sec = float(noise_window_sec)
+        self.noise_decimate = max(1, int(noise_decimate))
         # 主滑窗，维护图像
         super().__init__(n,
                          size=mask.shape,
                          dtype=np.uint8,
                          force_int=True,
                          calc_std=False)
-        # 需要评估信噪比时，额外的子滑窗
-        if self.est_snr:
-            # Temp Fix: 改为取过去60s的EMA。
-            # TODO: 持久化该修改，增加参数配置。
-            noise_moment = 1 - nz_interval / 60
-            self.noise_ema = EMA(momentum=noise_moment, warmup_speed=n)
-            self.std_interval = self.nz_interval * n
+        # 需要评估噪声水平时，在子区域上维护累加器
+        if self.est_noise:
             self.get_subarea = self.select_subarea(mask, area=est_area)
-            sub_h, sub_w = self.std_roi[2] - self.std_roi[0], self.std_roi[
-                3] - self.std_roi[1]
-            self.sub_sw = SlidingWindow(n,
-                                        size=(sub_h, sub_w),
-                                        dtype=np.uint8,
-                                        force_int=True,
-                                        calc_std=False,
-                                        calc_max=False)
+            roi_shape = self.get_subarea(
+                np.zeros(mask.shape, dtype=np.uint8)).shape
+            self.roi_shape = roi_shape
+            # 一阶矩不必自己维护：主滑窗的 `sum` 已经是逐像素的 Σx（uint32），
+            # 取它的（抽取）子区域即可，见 `_measure`。这里只维护 Σx²。
+            self._noise_sumsq = np.zeros(roi_shape, dtype=np.int64)
+            # 环形缓存：已平方的（抽取后）子区域，用于环形移除。
+            self._sq_ring = np.zeros((n, ) + roi_shape, dtype=np.int32)
+            self._sq_scratch = np.empty(roi_shape, dtype=np.int64)
+            self._buf_mu = np.empty(roi_shape, dtype=np.float64)
+            self._buf_var = np.empty(roi_shape, dtype=np.float64)
+            self._buf_sq = np.empty(roi_shape, dtype=np.float64)
+            # 采样周期（秒）与 EMA 动量：保证时间常数为 noise_window_sec 秒。
+            period = self.noise_interval / max(float(fps), 1e-9)
+            momentum = min(
+                max(1.0 - period / max(self.noise_window_sec, 1e-9), 0.0), 1.0)
+            warmup_speed = (1.0 / (noise_warmup * (1.0 - momentum))
+                            if noise_warmup > 0 and momentum < 1.0 else 0.0)
+            self.noise_ema = EMA(momentum=momentum,
+                                 warmup_speed=warmup_speed)
+            self.noise_sample = 0.0
+            self.noise_sample_count = 0
 
     @profiled("m3.update.stack")
     def update(self, new_frame: U8Mat):
+        if self.est_noise:
+            self._accumulate(new_frame)
         super().update(new_frame)
-        self.sub_sw.update(self.get_subarea(new_frame))
-        # TODO: 经验公式：当每隔std_interval计算一次时，标准差会存在偏大的情况。结果可除以sqrt(std_interval)以修正数据值。
-        # TODO: 利用E(X^2)-E(X)^2的设计会造成10%-20%的性能下降，不符合预期。
-        # 在确定合适的经验公式和维护公式之前，不应用该更新。
-        # 添加了更快启动的机制。
-        # 每std_interval时间更新一次std
-        if self.est_snr:
-            if self.timer > self.n and self.timer % self.std_interval == 0:
-                self.noise_cur_value = np.std(
-                    self.sub_sw.sliding_window -
-                    np.array(self.sub_sw.mean, dtype=float))
-                self.noise_ema.update(self.noise_cur_value)
-            elif 1 < self.timer <= self.n:
-                self.noise_cur_value = np.std(
-                    self.sub_sw.sliding_window[:self.timer] -
-                    np.array(self.sub_sw.mean, dtype=float))
-                self.noise_ema.update(self.noise_cur_value)
+        # 窗口未填满时不产生估计：此时窗口均值尚不可信，短窗估计会系统性偏低。
+        if self.est_noise and self.timer >= self.n and (
+            (self.timer - self.n) % self.noise_interval == 0):
+            self.noise_sample = self._measure()
+            self.noise_sample_count += 1
+            self.noise_ema.update(self.noise_sample)
+
+    def _accumulate(self, new_frame: U8Mat):
+        """把新帧的（抽取后）子区域计入二阶矩，并移出被覆盖的旧帧。
+        """
+        roi = self.get_subarea(new_frame)
+        slot = self.timer % self.n
+        np.square(roi, out=self._sq_scratch, dtype=np.int64)
+        if self.timer >= self.n:
+            self._noise_sumsq -= self._sq_ring[slot]
+        self._sq_ring[slot] = self._sq_scratch
+        self._noise_sumsq += self._sq_scratch
+
+    def _measure(self) -> float:
+        """由累加器得到当前窗口的噪声标准差（逐像素时间方差池化）。"""
+        inv = 1.0 / self.length
+        # Σx 直接取主滑窗的 sum 子区域
+        np.multiply(self.get_subarea(self.sum),
+                    inv,
+                    out=self._buf_mu,
+                    dtype=np.float64)
+        np.multiply(self._noise_sumsq, inv, out=self._buf_var,
+                    dtype=np.float64)
+        np.square(self._buf_mu, out=self._buf_sq)
+        np.subtract(self._buf_var, self._buf_sq, out=self._buf_var)
+        np.maximum(self._buf_var, 0.0, out=self._buf_var)
+        return float(np.sqrt(self._buf_var.mean()))
 
     def select_subarea(self, mask: U8Mat,
                        area: float) -> Callable[[U8Mat], U8Mat]:
-        """用于选择一个尽量好的子区域评估STD。
+        """用于选择一个尽量好的子区域评估噪声水平。
+
+        返回一个从图像中取出（抽取后的）噪声评估子区域的函数；完整分辨率的区域
+        写入 `self.std_roi`，供可视化使用。
 
         Args:
-            mask (_type_): _description_
-            area (float, optional): _description_. Defaults to 0.1.
+            mask (U8Mat): 运行时掩模，1 表示有效天空。
+            area (float): 子区域占整帧的面积比例；0 或负数表示整帧。
 
         Returns:
-            Callable: 返回一个可以从numpy中取出局部区域的函数。
+            Callable[[U8Mat], U8Mat]: 子区域切片函数。
         """
         h, w = mask.shape[:2]
-        if area == 0:
-            self.std_roi = (h // 2, w // 2, 0, 0)
-            return lambda img: img
+        dec = self.noise_decimate
+        if area <= 0:
+            self.std_roi = (0, 0, h, w)
+            return lambda img: img[::dec, ::dec]
 
         sub_rate = area**(1 / 2)
         sub_h, sub_w = int(h * sub_rate), int(w * sub_rate)
@@ -122,11 +190,12 @@ class SNR_SW(SlidingWindow):
                 break
             light_ratio = new_ratio
         self.std_roi = (x1, y1, x1 + sub_h, y1 + sub_w)
-        return lambda img: img[x1:x1 + sub_h, y1:y1 + sub_w]
+        return lambda img: img[x1:x1 + sub_h:dec, y1:y1 + sub_w:dec]
 
     @property
-    def snr(self):
-        assert self.est_snr, "cannot get snr with est_snr not applied."
+    def noise_sigma(self):
+        """当前噪声水平（DN）。窗口未填满或未启用评估时为 0。"""
+        assert self.est_noise, "noise_sigma requires est_noise."
         return self.noise_ema.cur_value
 
 
@@ -168,8 +237,8 @@ class MockDetector(BaseDetector):
     The standard detector config is accepted but unused.
     """
 
-    def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: Any, logger: BaseMetLog):
+    def __init__(self, window_sec: float, fps: float, mask: U8Mat, cfg: Any,
+                 logger: BaseMetLog):
         self.frames_seen = 0
 
     def update(self, new_frame: U8Mat) -> None:
@@ -206,10 +275,11 @@ class LineDetector(BaseDetector):
     cv_op = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
+                 cfg: BinaryCfg, logger: BaseMetLog):
+        self.num_cls = get_num_class()
         self.mask = mask
-        self.num_cls = num_cls
         self.logger = logger
+        self.fps = fps
         self.mask_area = np.sum(self.mask)
         # cfg
         self.bi_cfg = cfg.binary
@@ -217,11 +287,12 @@ class LineDetector(BaseDetector):
         self.dynamic_cfg = cfg.dynamic
         # stack
         self.stack_maxsize = int(window_sec * fps)
-        self.stack = SNR_SW(n=self.stack_maxsize,
-                            mask=self.mask,
-                            est_snr=True,
-                            est_area=self.bi_cfg.area,
-                            nz_interval=self.bi_cfg.interval)
+        self.stack = NoiseSW(n=self.stack_maxsize,
+                             mask=self.mask,
+                             fps=fps,
+                             est_noise=self.bi_cfg.adaptive_bi_thre,
+                             est_area=self.bi_cfg.area,
+                             noise_interval=self.bi_cfg.interval)
         # 加载自适应阈值的配置参数
         if self.bi_cfg.adaptive_bi_thre:
             self.std2thre = self.sensitivity_func[self.bi_cfg.sensitivity]
@@ -248,9 +319,15 @@ class LineDetector(BaseDetector):
 
     def update(self, new_frame: U8Mat):
         self.stack.update(new_frame)
-        if self.bi_cfg.adaptive_bi_thre and (self.stack.snr != 0):
-            self.bi_threshold_float = self.std2thre(self.stack.snr)
+        # 冷启动阶段（滑窗未填满）`noise_sigma` 为 0，此时沿用固定的绝对阈值。
+        if self.bi_cfg.adaptive_bi_thre and (self.stack.noise_sigma != 0):
+            self.bi_threshold_float = self.std2thre(self.stack.noise_sigma)
             self.bi_threshold = round(self.bi_threshold_float)
+
+    @property
+    def noise_sigma(self) -> float:
+        """当前噪声标准差（DN）。未启用噪声评估时为 0。"""
+        return self.stack.noise_sigma if self.stack.est_noise else 0.0
 
     def visu(self):
         return super().visu()
@@ -277,10 +354,10 @@ class ClassicDetector(LineDetector):
     classic_max_size = 4
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
+                 cfg: BinaryCfg, logger: BaseMetLog):
         # 4帧窗口（硬编码）
         window_sec = self.classic_max_size / fps
-        super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
+        super().__init__(window_sec, fps, mask, cfg, logger)
 
     def detect(self):
         id3, id2, id1, id0 = [
@@ -348,8 +425,8 @@ class M3Detector(LineDetector):
     """
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
-        super().__init__(window_sec, fps, mask, num_cls, cfg, logger)
+                 cfg: BinaryCfg, logger: BaseMetLog):
+        super().__init__(window_sec, fps, mask, cfg, logger)
         self._mean_buffer = np.empty(self.mask.shape, dtype=np.uint8)
         self._diff_buffer = np.empty(self.mask.shape, dtype=np.uint8)
 
@@ -440,10 +517,12 @@ class M3Detector(LineDetector):
                          weight=0.5,
                          color="yellow"),
             TextVisu(
-                "std_value",
+                "noise_sigma",
                 position="left-top",
                 color="green",
-                text_list=[TextColorPair(text=f"STD:{self.stack.snr:.4f}")]),
+                text_list=[
+                    TextColorPair(text=f"STD:{self.noise_sigma:.4f}")
+                ]),
             TextVisu(
                 "bi_value",
                 position="left-top",
@@ -511,7 +590,7 @@ class DiffAreaGuidingDetecor(BaseDetector):
     """
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: BinaryCfg, logger: BaseMetLog):
+                 cfg: BinaryCfg, logger: BaseMetLog):
         self.logger = logger
         self.logger.info(f"Momentum={(1 - 1 / (window_sec * fps)):.4f}")
         self.bg_maintainer = Uint8EMA(momentum=(1 - 1 / (window_sec * fps)))
@@ -564,10 +643,9 @@ class MLDetector(BaseDetector):
     """
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: DLCfg, logger: BaseMetLog):
+                 cfg: DLCfg, logger: BaseMetLog):
         # stack
         self.mask = mask
-        self.num_cls = num_cls
         self.logger = logger
         self.stack_maxsize = int(window_sec * fps)
         self.stack = SlidingWindow(n=self.stack_maxsize,
@@ -624,14 +702,13 @@ class BrightnessDetector(BaseDetector):
         window_sec (float): 检测器窗口大小（秒），用于确定 EMA warmup 速度。
         fps (float): 等效帧率。
         mask (U8Mat): 有效区域掩模。
-        num_cls (int): 类别总数。
         cfg (BrightnessCfg): 亮度检测器配置。
         logger (BaseMetLog): 日志器。
     """
 
     def __init__(self, window_sec: float, fps: float, mask: U8Mat,
-                 num_cls: int, cfg: BrightnessCfg, logger: BaseMetLog):
-        self.num_cls = num_cls
+                 cfg: BrightnessCfg, logger: BaseMetLog):
+        self.num_cls = get_num_class()
         self.logger = logger
         self.b_cfg = cfg.brightness
         self._brightness_event_id = get_name2id()["BRIGHTNESS_EVENT"]

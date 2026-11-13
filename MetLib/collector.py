@@ -14,7 +14,7 @@ from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
 from .model import init_model
 from .stacker import max_stacker
 from .utils import (ID2NAME, NAME2ID, NUM_CLASS, FloatArray, FloatSeq2D,
-                    IntArray, IntSeq2D, _ensure_class_names_loaded,
+                    IntArray, IntSeq2D, U8Mat, _ensure_class_names_loaded,
                     box_matching, color_interpolater, frame2ts, pt_drct,
                     pt_len, pt_len_sqr, pt_offset)
 from .videoloader import VanillaVideoLoader
@@ -394,7 +394,8 @@ class MeteorCollector(object):
     def __init__(self, collector_cfg: CollectorCfg,
                  runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
-                 logger: BaseMetLog) -> None:
+                 logger: BaseMetLog,
+                 recheck_mask: Optional[U8Mat] = None) -> None:
         self.min_len = collector_cfg.meteor_cfg.min_len
         self.max_interval = collector_cfg.meteor_cfg.max_interval * runtime_param.fps
         self.max_acti_frame = int(collector_cfg.meteor_cfg.max_interval *
@@ -444,7 +445,8 @@ class MeteorCollector(object):
                                         video_loader=video_loader,
                                         logger=logger,
                                         clip_merge_interval=clip_merge_interval,
-                                        det_thre=self.det_thre)
+                                        det_thre=self.det_thre,
+                                        recheck_mask=recheck_mask)
 
     def update(self, cur_frame: int, lines: IntSeq2D, cates: FloatSeq2D):
         """
@@ -707,7 +709,8 @@ class MetExporter(object):
     def __init__(self, recheck_cfg: RecheckCfg, runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
                  logger: BaseMetLog, clip_merge_interval: float,
-                 det_thre: float) -> None:
+                 det_thre: float,
+                 recheck_mask: Optional[U8Mat] = None) -> None:
         self.queue: queue.Queue[tuple[str, list[MDTarget], int, Optional[int]]] = queue.Queue()
         self.recheck = recheck_cfg.switch
         self.positive_cates: list[str] = runtime_param.positive_category_list
@@ -719,6 +722,8 @@ class MetExporter(object):
         self.det_thre = det_thre
         self.fps = runtime_param.fps
         self.recheck_model_call_count = 0
+        # recheck_mask: 运行时分辨率掩膜，在叠帧完成后套用一次。
+        self.recheck_mask = recheck_mask
         if self.recheck:
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model,
@@ -726,7 +731,6 @@ class MetExporter(object):
             self.recheck_padding = int(RECHECK_PADDING_SEC * self.fps)
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = runtime_param.raw_size
-        self.runtime_size = runtime_param.runtime_size
         self.rescale_ratio = [
             x / y
             for x, y in zip(runtime_param.raw_size, runtime_param.runtime_size)
@@ -871,15 +875,13 @@ class MetExporter(object):
                 f" last_activate_frame={target.last_activate_frame}")
             return target
 
+        # 掩膜在叠帧之后套用一次
+        if self.recheck_mask is not None:
+            stacked_img = stacked_img * self.recheck_mask
+
         self.recheck_model_call_count += 1
         bbox_list, score_list = self.recheck_model.forward(stacked_img)
-        # Model boxes use the stacked image's coordinates, whereas the target
-        # remains in the main detector's coordinates until final export.
-        recheck_ratio = [stacked_img.shape[1] / self.runtime_size[0],
-                         stacked_img.shape[0] / self.runtime_size[1]]
-        recheck_pt1 = scale_to(target.pt1, recheck_ratio)
-        recheck_pt2 = scale_to(target.pt2, recheck_ratio)
-        target_bbox = [[*recheck_pt1, *recheck_pt2]]
+        target_bbox = [[*target.pt1, *target.pt2]]
         matched_pairs = box_matching(bbox_list, target_bbox)  # type: ignore
 
         if len(matched_pairs) == 0:
@@ -905,7 +907,7 @@ class MetExporter(object):
         if (label != Name2Label.METEOR and label
                 in self.positive_cate_ids) or (label == Name2Label.METEOR and
                                                target.score >= self.det_thre):
-            sure_box = Box.from_pts(recheck_pt1, recheck_pt2)
+            sure_box = Box.from_pts(target.pt1, target.pt2)
             r_brightness = calc_brightness_with_roi(stacked_img, sure_box)
             target.relative_brightness = round(r_brightness, ndigits=3)
             target.aesthetic_score = round(target.score * target.fix_dist *

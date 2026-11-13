@@ -10,7 +10,7 @@ from MetLib.profiling import StageProfiler, profile_loader, profile_stage
 from MetLib.collector import MeteorCollector
 from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
-from MetLib.fileio import save_path_handler
+from MetLib.fileio import load_mask, save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, DLCfg, MainDetectCfg,
                               RuntimeParams)
@@ -19,7 +19,7 @@ from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
 from MetLib.model import validate_provider_key
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
                           SWITCH2BOOL, VERSION, frame2time, frame2ts,
-                          get_num_class, relative2abs_path)
+                          relative2abs_path)
 
 
 def detect_video(video_name: str,
@@ -141,29 +141,33 @@ def detect_video(video_name: str,
         detector: BaseDetector = DetectorCls(window_sec=cfg_det.window_sec,
                                              fps=rt_param.eq_fps,
                                              mask=video_loader.mask,
-                                             num_cls=get_num_class(),
                                              cfg=cfg_det.cfg,
                                              logger=logger)
 
         # Init meteor collector
         recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
+        recheck_mask = None
         if recheck_cfg.switch:
-            # Stack at native size
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
                                             video_name,
-                                            mask_name,
                                             None,
+                                            resize_option,
                                             hwaccel=cfg.loader.hwaccel,
                                             grayscale=False,
                                             exp_option="real-time",
                                             merge_func=merge_func,
                                             continue_on_err=True)
+            if mask_name:
+                recheck_mask = load_mask(mask_name,
+                                         recheck_loader.runtime_size,
+                                         grayscale=False)
 
         meteor_collector = MeteorCollector(cfg.collector,
                                            rt_param,
                                            video_loader=recheck_loader,
-                                           logger=logger)
+                                           logger=logger,
+                                           recheck_mask=recheck_mask)
 
         # Init visualizer
         # TODO: 可视化模块暂未完全支持参数化设置。

@@ -262,7 +262,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
         <td rowspan="5"><p>binary</p>(二值化阈值相关参数)</td>    
         <td>adaptive_bi_thre</td> 
         <td>bool</td> 
-        <td>是否启用自适应二值化阈值算法。该算法可以根据采样区域的视频信噪比估算最佳二值化阈值，进而将变亮区域分割出来。</td> 
+        <td>是否启用自适应二值化阈值算法。该算法根据采样区域的噪声水平估算最佳二值化阈值，进而将变亮区域分割出来。</td> 
         <td>true</td> 
     </tr>
     <tr>
@@ -274,7 +274,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     <tr>
         <td>sensitivity</td>  
         <td>str</td> 
-        <td>描述自适应二值化阈值算法的灵敏度。灵敏度对应的函数会将信噪比值映射到对应的二值化阈值。当不启用自适应二值化阈值算法时，该项不生效。</td> 
+        <td>描述自适应二值化阈值算法的灵敏度。灵敏度对应的函数会将噪声标准差值映射到对应的二值化阈值。当不启用自适应二值化阈值算法时，该项不生效。</td> 
         <td>normal</td>  
     </tr>
     <tr>
@@ -286,7 +286,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     <tr>
         <td>interval</td>  
         <td>int</td> 
-        <td>设置阈值估算间隔。过于频繁的阈值估算会增大计算量，降低程序运行性能；过低的计算频率则可能无法及时根据信噪比变化变。</td> 
+        <td>设置阈值估算的采样步长（帧）。噪声统计量在抽取后的子区域上增量维护，单次估算开销很低，建议保持 1-2 以快速跟随噪声变化；调大只在需要进一步降低开销时使用。</td> 
         <td>2</td>  
     </tr>
     <tr>
