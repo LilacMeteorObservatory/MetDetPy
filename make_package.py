@@ -29,6 +29,13 @@ argparser.add_argument(
     help="Generate a single executable file (onefile mode).",
 )
 argparser.add_argument(
+    "--clean-dist",
+    action="store_true",
+    help="Remove the dist directory before packaging (both backends), so "
+         "stale artifacts and resource folders are not mixed into the new "
+         "build.",
+)
+argparser.add_argument(
     "--apply-upx",
     action="store_true",
     help="Apply UPX to squeeze executable size.",
@@ -46,6 +53,22 @@ nuitka_group.add_argument(
     "--macos-sign-identity",
     type=str,
     help="macOS code signing identity (nuitka only).",
+)
+nuitka_group.add_argument(
+    "--build-tag",
+    type=str,
+    default=None,
+    help="Optional override of the Nuitka onefile extraction cache tag "
+         "({CACHE_DIR}/{PRODUCT}/{TAG}). Defaults to VERSION, so every "
+         "release gets its own cache; only needed when several builds of the "
+         "same version must not share one. Changing it requires rebuilding.",
+)
+nuitka_group.add_argument(
+    "--build-report",
+    action="store_true",
+    help="Write an optional build_report.txt next to make_package.py with "
+         "the version, source commit/worktree state, toolchain versions and "
+         "artifact SHA256 hashes.",
 )
 
 # PyInstaller-specific options

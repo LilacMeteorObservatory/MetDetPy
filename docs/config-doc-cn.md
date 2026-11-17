@@ -101,6 +101,30 @@ class MeteorCfg {
 class RecheckCfg {
     switch: bool
     model: ModelCfg
+    frame_cache: bool
+    yolo_stack_source: str
+    gate: Optional[ClassifierCfg]
+}
+
+class ClassifierCfg {
+    switch: bool
+    weight_path: str
+    decision: str
+    p_background_thre: Optional[float]
+    dtype: str
+    providers_key: Optional[str]
+    num_threads: int
+    warmup: bool
+    input_color_order: str
+    mean: Optional[list[float]]
+    std: Optional[list[float]]
+    classes: Optional[list[str]]
+    background_name: Optional[str]
+    background_id: Optional[int]
+    min_roi_side: int
+    roi_scale: float
+    target_long_side: Optional[int]
+    adaptive_side_floor: int
 }
 
 class CollectorCfg {
@@ -129,6 +153,7 @@ BinaryCfg --> DynamicCfg : dynamic
 
 DLCfg --> ModelCfg : model
 RecheckCfg --> ModelCfg : model
+RecheckCfg --> ClassifierCfg : gate
 CollectorCfg --> MeteorCfg : meteor_cfg
 CollectorCfg --> RecheckCfg : recheck_cfg
 ```
@@ -262,7 +287,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
         <td rowspan="5"><p>binary</p>(二值化阈值相关参数)</td>    
         <td>adaptive_bi_thre</td> 
         <td>bool</td> 
-        <td>是否启用自适应二值化阈值算法。该算法可以根据采样区域的视频信噪比估算最佳二值化阈值，进而将变亮区域分割出来。</td> 
+        <td>是否启用自适应二值化阈值算法。该算法根据采样区域的噪声水平估算最佳二值化阈值，进而将变亮区域分割出来。</td> 
         <td>true</td> 
     </tr>
     <tr>
@@ -274,7 +299,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     <tr>
         <td>sensitivity</td>  
         <td>str</td> 
-        <td>描述自适应二值化阈值算法的灵敏度。灵敏度对应的函数会将信噪比值映射到对应的二值化阈值。当不启用自适应二值化阈值算法时，该项不生效。</td> 
+        <td>描述自适应二值化阈值算法的灵敏度。灵敏度对应的函数会将噪声标准差值映射到对应的二值化阈值。当不启用自适应二值化阈值算法时，该项不生效。</td> 
         <td>normal</td>  
     </tr>
     <tr>
@@ -286,7 +311,7 @@ CollectorCfg --> RecheckCfg : recheck_cfg
     <tr>
         <td>interval</td>  
         <td>int</td> 
-        <td>设置阈值估算间隔。过于频繁的阈值估算会增大计算量，降低程序运行性能；过低的计算频率则可能无法及时根据信噪比变化变。</td> 
+        <td>设置阈值估算的采样步长（帧）。噪声统计量在抽取后的子区域上增量维护，单次估算开销很低，建议保持 1-2 以快速跟随噪声变化；调大只在需要进一步降低开销时使用。</td> 
         <td>2</td>  
     </tr>
     <tr>
@@ -410,8 +435,48 @@ CollectorCfg --> RecheckCfg : recheck_cfg
 |参数名|可选类型|说明|推荐设置|
 |------|---|---|---|
 |switch|str|是否默认启用重校验。|true|
+|frame_cache|bool|复用主检测路径已经产出的运行时彩色帧，不再重新打开/seek/解码时间窗。设为`false`退回"每候选重读帧"的旧路径。|true|
+|yolo_stack_source|str|YOLO 复核的叠图来源。`"cache"`：复用主解码器结果，`"reread"`：每候选经复核 loader 整窗重读。二者在使用相同 runtime 尺寸时输出等价。保留该字段是实验性的。|`"reread"`|
 |model|-|参考[模型](#模型model)部分。|-|
+|gate|-|可选 ROI 闸门（轻量分类器），见 **[ROI 闸门配置](#roi-闸门配置gate)**。|-|
 |save_path|str|保存重校验图像的路径。置空时，不保存重校验的图像。|`""`|
+
+#### ROI 闸门配置/Gate
+
+ROI 闸门是可选的**前置过滤器**：在 YOLO 复核之前，用轻量的 ROI 分类器判断候选"是否背景"。判为背景的候选会以"未通过复核"的形式输出。自 `v2.7.0` 起**预设默认启用**；把 `switch` 设为 `false` 可关闭。
+
+|参数名|可选类型|说明|推荐设置|
+|------|---|---|---|
+|switch|bool|是否启用闸门|true|
+|weight_path|str|onnx 权重路径|`./weights/mobilenet_v3_large_v2_alpha_fp16.onnx`|
+|decision|str|判定口径。必需。`threshold`：`p_background >= p_background_thre` 即拒；`argmax`：仅当 top-1 就是背景类才拒。|`"threshold"`|
+|p_background_thre|float，可选|背景概率阈值，取值 [0,1]。`decision="threshold"` 时**必需**，`decision="argmax"` 可留空。该值按权重标定，更换权重必须重新标定。|0.47|
+|dtype|str|`auto` 跟随权重声明的精度；或 `float32`/`float16`。|`"auto"`|
+|providers_key|str，可选|推理后端。留空表示继承 YOLO 复核的后端。|留空|
+|num_threads|int|CPU 后端线程数，0 为自动；CPU 场景建议 1–2。|0|
+|warmup|bool|是否预热。|true|
+|input_color_order|str|送进网络的通道顺序，`rgb`/`bgr`。|`"rgb"`|
+|mean / std|array，可选|逐通道归一化参数，RGB 顺序。留空用 ImageNet 统计量（0.485/0.456/0.406、0.229/0.224/0.225）。|留空|
+|classes|array，可选|类别表（输出索引 → 类名）。留空读权重内置的 `class_names`。|留空|
+|background_name|str，可选|背景类名，默认 `BACKGROUND`；置 `null` 表示该权重没有背景类（此时闸门无法拒绝任何候选）。|`"BACKGROUND"`|
+|background_id|int，可选|直接给背景类索引，优先于名字。|留空|
+|min_roi_side|int|ROI 裁切边长地板（运行时像素），同时也是自适应裁切的上界。|224|
+|roi_scale|float|ROI 边长相对候选框的放大倍数。|1.2|
+|target_long_side|int，可选|**自适应裁切开关**：让目标长边在模型输入画布里占这么多像素。留空保持 `min_roi_side` 地板的历史行为。|64（启用时）|
+|adaptive_side_floor|int|自适应时的裁切边长下限，用来限制最大放大倍数（默认 32 ⇒ 最大 7×）。|32|
+
+示例：
+
+```json
+"gate": {
+    "switch": true,
+    "weight_path": "./weights/mobilenet_v3_large_v2_alpha_fp16.onnx",
+    "decision": "threshold",
+    "p_background_thre": 0.47,
+    "target_long_side": 64,
+    "adaptive_side_floor": 32
+}
+```
 
 #### 正样本配置/positive_cfg
 

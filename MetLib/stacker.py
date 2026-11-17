@@ -44,9 +44,12 @@ class MaxImgContainer(BaseImgContainer):
 
     def append(self, new_frame: U8Mat):
         if self.container is None:
-            self.container = new_frame
+            self.container = new_frame.copy()
+        elif self.container.dtype == new_frame.dtype and self.container.shape == new_frame.shape:
+            np.maximum(self.container, new_frame, out=self.container)
         else:
-            self.container = np.max([self.container, new_frame], axis=0)
+            # 类型或形状不一致时退回分配式，保持旧的类型提升语义
+            self.container = np.maximum(self.container, new_frame)
 
 
 class FastGaussianContainer(BaseImgContainer):

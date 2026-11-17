@@ -11,8 +11,8 @@ from tests.test_videowrapper import FakeFrame, make_wrapper
 def test_m3_profiled_window_preserves_detection_results():
     cfg = MainDetectCfg.from_json_file("config/m3det_normal.json")
     mask = np.ones((48, 64), dtype=np.uint8)
-    plain = M3Detector(1, 3, mask, 4, cfg.detector.cfg, MagicMock())
-    measured = M3Detector(1, 3, mask, 4, cfg.detector.cfg, MagicMock())
+    plain = M3Detector(1, 3, mask, cfg.detector.cfg, MagicMock())
+    measured = M3Detector(1, 3, mask, cfg.detector.cfg, MagicMock())
     profiler = profiling.StageProfiler("main_loop")
     measured.stack.stage_profiler = profiler
     frames = np.random.default_rng(0).integers(0, 30, (5, 48, 64), dtype=np.uint8)

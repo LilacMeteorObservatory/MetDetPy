@@ -60,6 +60,16 @@
         },
         "recheck_cfg": {
             "switch": true,
+            "frame_cache": true,
+            "yolo_stack_source": "cache",
+            "gate": {
+                "switch": true,
+                "weight_path": "./weights/mobilenet_v3_large_v2_alpha_fp16.onnx",
+                "decision": "threshold",
+                "p_background_thre": 0.47,
+                "target_long_side": 64,
+                "adaptive_side_floor": 32
+            },
             "model": {
                 "name":"YOLOModel",
                 "weight_path": "./weights/yolov5s_v2.onnx",

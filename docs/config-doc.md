@@ -99,6 +99,30 @@ class MeteorCfg {
 class RecheckCfg {
     switch: bool
     model: ModelCfg
+    frame_cache: bool
+    yolo_stack_source: str
+    gate: Optional[ClassifierCfg]
+}
+
+class ClassifierCfg {
+    switch: bool
+    weight_path: str
+    decision: str
+    p_background_thre: Optional[float]
+    dtype: str
+    providers_key: Optional[str]
+    num_threads: int
+    warmup: bool
+    input_color_order: str
+    mean: Optional[list[float]]
+    std: Optional[list[float]]
+    classes: Optional[list[str]]
+    background_name: Optional[str]
+    background_id: Optional[int]
+    min_roi_side: int
+    roi_scale: float
+    target_long_side: Optional[int]
+    adaptive_side_floor: int
 }
 
 class CollectorCfg {
@@ -127,6 +151,7 @@ BinaryCfg --> DynamicCfg : dynamic
 
 DLCfg --> ModelCfg : model
 RecheckCfg --> ModelCfg : model
+RecheckCfg --> ClassifierCfg : gate
 CollectorCfg --> MeteorCfg : meteor_cfg
 CollectorCfg --> RecheckCfg : recheck_cfg
 ```
@@ -263,7 +288,7 @@ Summary table (key parameters):
         <td rowspan="5">binary</td>
         <td>adaptive_bi_thre</td>
         <td>bool</td>
-        <td>Enable adaptive binary threshold estimation based on sampled SNR.</td>
+        <td>Enable adaptive binary threshold estimation from the sampled noise level.</td>
         <td>true</td>
     </tr>
     <tr>
@@ -287,7 +312,7 @@ Summary table (key parameters):
     <tr>
         <td>interval</td>
         <td>int</td>
-        <td>Estimation interval (frames). Too frequent estimation increases cost; too infrequent may lag behind SNR changes.</td>
+        <td>Estimation stride (frames) for the adaptive threshold. The noise statistic is maintained incrementally on a decimated sub-area, so a short stride is cheap; keep 1–2 for fast tracking, raise it only to trade responsiveness for a little less work.</td>
         <td>2</td>
     </tr>
     <tr>
@@ -398,7 +423,52 @@ Recheck (introduced in v2.0.0) runs an additional verification step using the ti
 |Field|Type|Description|Recommended|
 |---|---|---|---|
 |`switch`|bool|Enable recheck.|true|
+|`frame_cache`|bool|Reuse the runtime-resolution color frames that the main loader already produces, so recheck no longer re-opens/seek/decodes the window. Set `false` to fall back to the per-candidate re-read.|true|
+|`yolo_stack_source`|str|Source of the stacked image used by the YOLO recheck. `"cache"`: reuse the main decoder's frames; `"reread"`: re-read each window through the recheck loader. The two are output-equivalent when both use the same runtime size. The field is kept for experiments.|`"reread"`|
 |`model`|-|See the Model section.|-|
+|`gate`|-|Optional ROI gate (a lightweight classifier); see **[ROI gate configuration](#roi-gate-gate)**.|-|
+
+#### ROI gate (`gate`)
+
+The ROI gate is an optional **pre-filter**: before the YOLO recheck, a lightweight ROI classifier
+judges whether a candidate is "background". A rejected candidate is exported as "failed recheck".
+It is **enabled since v2.7.0**; set `switch` to `false` to disable it (which also removes the frame cache that only the gate and `yolo_stack_source="cache"` use).
+
+|Field|Type|Description|Recommended|
+|---|---|---|---|
+|`switch`|bool|Enable the gate.|true|
+|`weight_path`|str|Path to the onnx weights.|`./weights/mobilenet_v3_large_v2_alpha_fp16.onnx`|
+|`decision`|str|Decision rule. Required. `threshold`: reject when `p_background >= p_background_thre`; `argmax`: reject only when the top-1 class *is* background.|`"threshold"`|
+|`p_background_thre`|float, optional|Background probability threshold in [0, 1]. **Required** when `decision="threshold"`; unused when `decision="argmax"`. Calibrated for the shipped weight — re-calibrate it whenever the weight changes.|0.47|
+|`dtype`|str|`auto` follows the precision declared by the weight file, or `float32`/`float16`.|`"auto"`|
+|`providers_key`|str, optional|Inference device. Empty inherits the YOLO recheck's device.|empty|
+|`num_threads`|int|CPU threads, 0 = automatic; use 1–2 on CPU.|0|
+|`warmup`|bool|Warm up the session.|true|
+|`input_color_order`|str|Channel order fed to the network, `rgb`/`bgr`.|`"rgb"`|
+|`mean` / `std`|array, optional|Per-channel normalization (RGB order). Empty uses ImageNet statistics (0.485/0.456/0.406, 0.229/0.224/0.225).|empty|
+|`classes`|array, optional|Class table (output index → name). Empty reads the `class_names` embedded in the weight.|empty|
+|`background_name`|str, optional|Name of the background class, default `BACKGROUND`; `null` means the model has no background class (the gate then cannot reject anything).|`"BACKGROUND"`|
+|`background_id`|int, optional|Explicit background index, takes precedence over the name.|empty|
+|`min_roi_side`|int|Crop-side floor (runtime pixels); also the upper bound of the adaptive rule.|224|
+|`roi_scale`|float|Crop side relative to the box.|1.2|
+|`target_long_side`|int, optional|**Adaptive crop switch**: make the target long side occupy this many pixels of the model input. Empty keeps the legacy `min_roi_side` floor.|64 (when enabled)|
+|`adaptive_side_floor`|int|Lower bound of the crop side under the adaptive rule, capping magnification (default 32 ⇒ up to 7x).|32|
+
+The crop side is computed by `MetLib/imgproc.plan_roi_size()`; the input size, tensor names and
+precision come from the weight file and need no configuration.
+
+Example:
+
+```json
+"gate": {
+    "switch": true,
+    "weight_path": "./weights/mobilenet_v3_large_v2_alpha_fp16.onnx",
+    "decision": "threshold",
+    "p_background_thre": 0.47,
+    "target_long_side": 64,
+    "adaptive_side_floor": 32
+}
+```
 
 #### Positive configuration (`positive_cfg`)
 

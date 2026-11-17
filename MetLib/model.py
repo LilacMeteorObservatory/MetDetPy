@@ -1,6 +1,9 @@
 from abc import ABCMeta, abstractmethod
+from math import ceil
 from os import path
-from typing import Optional, Union
+import dataclasses
+import json
+from typing import Optional, Sequence, Union
 
 import cv2
 import numpy as np
@@ -8,8 +11,10 @@ import onnxruntime as ort
 import threading
 from numpy.typing import DTypeLike, NDArray
 
+from .imgproc import Size, normalize_size
 from .metlog import BaseMetLog, get_default_logger
-from .metstruct import ModelCfg, validate_num_threads, validate_objectness_thre
+from .metstruct import (ClassifierCfg, ModelCfg, validate_num_threads,
+                        validate_objectness_thre)
 from .profiling import profiled
 from .onnx_devices import discover_dml_adapters
 from .utils import NUM_CLASS, STR2DTYPE, U8Mat, check_windows_dll, is_lfs_pointer, relative2abs_path, xywh2xyxy
@@ -21,7 +26,8 @@ DEFAULT_STR = "default"
 PARTITION_MIN_OVERLAP = 0.2
 LOCK_TIMEOUT = 5.0
 SUPPORTED_INPUT_COLOR_ORDERS = {"rgb", "bgr"}
-
+DEFAULT_IMAGE_MEAN = [0.485, 0.456, 0.406]
+DEFAULT_IMAGE_STD = [0.229, 0.224, 0.225]
 DEVICE_MAPPING: dict[str, list[str]] = {
     "cpu": ["CPUExecutionProvider"],
     "dml": ["DmlExecutionProvider"],
@@ -41,6 +47,75 @@ WINDOWS_DLL_CHK_LIST = [
         "msvcp140.dll",
         "ucrtbase.dll"
     ]
+
+
+
+# ONNX Runtime 声明的输入类型 → numpy dtype
+ORT_TYPE2DTYPE: dict[str, DTypeLike] = {
+    "tensor(float)": np.float32,
+    "tensor(float16)": np.float16,
+    "tensor(double)": np.float64,
+    "tensor(uint8)": np.uint8,
+    "tensor(int8)": np.int8,
+}
+
+# 分类器允许的显式精度
+CLASSIFIER_INPUT_DTYPES: dict[str, DTypeLike] = {
+    "float32": np.float32,
+    "float16": np.float16,
+}
+
+
+
+
+def _tile_starts(length: int, size: int) -> list[int]:
+    """Cover an axis with equal windows, anchoring both ends.
+
+    Choose enough windows for at least PARTITION_MIN_OVERLAP, then distribute
+    their starts. Computing window size and stride independently can leave an
+    uncovered tail, even before either value is rounded to an integer.
+    """
+    if not 1 <= size <= length:
+        raise ValueError("Tile size must be within the image axis.")
+    if size == length:
+        return [0]
+    max_stride = max(1, int(size * (1 - PARTITION_MIN_OVERLAP)))
+    intervals = ceil((length - size) / max_stride)
+    return [i * (length - size) // intervals for i in range(intervals + 1)]
+
+
+def _plan_prediction_tiles(height: int, width: int, hw_ratio: float,
+                           tolerance: float, scales: int, partition: int):
+    """Plan ratio adaptation and progressively smaller, overlapping views.
+
+    Single-layer adaptation retains the full short axis and crops only the
+    excess long axis to the model aspect ratio. Transposition is reserved for
+    opposite image/model orientations. Resolution alone does not add views.
+    Returned xyxy windows are in the possibly transposed input coordinates.
+    """
+    transpose = (abs(height / width - hw_ratio) > tolerance
+                 and (height / width - 1) * (hw_ratio - 1) < 0)
+    if transpose:
+        height, width = width, height
+    tile_h, tile_w = height, width
+    if abs(height / width - hw_ratio) > tolerance:
+        if height / width > hw_ratio:
+            tile_h = max(1, min(height, round(width * hw_ratio)))
+        else:
+            tile_w = max(1, min(width, round(height / hw_ratio)))
+    levels = []
+    # A nominal partition=2 gives 2x2 overlapping views of a matching image.
+    # Adapted images can need a different grid to preserve the tile ratio.
+    shrink = partition - (partition - 1) * PARTITION_MIN_OVERLAP
+    for scale in range(scales):
+        if scale:
+            tile_h = max(1, ceil(tile_h / shrink))
+            tile_w = max(1, ceil(tile_w / shrink))
+        windows = [(x, y, x + tile_w, y + tile_h)
+                   for y in _tile_starts(height, tile_h)
+                   for x in _tile_starts(width, tile_w)]
+        levels.append(windows)
+    return transpose, levels
 
 def validate_provider_key(value: str) -> str:
     """Validate a backend alias with an optional nonnegative GPU index."""
@@ -145,7 +220,7 @@ class ONNXBackend(Backend):
 
     def __init__(self,
                  weight_path: str,
-                 dtype: DTypeLike,
+                 dtype: Optional[DTypeLike],
                  warmup: bool,
                  providers_key: str,
                  logger: Optional[BaseMetLog] = None,
@@ -153,7 +228,8 @@ class ONNXBackend(Backend):
         f"""Init a ONNXBackend that use onnxruntime as backend, supporting onnx format weight.
         Args:
             weight_path (str): /path/to/the/weight/file.
-            dtype (np.dtype): converted numpy data type.
+            dtype (Optional[np.dtype]): converted numpy data type; None means "follow the
+                graph input type" (resolved from the session, e.g. fp16 weights).
             warmup (bool, optional): warmup to model before batch processing. Defaults to True.
             providers_key (str, optional): model provider. Defaults to None.
             logger (ThreadMetLog, optional): the stdout ThreadMetLog. Defaults to logger.
@@ -224,15 +300,21 @@ class ONNXBackend(Backend):
 
         self.single_input = True if len(self.shapes) == 1 else False
 
+        if self.dtype is None:
+            declared = (self.model_session.get_inputs()[0].type
+                        if self.shapes else "")
+            self.dtype = ORT_TYPE2DTYPE.get(declared, np.float32)
+
         # make sure batch=1
         # Warming up
         if warmup:
-            # TODO: dynamic 模型的返回的值为 ['images'] [['batch', 3, 'height', 'width']]
-            # 无法适配当前backend模型
+            # 动态维度（如分类器的 "batch"、动态 H/W）用 1 代替，只做一次形状预热
             with self._lock:
                 _ = self.model_session.run(
                     [], {
-                        name: np.zeros(shape, dtype=self.dtype)
+                        name: np.zeros(
+                            [dim if isinstance(dim, int) else 1 for dim in shape],
+                            dtype=self.dtype)
                         for name, shape in zip(self.input_name, self.input_shape)
                     })
 
@@ -243,6 +325,16 @@ class ONNXBackend(Backend):
     @property
     def input_name(self) -> list[str]:
         return self.names
+
+    @property
+    def output_shape(self) -> list[list[int]]:
+        return [x.shape for x in self.model_session.get_outputs()]
+
+    @property
+    def model_metadata(self) -> dict[str, str]:
+        """权重文件自带的 `metadata_props`（如分类器的 `class_names`）。
+        """
+        return dict(self.model_session.get_modelmeta().custom_metadata_map)
 
     @property
     def device(self) -> str:
@@ -317,13 +409,15 @@ class YOLOModel(object):
             multiscale_pred (int, optional): the number of prediction scales, shoule be an integer>=0. 
                 Different multiscale_pred scales performs as follows:
                 1. When set to 0, there will be no extra transform before inference, just resize;
-                2. When set to 1, there will be an optional basic transform and split on the full image;
+                2. When set to 1, adapt the aspect ratio with overlapping crops
+                   at one scale; transpose only opposite image/model orientations;
                 3. When number is larger than 1, the results will be predicted using multi-scale images
                     (similar to a feature pyramid).
                 This can improve recall and precision, but may also increase the time cost. Defaults to 1.
             multiscale_partition (int, optional): The number of partitions for multi-scale images at each level.
-                For example, at the first sub-level, if the multiscale_partition is set to 2, the image will 
-                be divided into $\(2^{1} \times 2^{1} = 2 \times 2\)$ sub-images and sent to the model. 
+                For example, partition=2 gives 2x2 overlapping views at the first
+                sub-level of an aspect-matched image. Adapted inputs may need a
+                different grid to preserve the crop ratio and cover all pixels.
                 The default value is 2.
             hw_tolerance (float, optional): The max allowed scaling ratio. When running with multiscale mode,
                 if diff height-width ratio is larger than excepted, image division will be applied.
@@ -413,6 +507,8 @@ class YOLOModel(object):
                     f"Extra resize is applied to avoid error (which may increase time cost.)"
                 )
                 self.unwarning = False
+        else:
+            self.resize = False
 
         # resize if necessary
         if self.resize:
@@ -500,57 +596,27 @@ class YOLOModel(object):
             result_pos, joint_scores = self._forward(x)
             return result_pos, np.sqrt(joint_scores)
 
-        transpose_flag = False
-        input_hw_ratio = h / w
-        h_rep, w_rep = 1, 1
-        if abs(self.hw_ratio - input_hw_ratio) > self.hw_tolerance:
-            # 需要对第一级做分割，判断是否需要旋转底图：
-            # 1. 模型和原图同向
-            # 2. 长短边异向，但旋转后符合直接匹配
-            if ((input_hw_ratio - 1) * (self.hw_ratio - 1)) > 0 or abs(
-                    self.hw_ratio - 1 / input_hw_ratio) < self.hw_tolerance:
-                transpose_flag = True
-                x = np.transpose(x, (1, 0, 2))
-                input_hw_ratio = 1 / input_hw_ratio
-                h, w = w, h
-            # TODO: 这段逻辑比较绕...归纳出统一的格式
-            if h > w:
-                h_rep = np.ceil(h * self.w / (self.h * w)).astype(int)
-            else:
-                w_rep = np.ceil(w * self.h / (h * self.w)).astype(int)
-        n = self.multiscale_partition**2
-        tot_partition_num = h_rep * w_rep * (n**(self.multiscale_pred) -
-                                             1) // (n - 1)
+        transpose_flag, levels = _plan_prediction_tiles(
+            h, w, self.hw_ratio, self.hw_tolerance, self.multiscale_pred,
+            self.multiscale_partition)
+        if transpose_flag:
+            x = np.transpose(x, (1, 0, 2))
+        tot_partition_num = sum(len(windows) for windows in levels)
         self.logger.debug(
             f"Forward with total partition: {tot_partition_num}; image transpose: {transpose_flag}"
         )
 
-        # 根据 rep 情况 分检测用 patch_index_list
+        # Each level covers both image edges; windows keep the base crop ratio.
         result_pos: list[NDArray[np.int_]] = []
         result_joint_scores: list[NDArray[np.float64]] = []
         try:
-            for scale in range(self.multiscale_pred):
-                if scale > 0:
-                    h_rep *= self.multiscale_partition
-                    w_rep *= self.multiscale_partition
-                tot_h_rep = (h_rep - 1) * PARTITION_MIN_OVERLAP
-                tot_w_rep = (w_rep - 1) * PARTITION_MIN_OVERLAP
-                h_size = int(h // (h_rep - tot_h_rep))
-                w_size = int(w // (w_rep - tot_w_rep))
-                h_stride = int(h // (h_rep + tot_h_rep))
-                w_stride = int(w // (w_rep + tot_w_rep))
-
-                for i in range(h_rep):
-                    for j in range(w_rep):
-                        clip_img = x[i * h_stride:i * h_stride + h_size,
-                                     j * w_stride:j * w_stride + w_size]
-                        clip_pos, clip_joint_scores = self._forward(clip_img)
-                        clip_pos[:, 1] += i * h_stride
-                        clip_pos[:, 3] += i * h_stride
-                        clip_pos[:, 0] += j * w_stride
-                        clip_pos[:, 2] += j * w_stride
-                        result_pos.append(clip_pos)
-                        result_joint_scores.append(clip_joint_scores)
+            for windows in levels:
+                for x1, y1, x2, y2 in windows:
+                    clip_pos, clip_joint_scores = self._forward(x[y1:y2, x1:x2])
+                    clip_pos[:, [0, 2]] += x1
+                    clip_pos[:, [1, 3]] += y1
+                    result_pos.append(clip_pos)
+                    result_joint_scores.append(clip_joint_scores)
         except Exception as e:
             # 异常跳过
             self.logger.error(
@@ -584,6 +650,310 @@ class YOLOModel(object):
 check_windows_dll(WINDOWS_DLL_CHK_LIST)
 available_models = {cls.__name__: cls for cls in [YOLOModel]}
 SUFFIX2BACKEND = {"onnx": ONNXBackend}
+
+@dataclasses.dataclass
+class ClassifierSpec:
+    """ROI 分类器的初始化契约
+
+    Args:
+        input_size (Size): 输入尺寸（``width`` / ``height`` 显式命名）。方形只是本仓库
+            自带权重的选择，框架本身接受任意固定尺寸。
+        color (str): 输入色彩顺序，"rgb" 或 "bgr"。
+        mean (list[float]): 逐通道归一化均值（RGB 顺序）。
+        std (list[float]): 逐通道归一化标准差（RGB 顺序）。
+        class_names (list[str]): 输出索引 → 类别名。
+        background_index (Optional[int]): 背景类的输出索引；None 表示这份
+            权重没有背景类，闸门因此无法拒绝任何候选（等同关闭）。
+    """
+
+    input_size: Size
+    color: str
+    mean: list[float]
+    std: list[float]
+    class_names: list[str]
+    background_index: Optional[int] = None
+
+
+def make_classifier_spec(input_size: Union[int, Sequence[int], Size],
+                         color: str = "rgb",
+                         mean: Optional[list[float]] = None,
+                         std: Optional[list[float]] = None,
+                         class_names: Optional[list[str]] = None,
+                         background_id: Optional[int] = None,
+                         background_name: Optional[str] = "BACKGROUND"
+                         ) -> ClassifierSpec:
+    """把配置与权重里读到的信息校验成 `ClassifierSpec`（不读文件，便于单测）。
+
+    Args:
+        input_size (Union[int, Sequence[int], Size]): 输入尺寸。
+            标量=正方形，``(w, h)``=长方形。
+        color (str): 输入色彩顺序。
+        mean (Optional[list[float]]): 归一化均值；None 用 ImageNet 默认值。
+        std (Optional[list[float]]): 归一化标准差；None 用 ImageNet 默认值。
+        class_names (Optional[list[str]]): 类别名（配置优先，其次权重内置的 class_names）。
+        background_id (Optional[int]): 背景索引；给了就不再按名字解析。
+        background_name (Optional[str]): 背景类名；None 表示这份权重没有背景类。
+
+    Returns:
+        ClassifierSpec: 校验后的初始化契约。
+
+    Raises:
+        ValueError: 任一字段缺失、越界或与类别表不一致。
+    """
+    input_size = (input_size if isinstance(input_size, Size)
+                  else normalize_size(input_size))
+    color = str(color).lower()
+    if color not in SUPPORTED_INPUT_COLOR_ORDERS:
+        raise ValueError(
+            f"Unsupported classifier input color order: {color!r} "
+            f"(expected one of {sorted(SUPPORTED_INPUT_COLOR_ORDERS)}).")
+    mean = [float(x) for x in (mean if mean is not None else DEFAULT_IMAGE_MEAN)]
+    std = [float(x) for x in (std if std is not None else DEFAULT_IMAGE_STD)]
+    for name, values in (("mean", mean), ("std", std)):
+        if len(values) != 3:
+            raise ValueError(
+                f"Classifier {name} must have 3 channel values, got {values!r}.")
+        if name == "std" and any(value <= 0 for value in values):
+            raise ValueError(
+                f"Classifier std must be positive, got {values!r}.")
+    if not class_names:
+        raise ValueError(
+            "No class names for the ROI classifier: pass `classes` in "
+            "`recheck_cfg.gate`, or use a weight file with embedded "
+            "`class_names` metadata.")
+    names = [str(name) for name in class_names]
+    if len(set(names)) != len(names):
+        raise ValueError(f"Classifier class names are not unique: {names}.")
+
+    background_index = background_id
+    if background_index is None and background_name:
+        if background_name not in names:
+            raise ValueError(
+                f"Background class {background_name!r} is not in the classifier "
+                f"class table {names}; set `background_name` to the right label "
+                "or null when the model has no background class.")
+        background_index = names.index(background_name)
+    if background_index is not None:
+        if not isinstance(background_index, int):
+            raise ValueError(
+                f"Classifier background_id must be an integer, got "
+                f"{background_index!r}.")
+        if not 0 <= background_index < len(names):
+            raise ValueError(
+                f"Classifier background_id {background_index} is out of range "
+                f"for {len(names)} classes.")
+    return ClassifierSpec(input_size=input_size,
+                          color=color,
+                          mean=mean,
+                          std=std,
+                          class_names=names,
+                          background_index=background_index)
+
+
+class ROIClassifierModel(object):
+    """ROI 分类器：输入已裁好的 ROI，输出各类概率。
+
+    与 `YOLOModel` 的区别：不产生检测框，不做多尺度切片，也不做 NMS；输入是单张
+    （或一批）ROI。预处理按 `ClassifierCfg` 的初始化契约执行：BGR→RGB、双线性
+    抗锯齿缩放到 `input_size`、`/255`、逐通道 mean/std、HWC→CHW、按权重精度 cast。
+
+    契约的来源：
+      1. 输入尺寸、张量名、类别名与精度**来自权重文件**（固定的 (w, h) 输入形状、
+         会话声明的张量名输入类型、`metadata_props.class_names`）；
+      2. `ClassifierCfg` 只配置那些自由度的项：`input_color_order`、`mean`/`std`、
+         `classes`（覆盖权重内置类别表）、`background_name`/`background_id`、`dtype`
+         （覆盖权重精度）。
+
+    Args:
+        cfg (ClassifierCfg): 闸门/分类器配置（`switch` 由调用方判断）。
+        logger (Optional[BaseMetLog]): 日志。
+    """
+
+    def __init__(self,
+                 cfg: ClassifierCfg,
+                 logger: Optional[BaseMetLog] = None) -> None:
+        if cfg is None:
+            raise ValueError("ROIClassifierModel needs a ClassifierCfg.")
+        if not cfg.weight_path:
+            raise ValueError(
+                "recheck_cfg.gate.weight_path is empty; point it at an onnx "
+                "weight (the shipped default is "
+                "./weights/mobilenet_v3_large_v2_alpha_fp16.onnx).")
+        self.logger = logger or get_default_logger()
+        self.weight_path = (cfg.weight_path if path.isabs(cfg.weight_path) else
+                            relative2abs_path(cfg.weight_path))
+        if is_lfs_pointer(self.weight_path):
+            raise RuntimeError(
+                f"Model weight file {self.weight_path} is a Git LFS pointer file.")
+        validate_num_threads(cfg.num_threads)
+        if cfg.dtype == "auto":
+            input_dtype = None
+        elif cfg.dtype in CLASSIFIER_INPUT_DTYPES:
+            input_dtype = CLASSIFIER_INPUT_DTYPES[cfg.dtype]
+        else:
+            raise ValueError(
+                f"Unsupported classifier dtype {cfg.dtype!r} (expected 'auto' "
+                f"or one of {sorted(CLASSIFIER_INPUT_DTYPES)}).")
+        self.backend = ONNXBackend(self.weight_path,
+                                   input_dtype,
+                                   cfg.warmup,
+                                   providers_key=cfg.providers_key,
+                                   logger=self.logger,
+                                   num_threads=cfg.num_threads)
+        self.input_dtype = self.backend.dtype
+
+        shapes = self.backend.input_shape
+        if len(shapes) != 1:
+            raise ValueError(
+                f"ROI classifier expects a single input, got {len(shapes)}.")
+        shape = shapes[0]
+        if len(shape) != 4 or shape[1] != 3:
+            raise ValueError(
+                f"ROI classifier input must be NCHW with 3 channels, got {shape}.")
+        height, width = shape[2], shape[3]
+        # 输入尺寸只由权重决定
+        if not (isinstance(height, int) and isinstance(width, int)):
+            raise ValueError(
+                "ROI classifier weight must declare a fixed input height/width, "
+                f"got {shape}. Re-export the model with static spatial dims.")
+        input_size = Size(width=width, height=height)
+
+        # 类别名：配置优先，其次用权重自带的 class_names。
+        class_names = cfg.classes
+        if not class_names:
+            embedded = self.backend.model_metadata.get("class_names")
+            if embedded:
+                class_names = json.loads(embedded)
+        self.spec = make_classifier_spec(
+            input_size=input_size,
+            color=cfg.input_color_order,
+            mean=cfg.mean,
+            std=cfg.std,
+            class_names=class_names,
+            background_id=cfg.background_id,
+            background_name=cfg.background_name)
+
+        output_shape = self.backend.output_shape[0] if self.backend.output_shape else []
+        num_output = output_shape[-1] if output_shape else None
+        if isinstance(num_output, int) and num_output != len(self.spec.class_names):
+            raise ValueError(
+                f"Classifier outputs {num_output} classes but the class table has "
+                f"{len(self.spec.class_names)}: {self.spec.class_names}.")
+
+    @property
+    def class_names(self) -> list[str]:
+        return self.spec.class_names
+
+    @property
+    def background_index(self) -> Optional[int]:
+        return self.spec.background_index
+
+    @property
+    def input_size(self) -> Size:
+        """模型输入尺寸，即"画布"尺寸（``width`` / ``height`` 显式命名）。"""
+        return self.spec.input_size
+
+    def preprocess(self, roi: U8Mat) -> NDArray[np.float32]:
+        """把一张已裁好的 ROI 处理成模型输入（N=1）。
+
+        Args:
+            roi (U8Mat): HWC、3 通道、BGR（OpenCV 约定）的 ROI。
+
+        Returns:
+            NDArray[np.float32]: 形状 [1, 3, S, S] 的 float32 张量（未按精度 cast）。
+        """
+        assert roi.ndim == 3 and roi.shape[2] == 3, \
+            f"ROI must be HWC with 3 channels, got {roi.shape}."
+        size = self.spec.input_size
+        if roi.shape[0] < size.height or roi.shape[1] < size.width:
+            # 任一轴需要放大就用 LINEAR（放大时 AREA 会退化成近似最近邻）。
+            interpolation = cv2.INTER_LINEAR
+        else:
+            interpolation = cv2.INTER_AREA
+        resized = cv2.resize(roi, size.as_wh(), interpolation=interpolation)
+        pixels = resized[:, :, ::-1] if self.spec.color == "rgb" else resized
+        x = pixels.astype(np.float32) / 255.0
+        mean = np.asarray(self.spec.mean, dtype=np.float32)
+        std = np.asarray(self.spec.std, dtype=np.float32)
+        x = (x - mean) / std
+        return np.ascontiguousarray(x.transpose(2, 0, 1)[None], dtype=np.float32)
+
+    def forward(self, roi: Union[U8Mat, list[U8Mat]]) -> NDArray[np.float64]:
+        """对一张或一批 ROI 推理，返回 softmax 后的类别概率。
+
+        Args:
+            roi (Union[U8Mat, list[U8Mat]]): 单张 ROI 或 ROI 列表。
+
+        Returns:
+            NDArray[np.float64]: 形状 [N, num_class] 的概率。
+        """
+        rois = [roi] if isinstance(roi, np.ndarray) else list(roi)
+        if not rois:
+            raise ValueError("ROIClassifierModel.forward got no ROI.")
+        batch = np.concatenate([self.preprocess(x) for x in rois], axis=0)
+        batch = batch.astype(self.input_dtype)
+        raw = self.backend.forward(batch)
+        if raw is None:
+            return np.zeros((0, len(self.class_names)), dtype=np.float64)
+        logits = np.asarray(raw[0], dtype=np.float64)
+        if logits.ndim == 1:
+            logits = logits[None, :]
+        shifted = logits - logits.max(axis=1, keepdims=True)
+        exp = np.exp(shifted)
+        return exp / exp.sum(axis=1, keepdims=True)
+
+    def predict(self, roi: U8Mat) -> tuple[str, float]:
+        """单张 ROI 的分类结果。
+
+        Args:
+            roi (U8Mat): 已裁好的 BGR ROI。
+
+        Returns:
+            tuple[str, float]: (类别名, 概率)。
+        """
+        probs = self.forward(roi)[0]
+        index = int(np.argmax(probs))
+        return self.class_names[index], float(probs[index])
+
+    def background_probability(self, roi: U8Mat) -> float:
+        """背景类的概率；权重没有背景类时返回 0。"""
+        index = self.background_index
+        if index is None or index >= len(self.class_names):
+            return 0.0
+        return float(self.forward(roi)[0][index])
+
+
+def init_classifier(cfg: ClassifierCfg,
+                    logger: BaseMetLog) -> Optional[ROIClassifierModel]:
+    """按 `ClassifierCfg` 构造 ROI 分类器；未启用时返回 None。
+
+    Args:
+        cfg (ClassifierCfg): 闸门/分类器配置。
+        logger (BaseMetLog): 日志。
+
+    Returns:
+        Optional[ROIClassifierModel]: 启用时返回模型实例。
+    """
+    if cfg is None or not cfg.switch:
+        return None
+    model = ROIClassifierModel(cfg, logger)
+    background = ("none" if model.background_index is None else
+                  f"{model.background_index}:"
+                  f"{model.class_names[model.background_index]}")
+    operating_point = (f"p_background_thre={cfg.p_background_thre}"
+                       if cfg.decision == "threshold" else
+                       "p_background_thre unused")
+    crop = ("legacy floor"
+            if cfg.target_long_side is None else
+            f"target_long_side={cfg.target_long_side}"
+            f" (floor {cfg.adaptive_side_floor})")
+    model.logger.info(
+        f"ROI gate ready: {model.weight_path} on {model.backend.device}; "
+        f"input {model.spec.input_size.width}x{model.spec.input_size.height} "
+        f"{model.spec.color.upper()}, dtype={np.dtype(model.input_dtype).name}, "
+        f"classes={len(model.class_names)}, background={background}, "
+        f"decision={cfg.decision}, {operating_point}, crop={crop}.")
+    return model
 
 
 def init_model(cfg: ModelCfg, logger: BaseMetLog):

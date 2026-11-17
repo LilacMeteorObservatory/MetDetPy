@@ -176,6 +176,31 @@ class TestClipMerging:
 class TestRecheckIntegration:
     """Test that recheck rejections break the pending chain."""
 
+    def test_recheck_matches_in_runtime_coordinates(self):
+        """叠帧图与主检测器同为运行时分辨率，target 坐标可直接用于匹配与亮度 ROI。"""
+        exporter = make_exporter(recheck=True)
+        exporter.recheck_loader = MagicMock(video_total_frames=10000)
+        target = make_target(30, 60, category="METEOR")
+        target.center_point_list = [[150, 150]]
+        image = np.zeros((540, 960, 3), dtype=np.uint8)
+        scores = np.zeros((1, Name2Label.METEOR + 1), dtype=np.float64)
+        scores[0, Name2Label.METEOR] = .8
+        exporter.recheck_model.forward.return_value = (np.array([[100, 100, 200, 200]]), scores)
+        try:
+            with patch('MetLib.collector.max_stacker', return_value=image), \
+                    patch('MetLib.collector.calc_brightness_with_roi', return_value=.5) as brightness:
+                assert exporter.recheck_single_target(target) is target
+                assert (target.pt1, target.pt2, target.center_point_list) == ([100, 100], [200, 200], [[150, 150]])
+                assert target.recheck_score == .8
+                roi = brightness.call_args.args[1]
+                assert [roi.x1, roi.y1, roi.x2, roi.y2] == [100, 100, 200, 200]
+            # Final export scales exactly once (raw_size / runtime_size).
+            record = exporter.rescale(SingleMDRecord.from_target(target, exporter.raw_size))
+            assert (record.target[0].pt1, record.target[0].pt2) == ([200, 200], [400, 400])
+            assert record.target[0].center_point_list == [[300, 300]]
+        finally:
+            wait_for_processing(exporter)
+
     def test_fp_rejection_breaks_chain(self):
         """A-B-C targets, B rejected by recheck → A and C separate."""
         exporter = make_exporter(clip_merge_interval=120.0, recheck=True)

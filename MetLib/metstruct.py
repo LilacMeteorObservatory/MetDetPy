@@ -11,6 +11,9 @@ from typing import Any, Literal, Optional, Union, cast
 from dacite import from_dict
 import numpy as np
 
+# ROI 闸门可用的判定口径（见 ClassifierCfg.decision）。
+DECISIONS = {"threshold", "argmax"}
+
 
 @dataclasses.dataclass
 class Box(object):
@@ -346,14 +349,15 @@ class LoaderCfg(DictAble):
 def validate_num_threads(num_threads: int) -> None:
     """Validate a model's CPU inference thread count (0 means automatic)."""
     if type(num_threads) is not int or num_threads < 0:
-        raise ValueError("num_threads must be a nonnegative integer (0 means automatic).")
+        raise ValueError(
+            "num_threads must be a nonnegative integer (0 means automatic).")
 
 
 def validate_objectness_thre(objectness_thre: float) -> None:
     """Validate the optional raw-candidate objectness gate (0 disables it)."""
     if (isinstance(objectness_thre, bool)
-            or not isinstance(objectness_thre, (int, float))
-            or not 0 <= objectness_thre <= 1):
+            or not isinstance(objectness_thre,
+                              (int, float)) or not 0 <= objectness_thre <= 1):
         raise ValueError("objectness_thre must be a number between 0 and 1.")
 
 
@@ -444,15 +448,118 @@ class MeteorCfg(DictAble):
     drct_range: list[float]
     det_thre: float
     merge_dist_sqr: Optional[int] = None
-    thre2: Optional[int] = None  # deprecated, use merge_dist_sqr; will be removed in v3.0.0
+    thre2: Optional[
+        int] = None  # deprecated, use merge_dist_sqr; will be removed in v3.0.0
     clip_merge_interval: Optional[float] = None
     recheck_threshold: Optional[float] = None
+
+
+@dataclasses.dataclass
+class ClassifierCfg(DictAble):
+    """ROI 分类器配置。
+
+    Args:
+        switch (bool): 是否启用该闸门。
+        weight_path (str): onnx 权重路径。
+        decision (str): 判定口径：
+            "threshold"（`p_background >= p_background_thre` 即拒）或
+            "argmax"（仅当 top-1 就是背景类才拒）。
+        p_background_thre (Optional[float]): 背景概率阈值，取值为 [0, 1]。
+            只在 `decision="threshold"` 时有意义, `decision="argmax"` 时可以留空。
+            预设取 0.47 —— 该工作点由 `mobilenet_v3_large_v2_alpha` 标定。
+            换权重必须重新标定。
+        dtype (str): "auto"（跟随权重声明的精度）/ "float32" / "float16"。
+        providers_key (Optional[str]): 见 ModelCfg.providers_key。
+        num_threads (int): CPU 推理线程数，0 为自动。
+        warmup (bool): 是否预热。
+        input_color_order (Literal["rgb", "bgr"]): 送进网络的通道顺序。
+        mean (Optional[list[float]]): 逐通道归一化均值；None 用 ImageNet 默认值。
+        std (Optional[list[float]]): 逐通道归一化标准差；None 用 ImageNet 默认值。
+        classes (Optional[list[str]]): 输出索引 → 类别名；None 表示读权重内置的
+            `class_names` 元信息。
+        background_id (Optional[int]): 背景类索引；给了就不再按名字解析。
+        background_name (Optional[str]): 背景类名（默认 "BACKGROUND"）；置 None
+            表示这份权重没有背景类（此时闸门无法拒绝任何候选）。
+        min_roi_side (int): ROI 边长下限（运行时像素），也是自适应裁切的上界。
+        roi_scale (float): ROI 边长相对候选框的放大倍数。
+        target_long_side (Optional[int]): 自适应裁切开关：让**目标长边**在模型输入画布里
+            占这么多像素（推荐 64）。None 表示不做自适应裁切。
+        adaptive_side_floor (int): 自适应裁切时裁切边长的下限，用来限制最大放大倍数。默认32.
+    """
+    switch: bool
+    weight_path: str
+    decision: str
+    p_background_thre: Optional[float] = None
+    dtype: str = "auto"
+    providers_key: Optional[str] = None
+    num_threads: int = 0
+    warmup: bool = True
+    input_color_order: Literal["rgb", "bgr"] = "rgb"
+    mean: Optional[list[float]] = None
+    std: Optional[list[float]] = None
+    classes: Optional[list[str]] = None
+    background_id: Optional[int] = None
+    background_name: Optional[str] = "BACKGROUND"
+    min_roi_side: int = 224
+    roi_scale: float = 1.2
+    target_long_side: Optional[int] = None
+    adaptive_side_floor: int = 32
+
+    def __post_init__(self) -> None:
+        if self.decision not in DECISIONS:
+            raise ValueError(
+                f"recheck_cfg.gate.decision must be one of {sorted(DECISIONS)}, "
+                f"got {self.decision!r}.")
+        self._validate_roi()
+        if self.p_background_thre is None:
+            if self.decision == "threshold":
+                raise ValueError(
+                    "recheck_cfg.gate.p_background_thre is required when "
+                    "decision='threshold'; "
+                    "use decision='argmax' if the threshold should not be used."
+                )
+            return
+        if not 0.0 <= self.p_background_thre <= 1.0:
+            raise ValueError(
+                "recheck_cfg.gate.p_background_thre must be within [0, 1], got "
+                f"{self.p_background_thre!r}.")
+
+    def _validate_roi(self) -> None:
+        """裁切相关字段的一致性检查（不依赖模型输入尺寸）。"""
+        if self.min_roi_side <= 0:
+            raise ValueError(
+                "recheck_cfg.gate.min_roi_side must be positive, got "
+                f"{self.min_roi_side!r}.")
+        if self.roi_scale <= 0:
+            raise ValueError(
+                "recheck_cfg.gate.roi_scale must be positive, got "
+                f"{self.roi_scale!r}.")
+        if self.target_long_side is None:
+            return
+        if not isinstance(self.target_long_side, int) or self.target_long_side <= 0:
+            raise ValueError(
+                "recheck_cfg.gate.target_long_side must be a positive integer "
+                f"(or null to disable), got {self.target_long_side!r}.")
+        if not 0 < self.adaptive_side_floor <= self.min_roi_side:
+            raise ValueError(
+                "recheck_cfg.gate.adaptive_side_floor must be within "
+                f"(0, min_roi_side={self.min_roi_side}], got "
+                f"{self.adaptive_side_floor!r}.")
 
 
 @dataclasses.dataclass
 class RecheckCfg(DictAble):
     switch: bool
     model: ModelCfg
+    # 是否复用主 loader 已经产出的 runtime 彩色帧做复核。
+    frame_cache: bool = True
+    # YOLO 复核的叠图来源：
+    #   "cache"  —— 序列增量叠图（更快，图像质量跟随主检测器）
+    #   "reread" —— 始终重读（保守、和旧版本保持一致）
+    # TODO: 效果一致性修复后，未来计划迁移到 cache。
+    yolo_stack_source: str = "reread"
+    # ROI Gate：在 YOLO 复核之前先用轻量分类器判断是否背景。
+    gate: Optional[ClassifierCfg] = None
 
 
 @dataclasses.dataclass
@@ -501,7 +608,7 @@ class FilterRules(object):
 class ClipPaddingOption(object):
     """视频片段前后额外补偿的时间配置"""
     before: float = 0.0  # 开始时间前补偿（秒）
-    after: float = 0.0   # 结束时间后补偿（秒）
+    after: float = 0.0  # 结束时间后补偿（秒）
 
 
 @dataclasses.dataclass
