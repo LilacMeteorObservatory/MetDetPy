@@ -19,7 +19,7 @@ import threading
 from abc import ABCMeta, abstractmethod
 from math import floor
 from queue import Queue
-from typing import Any, Literal, Optional, Type, Union
+from typing import Any, Callable, Literal, Optional, Type, Union
 
 import numpy as np
 
@@ -235,6 +235,7 @@ class VanillaVideoLoader(BaseVideoLoader):
                  exp_upper_bound: Optional[float] = None,
                  merge_func: str = "not_merge",
                  continue_on_err: bool = False,
+                 frame_sink: Optional[Callable[[int, U8Mat], None]] = None,
                  **kwargs: Any) -> None:
         """
         # VanillaVideoLoader
@@ -254,6 +255,7 @@ class VanillaVideoLoader(BaseVideoLoader):
             grayscale (bool): whether to use the grayscale image to accelerate calculation. The default is False.
             exp_option (Union[int, float, str]): resize option from input. The default is "auto".
             merge_func (str): the name of the preprocessing function that merges several frames into one frame. The default is "not_merge".
+            frame_sink (Optional[Callable[[int, U8Mat], None]]): 旁路输出回调。默认 None 表示不旁路。
             **kwargs: compatibility design to support other arguments. 
                 VanilliaVideoLoader support: dict(resize_interpolation=[opencv_intepolation_option])
 
@@ -298,6 +300,12 @@ class VanillaVideoLoader(BaseVideoLoader):
         self.preprocess = Transform()
         if self.raw_size != self.runtime_size:
             self.preprocess.opencv_resize(self.runtime_size, **kwargs)
+        # 旁路输出：resize 之后、灰度/掩膜之前把 runtime 彩色帧交给 frame_sink。
+        self.frame_sink = frame_sink
+        self._tap_base = 0
+        self._tap_count = 0
+        if self.frame_sink is not None and not self.debayer:
+            self.preprocess.tap(self._emit_frame_tap)
         if self.debayer:
             self.preprocess.opencv_debayer(pattern=self.debayer_pattern)
         if self.grayscale:
@@ -314,9 +322,18 @@ class VanillaVideoLoader(BaseVideoLoader):
             self.merge_func == MergeFunction.not_merge and self.exp_frame != 1
         ), "Cannot \"not_merge\" frames when num of exposure frames > 1. Please specify a merge function."
 
+    def _emit_frame_tap(self, img: U8Mat) -> U8Mat:
+        """旁路回调：把当前中间图像连同帧号交给 frame_sink，原样返回继续流水线。"""
+        index = self._tap_base + self._tap_count
+        self._tap_count += 1
+        self.frame_sink(index, img)  # type: ignore[misc]
+        return img
+
     def start(self):
         self.cur_iter = self.iterations
         self.read_stopped = False
+        self._tap_base = self.start_frame
+        self._tap_count = 0
         self.video.set_to(self.start_frame)
 
     def reset(self,
@@ -546,6 +563,7 @@ class ThreadVideoLoader(VanillaVideoLoader):
                  merge_func: str = "not_merge",
                  continue_on_err: bool = False,
                  maxsize: int = 32,
+                 frame_sink: Optional[Callable[[int, U8Mat], None]] = None,
                  **kwargs: Any) -> None:
         self.maxsize = maxsize
         self.queue: Queue[Union[Literal['failed'],
@@ -553,7 +571,8 @@ class ThreadVideoLoader(VanillaVideoLoader):
         super().__init__(video_wrapper, video_name, mask_name, resize_option,
                          hwaccel, start_time, end_time, grayscale, debayer,
                          debayer_pattern, exp_option, exp_upper_bound,
-                         merge_func, continue_on_err, **kwargs)
+                         merge_func, continue_on_err, frame_sink=frame_sink,
+                         **kwargs)
         self.thread: Optional[threading.Thread] = None
 
     def clear_queue(self):
@@ -566,6 +585,9 @@ class ThreadVideoLoader(VanillaVideoLoader):
         self.clear_queue()
         self.read_stopped = False
         self.status = True
+        # 旁路帧号从本次读取的起点重新计数
+        self._tap_base = self.start_frame
+        self._tap_count = 0
         self.video.set_to(self.start_frame)
         self.thread = threading.Thread(target=self.videoloop,
                                        name="MetDetPy-VideoLoader",

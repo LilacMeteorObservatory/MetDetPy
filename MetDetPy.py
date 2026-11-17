@@ -10,13 +10,14 @@ from MetLib.profiling import StageProfiler, profile_loader, profile_stage
 from MetLib.collector import MeteorCollector
 from MetLib.Detector import (BaseDetector, M3Detector, DiffAreaGuidingDetecor,
                              LineDetector, MLDetector)
-from MetLib.fileio import load_mask, save_path_handler
+from MetLib.fileio import save_path_handler
 from MetLib.metlog import get_default_logger, set_default_logger
 from MetLib.metstruct import (MDRF, BinaryCfg, ClipCfg, DLCfg, MainDetectCfg,
                               RuntimeParams)
 from MetLib.metvisu import (BaseVisuAttrs, OpenCVMetVisu, TextColorPair,
                             TextVisu)
 from MetLib.model import validate_provider_key
+from MetLib.recheck_cache import RecheckFrameCache
 from MetLib.utils import (CLIP_CONFIG_PATH, LIVE_MODE_SPEED_CTRL_CONST,
                           SWITCH2BOOL, VERSION, frame2time, frame2ts,
                           relative2abs_path)
@@ -83,6 +84,20 @@ def detect_video(video_name: str,
         # Load global config
         global_config = ClipCfg.from_json_file(CLIP_CONFIG_PATH)
 
+        # 复核叠图的旁路帧缓存创建与接线只有存在消费者时才建
+        recheck_cfg = cfg.collector.recheck_cfg
+        gate_on = bool(recheck_cfg.gate is not None and recheck_cfg.gate.switch)
+        needs_frame_cache = (gate_on or recheck_cfg.yolo_stack_source == "cache")
+        if gate_on and not recheck_cfg.frame_cache:
+            # 成本退化警告
+            logger.warning(
+                "ROI gate is enabled but recheck_cfg.frame_cache is false: the "
+                "gate will fall back to re-reading the whole window for every "
+                "candidate, which could be much slower.")
+        frame_cache = (RecheckFrameCache()
+                       if recheck_cfg.switch and recheck_cfg.frame_cache
+                       and needs_frame_cache else None)
+
         # Init VideoLoader
         # Since v2.0.0, VideoLoader will control most video-related varibles and functions.
         video_loader = VideoLoaderCls(
@@ -97,7 +112,8 @@ def detect_video(video_name: str,
             exp_option=exp_option,
             exp_upper_bound=exp_upper_bound,
             merge_func=merge_func,
-            continue_on_err=cfg.loader.continue_on_err)
+            continue_on_err=cfg.loader.continue_on_err,
+            frame_sink=frame_cache.push if frame_cache is not None else None)
         video_info = video_loader.summary()
         logger.info(video_loader.__repr__())
 
@@ -145,9 +161,7 @@ def detect_video(video_name: str,
                                              logger=logger)
 
         # Init meteor collector
-        recheck_cfg = cfg.collector.recheck_cfg
         recheck_loader = None
-        recheck_mask = None
         if recheck_cfg.switch:
             recheck_loader = VideoLoaderCls(VideoWrapperCls,
                                             video_name,
@@ -158,16 +172,15 @@ def detect_video(video_name: str,
                                             exp_option="real-time",
                                             merge_func=merge_func,
                                             continue_on_err=True)
-            if mask_name:
-                recheck_mask = load_mask(mask_name,
-                                         recheck_loader.runtime_size,
-                                         grayscale=False)
 
         meteor_collector = MeteorCollector(cfg.collector,
                                            rt_param,
                                            video_loader=recheck_loader,
                                            logger=logger,
-                                           recheck_mask=recheck_mask)
+                                           mask_name=mask_name,
+                                           frame_cache=frame_cache,
+                                           producer_maxsize=getattr(
+                                               video_loader, "maxsize", 0))
 
         # Init visualizer
         # TODO: 可视化模块暂未完全支持参数化设置。
@@ -271,6 +284,11 @@ def detect_video(video_name: str,
         logger.info(
             "Recheck model call count = "
             f"{meteor_collector.met_exporter.recheck_model_call_count}.")
+        exporter = meteor_collector.met_exporter
+        logger.debug(
+            "Recheck stack health: gap_patched="
+            f"{exporter.stack_patched_gaps}; gate_skipped_incomplete="
+            f"{exporter.gate_skipped_incomplete}.")
         recheck_read_failure_count = (recheck_loader.read_failure_count
                                       if recheck_loader is not None else 0)
         logger.info(

@@ -2,3 +2,4 @@ weights/yolov5s.onnx filter=lfs diff=lfs merge=lfs -text
 test/20220413Red.mp4 filter=lfs diff=lfs merge=lfs -text
 weights/yolov5s_v2.onnx filter=lfs diff=lfs merge=lfs -text
 weights/yolov5s_v2_fp16.onnx filter=lfs diff=lfs merge=lfs -text
+weights/mobilenet_v3_large_v2_alpha_fp16.onnx filter=lfs diff=lfs merge=lfs -text

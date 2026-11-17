@@ -1,3 +1,4 @@
+import dataclasses
 import queue
 import threading
 from typing import Literal, Optional, Union, cast
@@ -11,7 +12,10 @@ from .metstruct import (Box, CollectorCfg, MDTarget, RecheckCfg, RuntimeParams,
                         SingleMDRecord)
 from .metvisu import (BaseVisuAttrs, DotColorPair, DrawCircleVisu,
                       DrawRectVisu, SquareColorPair, TextColorPair, TextVisu)
-from .model import init_model
+from .fileio import load_mask
+from .imgproc import crop_roi, plan_roi_size
+from .model import init_classifier, init_model
+from .recheck_cache import RecheckFrameCache
 from .stacker import max_stacker
 from .utils import (ID2NAME, NAME2ID, NUM_CLASS, FloatArray, FloatSeq2D,
                     IntArray, IntSeq2D, U8Mat, _ensure_class_names_loaded,
@@ -23,6 +27,8 @@ color_mapper = color_interpolater([(128, 128, 128), (128, 128, 128),
                                    (0, 255, 0)])
 
 RECHECK_PADDING_SEC = 0.25
+# 复核帧缓存环的额外余量
+CACHE_MARGIN_FRAMES = 8
 MAX_CONSECUTIVE_FAILURES = 5
 
 
@@ -395,7 +401,10 @@ class MeteorCollector(object):
                  runtime_param: RuntimeParams,
                  video_loader: Optional[VanillaVideoLoader],
                  logger: BaseMetLog,
-                 recheck_mask: Optional[U8Mat] = None) -> None:
+                 recheck_mask: Optional[U8Mat] = None,
+                 frame_cache: Optional[RecheckFrameCache] = None,
+                 mask_name: Optional[str] = None,
+                 producer_maxsize: Optional[int] = None) -> None:
         self.min_len = collector_cfg.meteor_cfg.min_len
         self.max_interval = collector_cfg.meteor_cfg.max_interval * runtime_param.fps
         self.max_acti_frame = int(collector_cfg.meteor_cfg.max_interval *
@@ -429,6 +438,44 @@ class MeteorCollector(object):
         self.drct_prob_func = create_prob_func(
             collector_cfg.meteor_cfg.drct_range)
         self.logger = logger
+
+        # 复核叠图：主 loader 旁路输出的彩色帧（见 MetLib/recheck_cache.py）。
+        # 若为 None，则 exporter 维持"自行重读帧"的旧路径。
+        self.frame_cache = frame_cache
+        self.video_loader = video_loader
+        self.recheck_padding = int(RECHECK_PADDING_SEC * runtime_param.fps)
+        if frame_cache is not None:
+            # 环深/桶深全部由结构量推出：
+            #   后视深度 = CAP − 1 − lead >= eframe + padding
+            #   静默容差 = CAP − lead + padding − 1 + 桶覆盖 >= max_interval + lead
+            if producer_maxsize is None:
+                producer_maxsize = getattr(video_loader, "maxsize", None)
+            if producer_maxsize is None:
+                # 同步 loader（无队列）：push 与主循环同线程，领先量≈0
+                producer_maxsize = 0
+            span = max(1, self.recheck_padding)
+            lead = int(producer_maxsize) + 1
+            # 窗口起点是 cur_frame − eframe − padding，所以环还要多兜 eframe 帧
+            rear_need = runtime_param.exp_frame + 1
+            depth = self.max_acti_frame + lead + self.recheck_padding
+            frame_cache.configure(
+                padding=self.recheck_padding,
+                frame_count=(video_loader.video_total_frames
+                             if video_loader is not None else None),
+                extra_capacity=lead + max(rear_need, span + CACHE_MARGIN_FRAMES),
+                bucket_span=span,
+                bucket_count=-(-depth // span) + 1)
+            self.logger.debug(
+                f'Recheck frame cache: {frame_cache.describe()} '
+                f'(lead={lead}, rear_need={rear_need}, depth={depth}, '
+                f'margin={CACHE_MARGIN_FRAMES}).')
+            # 曝光估计阶段的重读不应留在环里，正式读取前清零
+            frame_cache.reset()
+        # 复核掩膜：叠帧后套用一次，因此在这里按运行时分辨率加载
+        if recheck_mask is None and mask_name:
+            recheck_mask = load_mask(mask_name,
+                                     runtime_param.runtime_size,
+                                     grayscale=False)
 
         recheck_thre = collector_cfg.meteor_cfg.recheck_threshold
         self.recheck_threshold = (recheck_thre if recheck_thre is not None
@@ -482,7 +529,9 @@ class MeteorCollector(object):
         for ms in keep_list:
             attr = self.get_met_attr(ms)
             if attr is None:
+                self._release_stack(ms)
                 continue
+            self._attach_stack(attr, ms)
             self.met_exporter.export(
                 self.met_exporter.ACTIVE_FLAG,
                 [attr], cur_frame, nearest_active_start)
@@ -490,7 +539,10 @@ class MeteorCollector(object):
         for ms in drop_list:
             attr = self.get_met_attr(ms)
             if attr is None:
+                self._release_stack(ms)
                 continue
+            # 丢弃的序列不需要复核，直接释放增量叠图
+            self._release_stack(ms)
             self.met_exporter.export(
                 self.met_exporter.DROP_FLAG,
                 [attr], cur_frame, nearest_active_start)
@@ -533,20 +585,46 @@ class MeteorCollector(object):
                 is_in = ms.may_in_series(line, cur_frame)
                 if is_in:
                     ms.update(self.cur_frame, line, new_cate=cate_prob)
+                    if self.frame_cache is not None:
+                        self.frame_cache.advance(id(ms),
+                                                 ms.last_activate_frame)
                     is_in_series = True
                     break
             # 如果不属于已存在的序列，则为其构建新的序列开头
             if is_in_series:
                 continue
-            self.active_meteor.append(
-                MeteorSeries(max(self.cur_frame - self.eframe, 0),
-                             self.cur_frame,
-                             line,
-                             max_acceptable_dist=self.merge_dist_sqr,
-                             max_acti_frame=self.max_acti_frame,
-                             cate_prob=cate_prob,
-                             fps=self.fps,
-                             runtime_size=self.runtime_size))
+            new_series = MeteorSeries(max(self.cur_frame - self.eframe, 0),
+                                      self.cur_frame,
+                                      line,
+                                      max_acceptable_dist=self.merge_dist_sqr,
+                                      max_acti_frame=self.max_acti_frame,
+                                      cate_prob=cate_prob,
+                                      fps=self.fps,
+                                      runtime_size=self.runtime_size)
+            self.active_meteor.append(new_series)
+            if self.frame_cache is not None:
+                self.frame_cache.attach(id(new_series), new_series.start_frame,
+                                        new_series.last_activate_frame)
+
+    def _attach_stack(self, attr: MDTarget, ms: MeteorSeries) -> None:
+        """把序列的增量叠图交给 exporter（缺口留给 exporter 线程补齐）。"""
+        if self.frame_cache is None or not self.met_exporter.recheck:
+            self._release_stack(ms)
+            return
+        builder = self.frame_cache.detach(id(ms))
+        if builder is None:
+            return
+        # 封口时把环形缓冲快照一并交出去
+        stack, refetch = builder.finish(
+            marked=self.frame_cache.marked,
+            frames=self.frame_cache.snapshot())
+        # 补帧（重读+叠帧）放在 exporter 的后台线程里
+        self.met_exporter.offer_stacked_img(id(attr), stack, refetch)
+
+    def _release_stack(self, ms: MeteorSeries) -> None:
+        """释放序列持有的增量叠图。"""
+        if self.frame_cache is not None:
+            self.frame_cache.detach(id(ms))
 
     def visu(self, frame_num: int):
         active_meteors: list[SquareColorPair] = []
@@ -724,11 +802,34 @@ class MetExporter(object):
         self.recheck_model_call_count = 0
         # recheck_mask: 运行时分辨率掩膜，在叠帧完成后套用一次。
         self.recheck_mask = recheck_mask
+        # 复核叠图旁路：collector 在导出前放入（键为 target 的 id），复核时取走。
+        # 放在这里而不是 MDTarget 字段上，是为了不改变 MDRF 的输出结构。
+        self._pending_stacks: dict[int, U8Mat] = {}
+        # YOLO 复核的叠图来源：cache（增量叠图）或 reread（重读，保守形态）
+        self.yolo_stack_source = recheck_cfg.yolo_stack_source
+        if self.yolo_stack_source not in ("cache", "reread"):
+            raise ValueError(
+                "recheck_cfg.yolo_stack_source must be 'cache' or 'reread', got "
+                f"{self.yolo_stack_source!r}.")
+        # ROI 闸门（可选，默认关闭）：在 YOLO 之前先用轻量分类器判背景。
+        self.gate_cfg = recheck_cfg.gate
+        self.gate_model = None
         if self.recheck:
             self.recheck_loader = video_loader
             self.recheck_model = init_model(recheck_cfg.model,
                                             logger=self.logger)
             self.recheck_padding = int(RECHECK_PADDING_SEC * self.fps)
+            if self.gate_cfg is not None and self.gate_cfg.providers_key is None:
+                # 默认与 YOLO 复核同一个推理后端
+                self.gate_cfg = dataclasses.replace(
+                    self.gate_cfg,
+                    providers_key=recheck_cfg.model.providers_key)
+            self.gate_model = init_classifier(self.gate_cfg, self.logger)
+        # 叠图完整性指标
+        #   gate_skipped_incomplete: 叠图不完整 → 闸门不判定（零成本不变量）
+        #   stack_patched_gaps:     叠图有缺口 → 用复核 loader 只补缺口区间
+        self.gate_skipped_incomplete = 0
+        self.stack_patched_gaps = 0
         # Rescale: 用于将结果放缩回原始分辨率的放缩倍率。
         self.raw_size = runtime_param.raw_size
         self.rescale_ratio = [
@@ -745,6 +846,21 @@ class MetExporter(object):
     def export(self, flag: FLAG_TYPE_ALIAS, data: list[MDTarget],
                cur_frame: int = 0, nearest_active_start: Optional[int] = None):
         self.queue.put((flag, data, cur_frame, nearest_active_start))
+
+    def offer_stacked_img(self, key: int, img: Optional[U8Mat],
+                          refetch: Optional[tuple[int, int]] = None) -> None:
+        """由 collector 提供预先累积好的复核叠图（键为 target 的 id）。
+
+        Args:
+            key (int): target 的 ``id()``。
+            img (Optional[U8Mat]): 增量叠图结果，None 表示没有可用叠图。
+            refetch (Optional[tuple[int, int]]): 闭区间 ``[from, to]``，表示叠图
+                缺失、需要在本线程重读补齐的帧范围。
+        """
+        if img is None and refetch is None:
+            self._pending_stacks.pop(key, None)
+        else:
+            self._pending_stacks[key] = (img, refetch)
 
     def loop(self):
         consecutive_failures = 0
@@ -848,6 +964,54 @@ class MetExporter(object):
                     single_meteor.center_point_list[i], self.rescale_ratio)
         return meteor_dict
 
+    def _read_window(self, start_frame: int,
+                     end_frame: int) -> Optional[U8Mat]:
+        """用复核 loader 读 ``[start_frame, end_frame)`` 并做最大值叠帧。"""
+        total = self.recheck_loader.video_total_frames
+        start, end = max(0, int(start_frame)), min(int(end_frame), total)
+        if end <= start:
+            return None
+        return max_stacker(video_loader=self.recheck_loader,
+                           start_frame=start,
+                           end_frame=end,
+                           logger=self.logger)
+
+    def _reread_window(self, target: MDTarget) -> Optional[U8Mat]:
+        """整窗重读：与旧路径逐位一致的叠帧口径（end 沿用 ``total − 1`` 夹取）。"""
+        return self._read_window(
+            max(0, target.start_frame - self.recheck_padding),
+            min(target.last_activate_frame + self.recheck_padding,
+                self.recheck_loader.video_total_frames - 1))
+
+    def _resolve_stack(
+            self, target: MDTarget,
+            cached_stack: Optional[U8Mat],
+            refetch: Optional[tuple[int, int]]
+    ) -> tuple[Optional[U8Mat], bool]:
+        """补全叠图，返回 ``(叠图, 是否完整)``。
+
+        这是闸门的唯一输入契约：闸门只消费完整叠图。三档处理：
+
+        * 没有增量叠图 → 整窗重读；
+        * 有叠图且无缺口 → 直接用（零重读，S2 预算落地后是绝大多数）；
+        * 有叠图但有缺口 → 只补缺口区间；补丁失败/形状不符则退化为整窗重读，
+          仍失败才标记为不完整。
+        """
+        if cached_stack is None:
+            img = self._reread_window(target)
+            return img, img is not None
+        if refetch is None:
+            return cached_stack, True
+        patch = self._read_window(refetch[0], refetch[1] + 1)
+        if patch is not None and patch.shape == cached_stack.shape:
+            np.maximum(cached_stack, patch, out=cached_stack)
+            self.stack_patched_gaps += 1
+            return cached_stack, True
+        img = self._reread_window(target)
+        if img is None:
+            return cached_stack, False
+        return img, True
+
     def recheck_single_target(self, target: MDTarget) -> Optional[MDTarget]:
         """对单个 target 执行独立复检。
 
@@ -861,12 +1025,38 @@ class MetExporter(object):
             return target
 
         assert self.recheck_loader is not None
-        stacked_img = max_stacker(
-            video_loader=self.recheck_loader,
-            start_frame=max(0, target.start_frame - self.recheck_padding),
-            end_frame=min(target.last_activate_frame + self.recheck_padding,
-                          self.recheck_loader.video_total_frames - 1),
-            logger=self.logger)
+        # 优先使用主 loader 旁路输出、由序列增量累积的叠图（见 MetLib/recheck_cache.py）；
+        # 没有可用叠图时退回"重新读帧 + 叠帧"的旧路径。
+        offered = self._pending_stacks.pop(id(target), None)
+        cached_stack = None
+        refetch = None
+        if offered is not None:
+            cached_stack, refetch = offered
+
+        # 叠图补全：闸门的输入必须是**完整**的叠图，因此补帧要排在判定之前。
+        # YOLO 的图源仍由 yolo_stack_source 决定。
+        if self.gate_model is not None or self.yolo_stack_source == "cache":
+            stacked_img, complete = self._resolve_stack(target, cached_stack,
+                                                        refetch)
+        else:
+            stacked_img, complete = cached_stack, True
+
+        # ROI 闸门：输入不完整时**不判定**（fail-open 到 YOLO），只记账。
+        if self.gate_model is not None and stacked_img is not None:
+            if not complete:
+                self.gate_skipped_incomplete += 1
+                self.logger.warning(
+                    "ROI gate skipped: stacked img is incomplete."
+                    f" start_frame={target.start_frame};"
+                    f" refetch={refetch}.")
+            elif self._apply_roi_gate(target, stacked_img):
+                return None
+
+        if self.yolo_stack_source != "cache":
+            # 保守形态：YOLO 始终用复核 loader 重读整窗
+            reread = self._reread_window(target)
+            if reread is not None:
+                stacked_img = reread
 
         if stacked_img is None:
             self.logger.error(
@@ -920,9 +1110,65 @@ class MetExporter(object):
                 target.category = ID2NAME[Name2Label.DROPPED()]
             return None
 
+    def _apply_roi_gate(self, target: MDTarget, stacked_img: U8Mat) -> bool:
+        """ROI 闸门：用轻量分类器判断是否为背景。
+
+        两种判定口径（`gate_cfg.decision`）：
+          - `threshold`：`p_background >= p_background_thre` 即拒；
+          - `argmax`：仅当 top-1 就是背景类才拒。
+
+        Args:
+            target (MDTarget): 待复核目标（runtime 坐标）。
+            stacked_img (U8Mat): 该目标的增量叠图（runtime 分辨率）。
+
+        Returns:
+            bool: True 表示判为背景、应直接拒绝；False 表示继续走 YOLO 复核。
+        """
+        assert self.gate_cfg is not None and self.gate_model is not None
+        cfg = self.gate_cfg
+        width = abs(int(target.pt2[0]) - int(target.pt1[0]))
+        height = abs(int(target.pt2[1]) - int(target.pt1[1]))
+        size = plan_roi_size(width,
+                             height,
+                             canvas=self.gate_model.input_size,
+                             min_side=cfg.min_roi_side,
+                             scale=cfg.roi_scale,
+                             target_long_side=cfg.target_long_side,
+                             side_floor=cfg.adaptive_side_floor)
+        # size 已包含 scale 与自适应规则，`crop_roi` 只做居中裁切（越界补黑）。
+        roi = crop_roi(stacked_img, target.pt1, target.pt2, size)
+        background_index = self.gate_model.background_index
+        if cfg.decision == "argmax":
+            probs = self.gate_model.forward(roi)[0]
+            top = int(np.argmax(probs))
+            p_bg = (float(probs[background_index])
+                    if background_index is not None else 0.0)
+            rejected = background_index is not None and top == background_index
+            reason = (f"argmax={self.gate_model.class_names[top]}"
+                      f"({float(probs[top]):.3f}) is background, "
+                      f"p_background={p_bg:.3f}")
+        else:
+            threshold = cfg.p_background_thre
+            assert threshold is not None, (
+                "ClassifierCfg.__post_init__ guarantees a threshold for "
+                "decision='threshold'.")
+            probs = self.gate_model.forward(roi)[0]
+            top = int(np.argmax(probs))
+            p_bg = (float(probs[background_index])
+                    if background_index is not None else 0.0)
+            rejected = p_bg >= threshold
+            reason = f"p_background={p_bg:.3f} >= {threshold}"
+        if rejected:
+            self.logger.debug(
+                f"ROI gate rejected target start_frame={target.start_frame}"
+                f" ({reason}; box={width}x{height} roi={size.width}x{size.height}).")
+            return True
+        return False
+
     def merge_targets_by_time(self,
                               targets: list[MDTarget]) -> list[SingleMDRecord]:
         """将通过复检的 targets 按时间邻近合并为输出格式。"""
+
         if not targets:
             return []
         result: list[SingleMDRecord] = []

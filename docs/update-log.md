@@ -14,7 +14,6 @@ add a frame2frame mode under image analyzing mode.
 统计工具
 自动化的天地分割。
 反差提升YOLO
-TODO: pyexiv2 pkging.
 * 相机直录表现差
 * 低fps表现差
 * "焦距"配置
@@ -59,9 +58,7 @@ TODO: pyexiv2 pkging.
     14. 相机直录表现差
     15. 低fps表现差
 3. 检测性能
-    1. 简化迭代中产生的冗余检测后处理机制（如DyMask， MeteorLib中的冗余逻辑），提升检测性能。
-    2. 构建直接使用差值代替线段检测的高速检测器，降低计算量，并预期能改善城市场景卫星/飞机的问题。
-    3. 将计算复杂的模块使用cython等实现，改善性能
+    1. 构建直接使用差值代替线段检测的高速检测器，降低计算量，并预期能改善城市场景卫星/飞机的问题。
 4. 功能扩展
     1. 接入对其他深度学习框架和模型的支持
     2. 添加天区解析功能，为支持快速叠图，分析辐射点，流星组网监测提供基础支持
@@ -78,6 +75,22 @@ Note:
 1. 炸屏优化（1. 天亮/天暗时的亮度突变过滤；2.火流星等直接炸屏的场景检出）
 2. 飞行器/大面积时间不容易被后验检测器检出。
 3. 改善报错信息（尤其是配置文件）
+
+## Version 2.7.0
+
+✅ New Feature(s)
+* 新增 ROI 闸门：在 YOLO 复核之前用轻量 ROI 分类器判"是否背景"，判为背景的候选省掉对应的整窗重读与 YOLO 调用。判定口径 `decision` 支持 `threshold` 与 `argmax`。默认启用，权重为新增的 `weights/mobilenet_v3_large_v2_alpha_fp16.onnx`。通过配置的 `recheck_cfg.gate` 控制其行为。
+* 新增复核帧缓存：复用主 loader 产出的彩色帧，降低压力场景的解码及预处理压力。默认启用，通过配置的`recheck_cfg.frame_cache` 控制其行为。
+* `recheck_cfg.yolo_stack_source`：YOLO 复核叠图来源可选 `"cache"`（复用主解码器帧）或 `"reread"`（每候选整窗重读，旧行为）。
+
+⚡ Performance
+* 复核路径去掉了每候选的整窗解码；闸门 + 帧缓存降低了复核模型的调用频率。较大的改善了高分辨率视频的端到端运行时间。
+
+⚠️ Configuration Migration Notes
+* 自本版本起默认开启 ROI 闸门。希望保持"无闸门"行为的用户请将 `recheck_cfg.gate.switch` 置 `false`（或使用 `m3det_normal_old.json`）。
+* `p_background_thre = 0.47` 是按 `mobilenet_v3_large_v2alpha_fp32.onnx` 标定的工作点；**更换权重必须重新标定阈值**。
+
+**Full Changelog**: https://github.com/LilacMeteorObservatory/MetDetPy/compare/v2.6.1...v2.7.0
 
 ## Version 2.6.1
 
