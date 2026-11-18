@@ -3,6 +3,7 @@
 import hashlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -20,9 +21,33 @@ def run_cmd(command: list[str], env: Optional[dict[str, str]] = None):
         run_env = os.environ.copy()
         run_env.update(env)
     t_start = time.time()
-    ret = subprocess.run(command, env=run_env)
+    # Keep Ctrl-C in the driver until its compiler process tree has stopped.
+    # Otherwise ExitStack may delete Nuitka/pyexiv2 staging while cl/SCons
+    # descendants are still reading headers and native modules from it.
+    process_options = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                       if sys.platform == "win32" else {"start_new_session": True})
+    process = subprocess.Popen(command, env=run_env, **process_options)
+    try:
+        return_code = process.wait()
+    except KeyboardInterrupt:
+        print("Build interrupted; stopping the command process tree before cleanup.", flush=True)
+        # Do not allow another Ctrl-C to interrupt termination and staging cleanup.
+        previous_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                               check=False)
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            process.wait()
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+        raise
     t_end = time.time()
-    return ret.returncode, t_end - t_start
+    return return_code, t_end - t_start
 
 
 def file_to_zip(path_original: str,

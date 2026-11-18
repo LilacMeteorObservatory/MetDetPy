@@ -134,11 +134,15 @@ file system virtualization redirects the onefile extraction directory
 but the Nuitka bootstrap then starts the child process with the *logical*
 path, so the loader cannot find `python310.dll` next to it and the engine dies
 with `0xC0000135`. A Windows onefile build therefore applies
-`nuitka-patches/patch_onefile_bootstrap.py` automatically before compiling
-(Nuitka 4.0.5 is locked). A version/anchor mismatch, or a built executable
-without the patch marker, **fails the build** instead of silently producing a
-Store build that cannot start. The patch rewrites `OnefileBootstrap.c` in the
-build environment's `site-packages` and keeps a `.metdetpy-orig` backup.
+`MetLib/packaging/nuitka_patches/patch_onefile_bootstrap.py` automatically.
+Only a temporary copy of the installed Nuitka package is patched. Compilation
+subprocesses select it via `PYTHONPATH`, preserving pyexiv2 staging paths; an
+import probe verifies the selected package. The copy is cleaned up on success
+or failure, and `site-packages` is never modified. An installation already
+containing the old patch must be restored or reinstalled first.
+Nuitka 4.0.5 is on the version allowlist; other versions emit a warning and
+continue. All versions must pass the three unique source-anchor checks and
+encoding checks. Missing executable patch markers also fail the build.
 Store acceptance must run on a new account / isolated machine where neither
 the normal nor the package private cache exists (a new `VERSION`, or an
 explicit new `--build-tag`).

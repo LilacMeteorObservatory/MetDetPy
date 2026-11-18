@@ -43,6 +43,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
 
+      - name: Check dependency consistency and native imports
+        run: |
+          python -m pip check
+          python -c "import numpy, cv2, onnxruntime, av, dacite, pyexiv2, rawpy, psutil"
+
       - name: Run unit tests
         run: python -m pytest tests/ -v --junitxml=test-results.xml
 

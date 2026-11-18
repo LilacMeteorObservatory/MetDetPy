@@ -32,18 +32,19 @@ Besides, MetDetPy has worked as the backend of the Meteor Master since version 1
 **Environment**
 
 - 64bit OS
-- Python>=3.7 (3.9+ is recommended)
+- Python>=3.9
 
 **Python Requirements**
 
-- numpy>=1.15.0
-- opencv_python>=4.9.0
+- numpy>=2.0.0
+- opencv-python==4.12.0.88 on macOS; >=5.0.0 on other platforms
 - tqdm>=4.0.0
-- multiprocess>=0.70.0
-- onnxruntime>=1.16.0
+- onnxruntime>=1.19.0
 - av>=15.0.0
 - dacite>=1.9.0
 - pyexiv2>=2.12.0
+- rawpy>=0.20.0
+- psutil>=5.9.0
 
 You can install these requirements using:
 
@@ -53,9 +54,9 @@ pip install -r requirements.txt
 
 ### GPU Support
 
-The above packages enable MetDetPy to run properly, but deep learning models in the default runtime are CPU-only on typical installations. If you wish to utilize your GPU, you can additionally install or replace the onnxruntime-related libraries as follows:
+The above packages enable MetDetPy to run properly, but deep learning models in the default runtime are CPU-only on typical installations. For GPU support, replace `onnxruntime` with one of the following alternatives. Install only one ONNX Runtime distribution per environment, since they share the `onnxruntime` import package.
 
-- **Windows / Linux (recommended):** install `onnxruntime-directml` to get DirectML-based acceleration on many GPUs (Nvidia, AMD, Intel). The package name on PyPI is `onnxruntime-directml`.
+- **Windows:** replace `onnxruntime` with `onnxruntime-directml>=1.19.0` to get DirectML-based acceleration on many GPUs (Nvidia, AMD, Intel).
 
 - **Nvidia GPU users (advanced):** if you have CUDA installed, install a CUDA-matched `onnxruntime-gpu` build instead of `onnxruntime` to enable CUDA acceleration.
 

@@ -1,59 +1,21 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""给 Nuitka 的 onefile Windows 引导层打 MSIX/APPX 包虚拟化补丁。
-
-背景
-====
-Windows 商店版（APPX / MSIX）里，文件系统虚拟化会把打包应用写入
-``%LOCALAPPDATA%`` 的路径重定向到包私有目录::
-
-    逻辑路径 A = %LOCALAPPDATA%\\MetDetPy\\<CACHE_TAG>
-    物理路径 B = %LOCALAPPDATA%\\Packages\\<PFN>\\LocalCache\\Local\\MetDetPy\\<CACHE_TAG>
-    （<CACHE_TAG> 默认为 VERSION，可用 --build-tag 覆盖。）
-
-onefile 引导层把载荷解压到 A（物理上落在 B），随后用 **逻辑路径** 启动内部
-子进程。Windows 加载器于是把逻辑路径当作「应用目录」去查依赖 DLL
-（``python310.dll``），而该文件只存在于 B —— 子进程在 Python 解释器加载之前
-就以 ``0xC0000135``（STATUS_DLL_NOT_FOUND）退出，识别功能完全不可用。
-
-这不是 MetDetPy 代码的问题（资源目录用 ``sys.argv[0]`` 定位，本身是对的），
-而是 Nuitka onefile 引导层在 MSIX 下的路径选择问题。MeteorMasterDetecterAI
-2.5 已经用同一条补丁修过（见 ``U:\\yolo\\MeteorMasterDetecterAI\\nuitka-patches``），
-本文件是它的 MetDetPy 版本。
-
-修法
-====
-在启动内部子进程之前，把逻辑路径解析为最终物理路径
-（``GetFinalPathNameByHandleW``），用物理路径作为 ``CreateProcessW`` 的
-``lpApplicationName``。这样子进程的应用目录指向真实目录，依赖 DLL 就在旁边。
-
-约束
-====
-* 只在 Windows 生效；解析失败时回退到原逻辑路径，非商店环境行为不变。
-* 锁定 Nuitka 版本 + 被改文件的预期内容，命中不上直接失败，避免静默漏补丁。
-* 确定性重放：始终以 ``.metdetpy-orig`` 备份为真源重新打补丁，重复执行结果一致。
-* **补丁注入的 C 代码必须是纯 ASCII**。原因见 ``assert_ascii`` 的注释。
-
-用法
-----
-    python nuitka-patches/patch_onefile_bootstrap.py
-
-``MetLib/packaging/nuitka.py`` 在 Windows onefile 构建前会自动调用本脚本。
-"""
+"""Isolate and patch Nuitka's Windows onefile bootstrap for one build."""
 
 import os
 import shutil
+import subprocess
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 import sys
 
-# 锁定的 Nuitka 版本。换了版本必须重新核对锚点，不允许「差不多就行」。
-# 4.0.5 的三个锚点与 2.7.13 完全一致（各命中 1 次），只是版本号需要更新。
-EXPECTED_NUITKA_VERSION = "4.0.5"
+# Versions previously used for project builds. Other versions warn but must
+# still pass every source anchor and encoding check.
+SUPPORTED_NUITKA_VERSIONS = frozenset({"4.0.5"})
 
-# 补丁标记：出现在被改文件里，用来识别「已经打过补丁」。
 SOURCE_MARKER = "METDETPY_MSIX_ONEFILE_PATCH"
 
 # 写进产物二进制的标记字符串，构建后由 nuitka.py 检查，防止静默漏打。
-# （nuitka.py 直接加载本脚本读取该常量，整个仓库只有这一处定义。）
+# The packaging backend imports this constant for artifact verification.
 BINARY_MARKER = SOURCE_MARKER + "_ACTIVE"
 
 # --- 锚点：命中不上就失败，绝不猜测 -------------------------------------------------
@@ -246,26 +208,13 @@ def get_nuitka_version():
             return None
 
 
-def get_bootstrap_path():
-    try:
-        import nuitka
-    except ImportError:
-        fail("import nuitka 失败：请用打包环境的 Python 运行本脚本（%s）" % sys.executable)
-
-    static_src = os.path.join(os.path.dirname(os.path.abspath(nuitka.__file__)), "build", "static_src")
-    path = os.path.join(static_src, "OnefileBootstrap.c")
-    if not os.path.isfile(path):
-        fail("找不到 Nuitka 引导层源码：%s" % path)
-    return path
-
-
-def main():
-    version = get_nuitka_version()
-    if version != EXPECTED_NUITKA_VERSION:
-        fail(
-            "Nuitka 版本不匹配：当前 %s，补丁针对 %s。"
-            "请先核对锚点是否仍然成立，再更新 EXPECTED_NUITKA_VERSION。"
-            % (version, EXPECTED_NUITKA_VERSION)
+def patch_bootstrap(path: Path, version: str) -> None:
+    """Patch an explicit private copy; never discover or edit site-packages."""
+    if version not in SUPPORTED_NUITKA_VERSIONS:
+        print(
+            f"[nuitka-patch] WARNING: Nuitka {version} is outside the version "
+            "allowlist; continuing with strict source anchor checks.",
+            file=sys.stderr,
         )
 
     assert_ascii(HELPER_CODE, "HELPER_CODE")
@@ -275,24 +224,11 @@ def main():
     if BINARY_MARKER not in CREATE_CODE:
         fail("CREATE_CODE 里缺少 BINARY_MARKER，构建后的二进制校验会失效。")
 
-    path = get_bootstrap_path()
-    backup = path + ".metdetpy-orig"
-
-    # 确定性重放：始终以备份为真源。这样重复执行、或者上一轮打了半截补丁，
-    # 结果都跟「原始文件 + 补丁」完全一致。
-    if os.path.isfile(backup):
-        with open(backup, "r", encoding="utf-8", newline="") as handle:
-            text = handle.read()
-        source = backup
-    else:
-        with open(path, "r", encoding="utf-8", newline="") as handle:
-            text = handle.read()
-        shutil.copy2(path, backup)
-        source = path
-        print("[nuitka-patch] 已备份原始文件：%s" % backup)
-
+    with open(path, "r", encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    source = path
     if SOURCE_MARKER in text:
-        fail("备份文件 %s 里已经带补丁标记，说明它不是原始文件。请人工核对后再继续。" % backup)
+        fail(f"{path} already contains the patch. Restore a clean Nuitka installation first.")
 
     newline = "\r\n" if "\r\n" in text else "\n"
 
@@ -317,10 +253,40 @@ def main():
     with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
 
-    print("[nuitka-patch] 已给 %s 打上 MSIX/APPX 物理路径补丁（Nuitka %s）" % (path, version))
-    print("[nuitka-patch] 真源备份：%s；回滚方式：把备份复制回引导层源码即可。" % backup)
-    return 0
+    print(f"[nuitka-patch] Patched private bootstrap: {path} (Nuitka {version})")
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+@contextmanager
+def isolated_nuitka(env=None):
+    """Yield a child environment selecting a patched, temporary Nuitka copy.
+
+    Preserve existing PYTHONPATH entries, including pyexiv2 staging. Clean up
+    on copy, patch, probe and compile failures as well as successful builds.
+    """
+    import importlib.util
+
+    spec = importlib.util.find_spec("nuitka")
+    if spec is None or not spec.submodule_search_locations:
+        fail(f"Nuitka is not installed for {sys.executable}")
+    source = Path(next(iter(spec.submodule_search_locations))).resolve()
+    version = get_nuitka_version()
+    with tempfile.TemporaryDirectory(prefix="metdetpy-nuitka-") as stage:
+        private_package = Path(stage) / "nuitka"
+        shutil.copytree(source, private_package,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.metdetpy-orig"))
+        patch_bootstrap(private_package / "build" / "static_src" / "OnefileBootstrap.c", version)
+        child_env = dict(env or {})
+        previous_path = child_env.get("PYTHONPATH", os.environ.get("PYTHONPATH", ""))
+        child_env["PYTHONPATH"] = stage + (os.pathsep + previous_path if previous_path else "")
+        probe_env = os.environ.copy()
+        probe_env.update(child_env)
+        subprocess.run([
+            sys.executable, "-c",
+            "import sys, nuitka; from pathlib import Path; "
+            "actual = Path(nuitka.__file__).resolve().parent; "
+            "expected = Path(sys.argv[1]).resolve(); "
+            "assert actual == expected, (actual, expected); "
+            "print('Using isolated Nuitka:', actual)",
+            str(private_package),
+        ], env=probe_env, check=True)
+        yield child_env

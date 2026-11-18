@@ -1,6 +1,7 @@
 # Nuitka packaging backend.
 
 import importlib.util
+from contextlib import ExitStack
 import os
 import platform as pf
 import shutil
@@ -12,6 +13,7 @@ from typing import Optional, Union
 from MetLib.utils import PROJECT_NAME, VERSION, PLATFORM_MAPPING
 from .common import (clean_output_dir, post_process, run_cmd,
                      write_build_report)
+from .nuitka_patches import patch_onefile_bootstrap as msix_patch
 
 join_path = os.path.join
 
@@ -29,14 +31,6 @@ EXCLUDE_PKGS = [
 # removes the per-launch extraction overhead of the default
 # {TEMP}/onefile_<PID>_<TIME> directory.
 ONEFILE_CACHE_PRODUCT = PROJECT_NAME
-
-# Windows onefile bootstrap patch for MSIX/APPX package virtualization.
-# The patch lives in the repository (nuitka-patches/) and is applied to the
-# build environment's Nuitka before compiling; it must not be silently
-# skipped, otherwise the Windows Store build dies with 0xC0000135 before
-# Python starts. See nuitka-patches/README.md.
-MSIX_PATCH_SCRIPT = join_path("nuitka-patches", "patch_onefile_bootstrap.py")
-
 
 def resolve_cache_tag(args) -> str:
     """Cache directory tag used in the onefile extraction path.
@@ -82,57 +76,37 @@ def _file_contains(path: str, needle: bytes,
             tail = (tail + data)[-overlap:] if overlap else b""
 
 
-def load_msix_patch_module(work_path: str):
-    """Load ``nuitka-patches/patch_onefile_bootstrap.py`` as a module.
-
-    The patch script owns the marker constants (they are injected into the C
-    source and checked in the produced executables), so loading it here keeps
-    a single definition of the patch markers.
-    """
-    script = join_path(work_path, MSIX_PATCH_SCRIPT)
-    if not os.path.isfile(script):
-        sys.exit(f"ERROR: missing Nuitka MSIX patch script: {script}")
-    spec = importlib.util.spec_from_file_location(
-        "metdetpy_nuitka_onefile_patch", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def apply_msix_onefile_patch(work_path: str):
-    """Patch the build environment's Nuitka onefile bootstrap for MSIX/APPX.
-
-    The patch script locks the Nuitka version and its own anchors, so a
-    mismatch aborts the build instead of silently producing an engine that
-    dies with 0xC0000135 in the Windows Store. Returns the loaded patch module
-    (the caller needs its binary marker for the post-build verification).
-    """
-    patch_module = load_msix_patch_module(work_path)
-
-    print("=" * 70)
-    print("Applying Nuitka onefile MSIX/APPX bootstrap patch")
-    print("=" * 70)
-    ret_code, _ = run_cmd([sys.executable, patch_module.__file__])
-    if ret_code != 0:
-        sys.exit(
-            f"ERROR: Nuitka MSIX patch failed (exit code {ret_code}); the "
-            "Windows Store build would crash with 0xC0000135. Build aborted.")
-    print()
-    return patch_module
-
-
-def verify_msix_onefile_patch(compile_path: str, marker: bytes) -> None:
-    """Fail the build if any onefile executable lacks the bootstrap patch."""
-    missing = []
+def verify_msix_onefile_patch(compile_path: str, marker: bytes,
+                             upx_binary: Optional[str] = None) -> None:
+    """Check plain or UPX-packed binaries without modifying release files."""
+    failures = []
     for script in SCRIPTS:
         exe = join_path(compile_path, script.replace(".py", ".exe"))
-        if not os.path.isfile(exe) or not _file_contains(exe, marker):
-            missing.append(os.path.basename(exe))
-    if missing:
+        if not os.path.isfile(exe):
+            failures.append(f"{exe}: executable does not exist")
+            continue
+        if _file_contains(exe, marker):
+            print(f"[nuitka-patch] {exe}: marker present")
+            continue
+        if upx_binary is not None:
+            # UPX hides string literals in the compressed bootstrap. Unpack
+            # one file at a time on the output volume, not the system drive.
+            with tempfile.TemporaryDirectory(prefix="patch-check-", dir=compile_path) as stage:
+                unpacked = join_path(stage, os.path.basename(exe))
+                ret_code, _ = run_cmd([upx_binary, "-d", "-o", unpacked, exe])
+                if ret_code != 0 or not os.path.isfile(unpacked):
+                    failures.append(f"{exe}: UPX verification unpack failed (exit {ret_code})")
+                    continue
+                if _file_contains(unpacked, marker):
+                    print(f"[nuitka-patch] {exe}: marker present after UPX unpack")
+                    continue
+                failures.append(f"{exe}: patch marker missing after UPX unpack")
+        else:
+            failures.append(f"{exe}: patch marker missing")
+    if failures:
         sys.exit(
-            "ERROR: Nuitka onefile MSIX patch marker missing in: "
-            f"{', '.join(missing)}. The Windows Store build would crash with "
-            "0xC0000135; refusing to finish the build.")
+            "ERROR: Cannot verify Nuitka onefile MSIX patch; refusing to finish the build:\n"
+            + "\n".join(failures))
     print("Verified MSIX bootstrap patch marker in all onefile executables.")
 
 
@@ -266,7 +240,6 @@ def build(args):
     compile_tool = [sys.executable, "-m", "nuitka"]
 
     nuitka_base: dict[str, Union[bool, str]] = {
-        "--no-pyi-file": True,
         "--remove-output": True,
         "--lto": "yes",
         "--assume-yes-for-downloads": True,
@@ -275,6 +248,11 @@ def build(args):
     nuitka_pkgs = [f"--nofollow-import-to={x}" for x in EXCLUDE_PKGS]
     # PyAV extensions import other av modules dynamically (e.g. av.utils).
     nuitka_pkgs.append("--include-module=av.utils")
+    # Newer PyAV wheels share Cython utilities through a native module that
+    # extension imports do not expose to Nuitka's Python dependency analysis.
+    # Older PyAV releases do not ship it, so include only when installed.
+    if importlib.util.find_spec("av._cyutil") is not None:
+        nuitka_pkgs.append("--include-module=av._cyutil")
     nuitka_pkgs.append("--include-package-data=pyexiv2")
 
     if platform == "win":
@@ -289,12 +267,16 @@ def build(args):
             nuitka_base["--mingw64"] = True
 
     if platform.startswith("macos"):
+        nuitka_pkgs.append(
+            "--user-package-configuration-file="
+            + str(Path(__file__).with_name("nuitka-package.config.yml")))
         nuitka_base["--macos-app-version"] = VERSION
         nuitka_base[
             "--macos-signed-app-name"] = "org.lilacMeteorobservatory.metdetpy"
         if args.macos_sign_identity:
             nuitka_base["--macos-sign-identity"] = args.macos_sign_identity
 
+    upx_cmd = None
     if args.apply_upx:
         upx_cmd = shutil.which("upx")
         if upx_cmd is not None:
@@ -305,12 +287,11 @@ def build(args):
     pyexiv2_pkgs: list[str] = []
     build_env: Optional[dict[str, str]] = None
     pyexiv2_stage: Optional[str] = None
-    msix_patch_module = None
 
     # Both the pyexiv2 staging directory and the MSIX patch step must be
     # inside this scope: the staging directory has to be released even when
     # the patch (or any compilation) aborts the build.
-    try:
+    with ExitStack() as build_resources:
         if onefile_mode:
             print(f"onefile extraction cache tag: {cache_tag}")
             print(f"onefile extraction cache: {cache_spec}")
@@ -319,12 +300,14 @@ def build(args):
                   "several builds of the same version must not share it.")
             pyexiv2_pkgs, build_env, pyexiv2_stage = \
                 prepare_pyexiv2_onefile_support()
+            if pyexiv2_stage is not None:
+                build_resources.callback(shutil.rmtree, pyexiv2_stage, ignore_errors=True)
 
         if onefile_mode and platform == "win":
             # Must be applied before Nuitka compiles the onefile bootstrap.
             # The Windows Store (MSIX/APPX) build dies with 0xC0000135
             # otherwise.
-            msix_patch_module = apply_msix_onefile_patch(work_path)
+            build_env = build_resources.enter_context(msix_patch.isolated_nuitka(build_env))
 
         for script in SCRIPTS:
             cfg: dict[str, Union[bool, str]] = {
@@ -334,6 +317,10 @@ def build(args):
             cfg.update(nuitka_base)
             if onefile_mode:
                 cfg["--onefile"] = True
+                if upx_cmd is not None:
+                    # UPX already compresses the executable; avoid a second
+                    # compression layer regardless of zstandard availability.
+                    cfg["--onefile-no-compression"] = True
                 cfg["--onefile-tempdir-spec"] = cache_spec
                 # A static spec already infers "cached"; set it explicitly so
                 # a future Nuitka default change cannot silently reintroduce
@@ -346,18 +333,9 @@ def build(args):
             nuitka_compile(compile_tool, cfg, nuitka_pkgs + pyexiv2_pkgs,
                            target=join_path(work_path, script),
                            env=build_env)
-    finally:
-        if pyexiv2_stage is not None:
-            shutil.rmtree(pyexiv2_stage, ignore_errors=True)
-
     if onefile_mode and platform == "win":
-        # Hard gate: never publish an onefile build whose bootstrap lacks the
-        # MSIX patch (that build cannot start in the Windows Store).
-        if msix_patch_module is None:
-            sys.exit("ERROR: Nuitka MSIX bootstrap patch was not applied; "
-                     "refusing to finish the build.")
         verify_msix_onefile_patch(
-            compile_path, msix_patch_module.BINARY_MARKER.encode("ascii"))
+            compile_path, msix_patch.BINARY_MARKER.encode("ascii"), upx_binary=upx_cmd)
 
     # Post-compile: merge dist folders or cleanup
     if onefile_mode:

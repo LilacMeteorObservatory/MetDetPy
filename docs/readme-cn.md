@@ -32,18 +32,19 @@ MetDetPy 可从直录视频或图像中检测流星。其视频检测受到[uzan
 ### 环境
 
 * 64bit OS
-* Python>=3.7 (推荐 3.9+)
+* Python>=3.9
 
 ### Python 依赖
 
-* numpy>=1.15.0
-* opencv_python>=4.9.0
+* numpy>=2.0.0
+* opencv-python：macOS 固定为 4.12.0.88（避免与 PyAV 的 FFmpeg 库冲突），其他平台 >=5.0.0
 * tqdm>=4.0.0
-* multiprocess>=0.70.0
-* onnxruntime>=1.16.0
+* onnxruntime>=1.19.0
 * av>=15.0.0
 * dacite>=1.9.0
 * pyexiv2>=2.12.0
+* rawpy>=0.20.0
+* psutil>=5.9.0
 
 可以通过如下指令安装依赖：
 
@@ -53,9 +54,9 @@ pip install -r requirements.txt
 
 ### GPU 支持
 
-上述软件包能够使 MetDetPy 正常运行，但深度学习模型仅支持在 CPU 设备上运行。如果希望利用 GPU，可以按照以下方式额外安装或替换 onnxruntime 相关库：
+上述软件包能够使 MetDetPy 正常运行。如需 GPU 支持，可以按以下方式替换 `onnxruntime`。各发行包共用 `onnxruntime` 导入路径，同一环境只能安装其中一种，避免相互覆盖。
 
-* **Windows/Linux 用户（推荐）：** 如果您使用的是 Windows 或 Linux，建议额外安装 `onnxruntime_directml`。该库利用 DirectX 进行模型推理加速，适用于大多数 GPU（包括 Nvidia、AMD、Intel 等厂商的显卡）。
+* **Windows 用户：** 使用 `onnxruntime-directml>=1.19.0` 替换 `onnxruntime`，通过 DirectX 加速推理，适用于多种 GPU（包括 Nvidia、AMD、Intel 等厂商的显卡）。
 
 * **Nvidia GPU 用户（高级）：** 如果您使用的是 Nvidia GPU 并且已安装 CUDA，可以安装与 CUDA 版本匹配的 `onnxruntime-gpu` 代替 `onnxruntime`。这可以启用 CUDA 加速，从而带来更高的性能。
 

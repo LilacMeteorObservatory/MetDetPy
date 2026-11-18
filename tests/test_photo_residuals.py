@@ -57,7 +57,16 @@ def test_combined_report_preserves_perceptual_matching_and_thresholds():
     assert combined['summary']['matched_boxes'] == 2
 
 
-def test_unified_entrypoint_writes_combined_report(tmp_path):
+def test_unified_entrypoint_writes_combined_report(tmp_path, monkeypatch):
+    # Exercise CLI report assembly without requiring the optional plot backend.
+    plot_calls = []
+    plots = {'residuals': {'png': 'residuals.png'}}
+
+    def export_plots(report, output):
+        plot_calls.append((report, output))
+        return plots
+
+    monkeypatch.setattr('tools.compare_photo.export_statistical_plots', export_plots)
     image = tmp_path/'a.png'
     image.write_bytes(b'not decoded by report tools')
     manifest = tmp_path/'images.txt'
@@ -72,11 +81,10 @@ def test_unified_entrypoint_writes_combined_report(tmp_path):
     assert report['perception']['summary']['consistent_pairs'] == 1
     assert report['residuals']['all_pairs']['pairs'] == 1
     assert report['summary']['exact_saved_result_rate'] == 1
-    assert len(report['plots']) == 4
-    from pathlib import Path
-    for paths in report['plots'].values():
-        assert set(paths) == {'png'}
-        assert Path(paths['png']).read_bytes().startswith(b'\x89PNG')
+    assert report['plots'] == plots
+    assert len(plot_calls) == 1
+    assert plot_calls[0][0]['summary'] == report['summary']
+    assert plot_calls[0][1] == tmp_path/'combined_plots'
 
 
 def test_empty_and_zero_area_statistics_are_json_safe():

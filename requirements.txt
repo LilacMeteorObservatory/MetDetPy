@@ -1,14 +1,17 @@
-numpy>=1.15.0
-opencv-python>=5.0.0
+numpy>=2.0.0
+# Newer macOS OpenCV wheels conflict with PyAV's FFmpeg libraries.
+opencv-python==4.12.0.88; sys_platform == "darwin"
+opencv-python>=5.0.0; sys_platform != "darwin"
 tqdm>=4.0.0
-onnxruntime>=1.16.0
+onnxruntime>=1.19.0
 av>=15.0.0
 dacite>=1.9.0
 pyexiv2>=2.12.0
 rawpy>=0.20.0
+psutil>=5.9.0
 
-# for windows user it is recommended to install:
-#onnxruntime-directml>=1.16.0
+# On Windows, replace onnxruntime with onnxruntime-directml>=1.19.0
+# for DirectML acceleration. Install only one ONNX Runtime distribution.
 
 # if you want to run make_package.py please install
 # nuitka>=1.9.5

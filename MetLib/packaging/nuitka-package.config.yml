@@ -1,0 +1,22 @@
+# pyexiv2 loads libexiv2 with ctypes. Register it as a DLL so Nuitka
+# scans its dependencies and rewrites their install names on macOS.
+- module-name: 'pyexiv2'
+  # The wheel depends on Homebrew libraries outside the python.org prefix.
+  # Declaring libexiv2 alone does not permit collecting these dependencies.
+  import-hacks:
+    - package-system-dlls: 'yes'
+      when: 'macos'
+
+  dlls:
+    - from_filenames:
+        relative_path: 'lib'
+        prefixes:
+          - 'libexiv2'
+      when: 'macos'
+
+# libraw may depend on Homebrew Little CMS and other external libraries.
+# Allow dependency collection for rawpy and its native submodules on macOS.
+- module-name: 'rawpy'
+  import-hacks:
+    - package-system-dlls: 'yes'
+      when: 'macos'

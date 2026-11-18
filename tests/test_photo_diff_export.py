@@ -59,7 +59,7 @@ def sources_bytes(filename):
 
 
 @pytest.mark.parametrize('combined', [False, True])
-def test_deployment_export_uses_tolerance_and_keeps_filtered_context(tmp_path, combined):
+def test_deployment_export_uses_tolerance_and_keeps_filtered_context(tmp_path, combined, monkeypatch):
     source = tmp_path/'image.png'
     ok, encoded = cv2.imencode('.png', np.zeros((100, 120, 3), np.uint8))
     assert ok
@@ -84,10 +84,24 @@ def test_deployment_export_uses_tolerance_and_keeps_filtered_context(tmp_path, c
     assert detail['candidate_filtered'][0][2] == '0.49'
     # Render directly to avoid JPEG compression artifacts: the consistent
     # shifted box must be faint gray in the single deployment diff panel.
+    from tools import export_photo_diff
     from tools.export_photo_diff import deployment_record, render_diff
+    draw_calls = []
+    original_draw = export_photo_diff.draw_prediction
+
+    def draw_prediction(image, prediction, label, color, unmatched=False, dashed=False):
+        draw_calls.append((prediction, label, color, unmatched, dashed))
+        return original_draw(image, prediction, label, color, unmatched, dashed)
+
+    monkeypatch.setattr(export_photo_diff, 'draw_prediction', draw_prediction)
     view = render_diff(np.zeros((100, 120, 3), np.uint8),
                        deployment_record((report['perception'] if combined else report)['differences'][0]),
                        'FP32', 'FP16', True)
     assert view.shape == (190, 120, 3)
     assert view[90+40, 10].tolist() == [100, 100, 100]
-    np.testing.assert_allclose(view[90+85, 70], [0, 165, 255], atol=3)
+    # Labels can overlap box edges and rasterization varies across OpenCV
+    # versions. Verify the semantic drawing requests rather than one pixel.
+    assert draw_calls == [
+        (candidate[1], 'Cf0 FILTERED', (100, 100, 100), False, True),
+        (baseline[1], 'B1', export_photo_diff.BASELINE_COLOR, True, True),
+    ]

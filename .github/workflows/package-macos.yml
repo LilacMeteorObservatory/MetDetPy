@@ -36,10 +36,40 @@ jobs:
           python-version: '3.12'
           cache: pip
 
+      - name: Install pyexiv2 native dependencies
+        # pyexiv2's macOS wheels reference Homebrew native libraries.
+        run: brew install inih gettext brotli
+
       - name: Install Python dependencies
+        # requirements.txt pins OpenCV 4.12.0.88 on macOS to avoid the
+        # OpenCV/PyAV FFmpeg conflict; other platforms retain OpenCV 5+.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt nuitka ordered-set zstandard
+
+      - name: Check dependency consistency and native imports
+        run: |
+          python -m pip check
+          python -c "import numpy, cv2, onnxruntime, av, dacite, pyexiv2, rawpy, psutil"
+          python -c "import av, cv2; print('PyAV:', av.__version__, 'OpenCV:', cv2.__version__)"
+          python -c "from importlib.metadata import version; assert version('opencv-python') == '4.12.0.88'"
+
+      - name: Inspect image metadata and RAW native dependencies
+        run: |
+          python -m pip show nuitka pyexiv2 rawpy av
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import subprocess
+          spec = importlib.util.find_spec('pyexiv2')
+          library = Path(next(iter(spec.submodule_search_locations))) / 'lib' / 'libexiv2.dylib'
+          subprocess.run(['otool', '-L', str(library)], check=True)
+          raw_spec = importlib.util.find_spec('rawpy')
+          raw_dir = Path(next(iter(raw_spec.submodule_search_locations)))
+          for library in sorted(raw_dir.glob('*.dylib')) + sorted(raw_dir.glob('*.so')):
+              subprocess.run(['otool', '-L', str(library)], check=True)
+          PY
+          ls -l "$(brew --prefix brotli)/lib/"
 
       # Omitting --onefile selects standalone mode. No FFmpeg distribution
       # is downloaded or copied; PyAV retains its own runtime libraries.

@@ -137,7 +137,7 @@ python make_package.py [--backend {nuitka,pyinstaller}]
 
 onefile 模式下会显式处理 `pyexiv2` 原生组件：构建时注册 `exiv2api` 扩展，并把 `exiv2.dll` / `libexiv2` 共享库放入载荷内的 `pyexiv2/lib`，以保证导出图片时 EXIF/ICC 信息仍能正常写入。
 
-**Windows 商店版（MSIX / APPX）必须打引导层补丁**：Windows 文件系统虚拟化会把 onefile 解压目录（`%LOCALAPPDATA%\MetDetPy\<VERSION>`）重定向到包私有目录，而 Nuitka 引导层随后用逻辑路径启动内部子进程 → 加载器找不到同目录的 `python310.dll` → `0xC0000135` 秒退。Windows + onefile 构建前会自动执行 `nuitka-patches/patch_onefile_bootstrap.py`（锁定 Nuitka 4.0.5），把逻辑路径解析为物理路径后再 `CreateProcessW`；版本或锚点不匹配、或产物里找不到补丁标记时**构建直接失败**，不会静默产出商店版起不来的包。补丁会改写构建环境 `site-packages` 里的 `OnefileBootstrap.c`，原始文件备份为 `.metdetpy-orig`。商店版验收必须在新账号 / 隔离机上，且普通缓存与包私有缓存都不存在的条件下首启验证（例如新版本号，或显式指定新的 `--build-tag`）。
+**Windows onefile 的 MSIX/APPX 引导层补丁**：构建时将已安装的 Nuitka 复制到临时目录，只修改副本中的 `OnefileBootstrap.c`，通过子进程 `PYTHONPATH` 选择副本，并检查实际导入路径。已有的 pyexiv2 暂存路径会保留，构建成功或失败后均清理副本，不修改 `site-packages`。版本白名单目前为 `4.0.5`，其他版本打印 warning 后继续；所有版本都必须通过三个唯一锚点与编码检查，产物缺少补丁标记仍会阻断构建。已安装源码若带旧补丁，需先恢复或重新安装干净的 Nuitka。商店版仍需在新账号或隔离机、普通缓存与包私有缓存均不存在时验收首启。详见[内部补丁说明](../MetLib/packaging/nuitka_patches/README.md)。
 
 Windows onefile 发行版示例：
 
