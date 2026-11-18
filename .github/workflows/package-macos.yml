@@ -1,0 +1,71 @@
+name: Package macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: macOS ${{ matrix.arch }} (Nuitka standalone)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download model weights
+        run: git lfs pull --include="weights/**" --exclude=""
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt nuitka ordered-set zstandard
+
+      # Omitting --onefile selects standalone mode. No FFmpeg distribution
+      # is downloaded or copied; PyAV retains its own runtime libraries.
+      - name: Build standalone package
+        run: python make_package.py --backend nuitka --clean-dist --apply-zip --build-report
+
+      - name: Smoke test packaged commands
+        run: |
+          cd "${RUNNER_TEMP}"
+          for command in MetDetPy MetDetPhoto ClipToolkit; do
+            "${GITHUB_WORKSPACE}/dist/MetDetPy/${command}.bin" --help
+          done
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MetDetPy-macos-${{ matrix.arch }}-nuitka-standalone
+          path: dist/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-report-macos-${{ matrix.arch }}
+          path: build_report.txt
+          retention-days: 30
