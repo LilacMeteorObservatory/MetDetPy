@@ -24,6 +24,15 @@ def test_versions_keep_anchor_checks(tmp_path, capsys, version, newline):
         assert b'\n' not in source.read_bytes().replace(b'\r\n', b'')
 
 
+def test_fork_diagnostics_are_opt_in():
+    """Production builds stay silent; the fork log needs METDETPY_ONEFILE_VERBOSE."""
+    assert patch.VERBOSE_ENV_VAR in patch.CREATE_CODE
+    # The marker must stay in the artifact for the post-build verification.
+    assert patch.BINARY_MARKER in patch.CREATE_CODE
+    # The line is behind a runtime environment check, never printed unconditionally.
+    assert patch.CREATE_CODE.index('GetEnvironmentVariableW') < patch.CREATE_CODE.index('fprintf')
+
+
 @pytest.mark.parametrize('anchor', [patch.ANCHOR_HELPER, patch.ANCHOR_FORK, patch.ANCHOR_CREATE])
 @pytest.mark.parametrize('count', [0, 2])
 def test_bad_anchor_never_changes_source(tmp_path, anchor, count):

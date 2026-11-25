@@ -28,6 +28,26 @@ python make_package.py --backend nuitka --onefile --apply-zip --build-report
 
 补丁模块是打包内部实现，不再提供修改已安装 Nuitka 的独立命令。
 
+## 运行时诊断
+
+补丁默认静默，正式环境和商店版都不会向 stderr 写任何内容：启动器（如
+MeteorMasterAI）会把子进程的任何 stderr 当作警告展示，无条件打印会导致每次
+启动都出现一条误报。排查时临时打开开关即可：
+
+```powershell
+$env:METDETPY_ONEFILE_VERBOSE = "1"
+```
+
+打开后引导层会在启动子进程前向 stderr 打印一行
+
+```
+[MetDetPy onefile] METDETPY_MSIX_ONEFILE_PATCH_ACTIVE fork target: logical="..." final="..."
+```
+
+非商店环境下 `logical` 与 `final` 相同（`%LOCALAPPDATA%\MetDetPy\<BUILD_TAG>`）；
+商店环境下 `final` 指向 `%LOCALAPPDATA%\Packages\<PFN>\LocalCache\Local\MetDetPy\<BUILD_TAG>`，
+可据此确认路径虚拟化确实发生。诊断只写 stderr，stdout 始终只保留 JSON 行协议。
+
 ## 兼容性检查
 
 - `SUPPORTED_NUITKA_VERSIONS` 是版本白名单，初始保留历史构建版本 `4.0.5`。

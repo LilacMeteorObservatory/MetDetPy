@@ -18,6 +18,11 @@ SOURCE_MARKER = "METDETPY_MSIX_ONEFILE_PATCH"
 # The packaging backend imports this constant for artifact verification.
 BINARY_MARKER = SOURCE_MARKER + "_ACTIVE"
 
+# 运行时诊断开关：设置该环境变量（值为 1/yes/true 等）才打印 fork 目标路径。
+# Fork diagnostics are opt-in. They used to print on every launch, and launchers
+# that surface any child stderr as a warning showed a bogus warning every run.
+VERBOSE_ENV_VAR = "METDETPY_ONEFILE_VERBOSE"
+
 # --- 锚点：命中不上就失败，绝不猜测 -------------------------------------------------
 
 # 锚点 1：Windows 专用区段内的子进程命令行构造函数。
@@ -128,12 +133,26 @@ FORK_CODE = """#if _NUITKA_ONEFILE_DLL_MODE
 // METDETPY_MSIX_ONEFILE_PATCH end"""
 
 CREATE_CODE = r"""    // METDETPY_MSIX_ONEFILE_PATCH begin
-    // Diagnostics go to stderr and are flushed right away: stdout carries the
-    // JSON line protocol with the detection results and must stay clean.
-    fprintf(stderr,
-            "[MetDetPy onefile] METDETPY_MSIX_ONEFILE_PATCH_ACTIVE fork target: logical=\"%ls\" final=\"%ls\"\n",
-            (wchar_t const *)fork_binary, (wchar_t const *)fork_binary_final);
-    fflush(stderr);
+    // Fork diagnostics are opt-in. They used to be printed on every launch,
+    // which made launchers that treat any child stderr as a warning show a
+    // bogus warning for every run. Set METDETPY_ONEFILE_VERBOSE=1 (or any
+    // value starting with 1/y/t) to get the line back when troubleshooting.
+    // stdout carries the JSON line protocol with the detection results and
+    // stays clean either way.
+    {
+        wchar_t verbose_value[8] = {0};
+        DWORD const verbose_length =
+            GetEnvironmentVariableW(L"METDETPY_ONEFILE_VERBOSE", verbose_value, 8);
+        if (verbose_length > 0 && verbose_length < 8) {
+            wchar_t const first = verbose_value[0];
+            if (first == L'1' || first == L'y' || first == L'Y' || first == L't' || first == L'T') {
+                fprintf(stderr,
+                        "[MetDetPy onefile] METDETPY_MSIX_ONEFILE_PATCH_ACTIVE fork target: logical=\"%ls\" final=\"%ls\"\n",
+                        (wchar_t const *)fork_binary, (wchar_t const *)fork_binary_final);
+                fflush(stderr);
+            }
+        }
+    }
 
     bool_res = CreateProcessW(fork_binary_final,
                               getCommandLineForChildProcess(), // command line
@@ -223,6 +242,8 @@ def patch_bootstrap(path: Path, version: str) -> None:
 
     if BINARY_MARKER not in CREATE_CODE:
         fail("CREATE_CODE 里缺少 BINARY_MARKER，构建后的二进制校验会失效。")
+    if VERBOSE_ENV_VAR not in CREATE_CODE:
+        fail("CREATE_CODE 里缺少 VERBOSE_ENV_VAR，运行时诊断开关会失效。")
 
     with open(path, "r", encoding="utf-8", newline="") as handle:
         text = handle.read()
